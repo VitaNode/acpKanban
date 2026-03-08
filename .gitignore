@@ -1,0 +1,6 @@
+venv/
+.env
+gemini_memory/
+logs/
+__pycache__/
+*.pyc
