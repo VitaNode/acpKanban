@@ -1,6 +1,6 @@
-venv/
 .env
-gemini_memory/
+venv/
 logs/
+gemini_memory/
 __pycache__/
 *.pyc
