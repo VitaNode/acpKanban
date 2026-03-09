@@ -39,8 +39,8 @@ console = logging.getLogger("bot_activity")
 def play_notification_sound():
     """Plays a system sound on macOS to notify message delivery."""
     try:
-        # 'Glass' is a standard macOS sound, you can change to 'Hero', 'Ping', etc.
-        subprocess.run(["osascript", "-e", 'afplay "/System/Library/Sounds/Glass.aiff"'], check=False)
+        # afplay is a direct shell command on macOS
+        subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except Exception:
         pass
 
@@ -162,7 +162,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_text == "/summary":
         res = await sum_m.generate_daily_summary("logs", vec_m)
-        await update.message.reply_text(res); return
+        await update.message.reply_text(res or "No logs to summarize today.")
+        play_notification_sound()
+        return
 
     # 1. Hybrid Context Retrieval
     relevant = await vec_m.search(user_text, top_k=3)
