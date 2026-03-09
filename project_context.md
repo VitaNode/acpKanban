@@ -45,4 +45,4 @@
   - 长期记忆
 - 未实现
   - 多个Bot，用不同的bottoken来区分
-  - 手机版的project_context，通过MCP来共享给Bot
+  - 手机版的project_context，采用Google Tasks，通过MCP来共享给Bot
