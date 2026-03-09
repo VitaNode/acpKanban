@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import datetime
 import math
-import glob
+import re
 import argparse
 from pathlib import Path
 from dotenv import load_dotenv
@@ -66,21 +66,33 @@ def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
 
-def parse_cli_response(engine, raw_stdout):
+def extract_json_response(raw_output):
+    """More robustly finds and parses JSON within potentially messy CLI output."""
     try:
-        data = json.loads(raw_stdout)
+        # Try to find the last valid JSON block in the output
+        match = re.search(r'(\{.*\}|\[.*\])', raw_output, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        return json.loads(raw_output)
+    except:
+        return None
+
+def parse_cli_response(engine, raw_stdout):
+    data = extract_json_response(raw_stdout)
+    if data:
         if engine == "gemini": return data.get("response", "✅ Done.")
         elif engine == "qwen":
             if isinstance(data, list):
                 for item in data:
                     if item.get("type") == "result": return item.get("result", "✅ Done.")
-            return "✅ Done."
-    except: return raw_stdout or "✅ Done."
+    # Fallback to cleaning the string if JSON fails
+    clean_text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
+    return clean_text or "✅ Done."
 
 async def get_vision_analysis(user_query, image_path):
     try:
         img = Image.open(image_path)
-        prompt = f"You are '{BOT_NAME.capitalize()}'. Analying screenshot for '老兵'. Request: {user_query}"
+        prompt = f"You are '{BOT_NAME.capitalize()}'. Analyze screenshot for '老兵'. Request: {user_query}"
         response = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
         return response.text
     except Exception as e: return f"⚠️ Vision Failed: {str(e)}"
@@ -110,6 +122,7 @@ class VectorMemory:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.storage_path, "w") as f: json.dump(self.memory, f, indent=2)
     async def add_entry(self, text):
+        if "❌ Error" in text or "Timed out" in text: return # Don't remember failures
         try:
             result = client.models.embed_content(model="gemini-embedding-001", contents=text, config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"))
             self.memory.append({"text": text, "embedding": result.embeddings[0].values, "timestamp": datetime.datetime.now().isoformat()})
@@ -138,7 +151,7 @@ class SummaryManager:
         if not log_file.exists(): return f"No logs found."
         try:
             with open(log_file, "r") as f: logs = f.read()
-            prompt = f"Summarize facts from logs for '老兵'.\n\nLOGS:\n{logs}"
+            prompt = f"Summarize key facts from logs for '老兵'.\n\nLOGS:\n{logs}"
             facts = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
             with open(self.summary_path, "a") as f: f.write(f"\n### {today} Facts\n{facts}\n")
             await vector_memory.add_entry(f"Knowledge ({today}): {facts}")
@@ -170,62 +183,72 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = await sum_m.generate_daily_summary(LOG_DIR, vec_m)
         await update.message.reply_text(res); play_notification_sound(); return
 
-    # RAG
+    # Context Construction
     relevant = await vec_m.search(user_text, top_k=2)
     recent_convo = vec_m.memory[-3:] if vec_m.memory else []
     recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
     facts = sum_m.get_latest_facts()
-    
-    # Check for agent.md
     agent_md_path = WORKSPACE_DIR / "agent.md"
-    agent_info = f"- Guidelines: Full soul in '{agent_md_path}'." if agent_md_path.exists() else ""
-
-    system_instruction = (
-        f"\n\n[System Instruction]:\n"
-        f"- Name: '{BOT_NAME.capitalize()}', Assistant for '老兵'.\n"
-        f"- Style: Simple, direct. Workspace: '{WORKSPACE_DIR}/'.\n"
+    
+    # Structured Prompting
+    full_prompt = (
+        f"### USER REQUEST\n{user_text}\n\n"
+        f"### LONG-TERM FACTS\n{facts or 'No facts yet.'}\n\n"
+        f"### RECENT CONVERSATION HISTORY\n{recent_str or 'No history yet.'}\n\n"
+        f"### RELATED PAST INTERACTIONS\n" + ("\n".join([f"- {t}" for _, t in relevant]) if relevant else "None.") + "\n\n"
+        f"### SYSTEM INSTRUCTIONS\n"
+        f"- Your Identity: Name is '{BOT_NAME.capitalize()}', assistant for '老兵'.\n"
+        f"- Style: Simple, direct, actionable.\n"
+        f"- Sandbox: Work ONLY in '{WORKSPACE_DIR}/'.\n"
         f"- Vision: run `screencapture {WORKSPACE_DIR}/screenshot.png` to see screen.\n"
-        f"- Isolation: You only see files/logs in '{BASE_DIR}/'.\n"
-        f"{agent_info}"
+        f"- Manual: Instructions in '{agent_md_path}' (only if file exists)."
     )
 
     status_msg = await update.message.reply_text(f"🧠 {CURRENT_ENGINE.upper()}...")
-    full_prompt = f"{user_text}{facts}{recent_str}{system_instruction}"
-    debug_logger.debug(f"PROMPT: {full_prompt[:200]}...")
+    debug_logger.debug(f"FULL PROMPT SENT:\n{full_prompt}")
 
     cmd = [CURRENT_ENGINE, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     start_ts = datetime.datetime.now().timestamp()
     
     try:
-        # Added 120s timeout to prevent infinite hang
+        # Step 1: Run CLI with hard timeout
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
         except asyncio.TimeoutError:
             process.kill()
-            await update.message.reply_text("⏱️ Execution timed out (120s). Try a simpler request.")
+            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout (120s). The model took too long.")
             return
 
         duration = datetime.datetime.now().timestamp() - start_ts
+        raw_stdout = stdout.decode()
+        
         if process.returncode == 0:
-            resp_text = parse_cli_response(CURRENT_ENGINE, stdout.decode())
-            console.info(f"✅ {BOT_NAME}/{CURRENT_ENGINE} ({duration:.1f}s)")
+            resp_text = parse_cli_response(CURRENT_ENGINE, raw_stdout)
+            console.info(f"✅ {BOT_NAME} ({duration:.1f}s)")
         else:
-            resp_text = f"❌ Error: {stderr.decode()[:500]}"
+            err_msg = stderr.decode()
+            resp_text = f"❌ CLI Error:\n{err_msg[:500]}"
+            debug_logger.error(f"CLI Error: {err_msg}")
 
-        # Vision Pass
+        # Step 2: Vision Pass if needed
         shot = WORKSPACE_DIR / "screenshot.png"
         if shot.exists() and shot.stat().st_mtime > start_ts:
             await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
             resp_text = await get_vision_analysis(user_text, shot)
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
 
+        # Step 3: Final Reply
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=resp_text[:4000])
-        log_m.write_log(CURRENT_ENGINE, user_text, resp_text)
-        await vec_m.add_entry(f"User: {user_text}\nResponse: {resp_text}")
+        
+        # Step 4: Record Memory (ONLY IF SUCCESSFUL)
+        if process.returncode == 0:
+            log_m.write_log(CURRENT_ENGINE, user_text, resp_text)
+            await vec_m.add_entry(f"User: {user_text}\nResponse: {resp_text}")
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ System Error: {str(e)}")
+        await update.message.reply_text(f"⚠️ System Exception: {str(e)}")
+        debug_logger.exception("Catastrophic failure")
     
     play_notification_sound()
 
@@ -234,5 +257,5 @@ if __name__ == '__main__':
     update_debug_handler()
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    print(f"--- {BOT_NAME.upper()} Online ---")
+    print(f"--- {BOT_NAME.upper()} Enhanced Online ---")
     app.run_polling()
