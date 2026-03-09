@@ -99,7 +99,7 @@ class VectorMemory:
         try:
             if USE_NEW_SDK:
                 result = client.models.embed_content(
-                    model="text-embedding-004", # text-embedding-004 is recommended for new SDK
+                    model="gemini-embedding-001", 
                     contents=text,
                     config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
                 )
@@ -122,7 +122,7 @@ class VectorMemory:
         try:
             if USE_NEW_SDK:
                 result = client.models.embed_content(
-                    model="text-embedding-004",
+                    model="gemini-embedding-001",
                     contents=query,
                     config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY")
                 )
