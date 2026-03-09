@@ -5,6 +5,7 @@ import asyncio
 import subprocess
 import datetime
 import math
+import glob
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -27,19 +28,18 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
 
-CURRENT_ENGINE = "gemini" # Default engine
+CURRENT_ENGINE = "gemini" 
 WORKSPACE_DIR = Path("./workspace")
 WORKSPACE_DIR.mkdir(exist_ok=True)
 
 # Initialize Clients
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- Enhanced Logging Setup ---
-Path("logs").mkdir(exist_ok=True)
+# Logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
-
+console = logging.getLogger("bot_activity")
 debug_logger = logging.getLogger("debug_trace")
 debug_logger.setLevel(logging.DEBUG)
 debug_logger.propagate = False
@@ -51,8 +51,6 @@ def update_debug_handler():
     fh = logging.FileHandler(log_file, encoding='utf-8')
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     debug_logger.addHandler(fh)
-
-console = logging.getLogger("bot_activity")
 
 def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
@@ -66,14 +64,19 @@ def parse_cli_response(engine, raw_stdout):
             if isinstance(data, list):
                 for item in data:
                     if item.get("type") == "result": return item.get("result", "✅ Done.")
-            return "✅ Done (Result not found in JSON)."
+            return "✅ Done."
     except: return raw_stdout or "✅ Done."
 
-async def get_vision_analysis(prompt, image_path):
-    """Sends an image to Gemini for real visual analysis."""
+async def get_vision_analysis(user_query, image_path):
+    """Sends an image to Gemini for real visual analysis with persona enforcement."""
     try:
         img = Image.open(image_path)
-        # Using 2.5-flash which is excellent at vision
+        # Re-injecting persona for the second-pass vision model
+        prompt = (
+            f"You are '探机'. You are helping '老兵'.\n"
+            f"The user asked: {user_query}\n"
+            f"Please analyze this screenshot of '老兵's Mac and provide a concise, direct answer based ONLY on what you actually see."
+        )
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=[prompt, img]
@@ -89,7 +92,7 @@ class LogManager:
         log_file = Path("logs") / f"{today}.md"
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] [{engine.upper()}] User\n{user_text}\n\n")
-            f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] [{engine.upper()}] Response\n{bot_response}\n\n---\n\n")
+            f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] [{engine.upper()}] Final Response\n{bot_response}\n\n---\n\n")
 
 class VectorMemory:
     def __init__(self, storage_path="gemini_memory/memory.json", max_entries=500):
@@ -184,8 +187,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n\n[System Instruction]:\n"
         "- Name: '探机'. Assistant for '老兵'.\n"
         "- Style: Simple, direct. Workspace: './workspace/'.\n"
-        "- Vision: If asked to see the screen, run `screencapture ./workspace/screenshot.png`. Confirmation is enough; vision model will handle analysis later.\n"
-        "- Operational Soul: More rules in './workspace/agent.md'."
+        "- Vision: If asked to see the screen, run `screencapture ./workspace/screenshot.png`. Your first-pass reply will be ignored; the vision model will handle the final answer."
     )
 
     context_str = ""
@@ -199,7 +201,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_prompt = f"{user_text}{context_str}{system_instruction}"
     debug_logger.debug(f"FULL PROMPT:\n{full_prompt}")
 
-    # Step 1: Tool Execution
+    # Step 1: Tool Execution (First Pass)
     cmd = [CURRENT_ENGINE, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     start_time_float = datetime.datetime.now().timestamp()
     
@@ -208,25 +210,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stdout, stderr = await process.communicate()
         duration = datetime.datetime.now().timestamp() - start_time_float
         
-        debug_logger.debug(f"STDOUT: {stdout.decode()}")
-        
         if process.returncode == 0:
             response_text = parse_cli_response(CURRENT_ENGINE, stdout.decode())
             console.info(f"✅ {CURRENT_ENGINE.upper()} Response ({duration:.1f}s).")
         else:
-            response_text = f"❌ {CURRENT_ENGINE.upper()} Error:\n{stderr.decode()}"
-            console.error(f"❌ Failed.")
+            response_text = f"❌ Error:\n{stderr.decode()}"
 
-        # Step 2: Check for Vision Trigger (Screenshot)
+        # Step 2: Vision Analysis (Second Pass)
         screenshot_path = WORKSPACE_DIR / "screenshot.png"
         if screenshot_path.exists() and screenshot_path.stat().st_mtime > start_time_float:
             await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Screen captured. Analyzing...")
-            vision_analysis = await get_vision_analysis(f"User asked: {user_text}. Based on this screen, provide the answer.", screenshot_path)
-            response_text = vision_analysis
+            # Get REAL answer from vision model
+            response_text = await get_vision_analysis(user_text, screenshot_path)
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(screenshot_path, 'rb'))
 
+        # Step 3: Final Response Delivery
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
         
+        # Step 4: Accurate Logging (Log the FINAL response)
         log_m.write_log(CURRENT_ENGINE, user_text, response_text)
         await vec_m.add_entry(f"User: {user_text}\nResponse: {response_text}")
 
@@ -241,5 +242,5 @@ if __name__ == '__main__':
     update_debug_handler()
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    print(f"--- Pro-Tiered Bot Online (Vision & Multimedia Enabled) ---")
+    print(f"--- Pro-Tiered Bot Online (Accurate Vision Logs Enabled) ---")
     app.run_polling()
