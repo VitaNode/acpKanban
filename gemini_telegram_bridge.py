@@ -24,10 +24,25 @@ genai.configure(api_key=EMBEDDING_API_KEY)
 # Using gemini-2.0-flash as it is the latest and highly capable for summarization
 summary_model = genai.GenerativeModel('gemini-2.0-flash')
 
+# Logging configuration - suppress noise from libraries
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+# Suppress noisy library logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+
+# Custom console logger for bot activity
+console = logging.getLogger("bot_activity")
+
+def play_notification_sound():
+    """Plays a system sound on macOS to notify message delivery."""
+    try:
+        # 'Glass' is a standard macOS sound, you can change to 'Hero', 'Ping', etc.
+        subprocess.run(["osascript", "-e", 'afplay "/System/Library/Sounds/Glass.aiff"'], check=False)
+    except Exception:
+        pass
 
 # --- Tier 1: Log Manager ---
 class LogManager:
@@ -143,17 +158,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     if not user_text: return
 
+    console.info(f"📥 Received from User: {user_text[:100]}...")
+
     if user_text == "/summary":
         res = await sum_m.generate_daily_summary("logs", vec_m)
         await update.message.reply_text(res); return
 
     # 1. Hybrid Context Retrieval
-    # A: Semantic Memory (Vector)
     relevant = await vec_m.search(user_text, top_k=3)
-    # B: Explicit Facts (Summary File)
     permanent_facts = sum_m.get_latest_facts()
     
-    # System Instruction to isolate robot tasks
     system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
 
     context_str = "\n\n[Permanent Facts]:\n" + permanent_facts if permanent_facts else ""
@@ -163,9 +177,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("🧠 Processing...")
 
     # 2. Execute via Gemini CLI
-    # We pass BOTH permanent facts and relevant semantic memories + System Instruction
     full_prompt = f"{user_text}{context_str}{system_instruction}"
     cmd = ["gemini", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
+    
+    console.info(f"🚀 Launching Gemini CLI (YOLO Mode)...")
     
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -174,8 +189,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if process.returncode == 0:
             result = json.loads(stdout.decode())
             response_text = result.get("response", "✅ Done.")
+            console.info(f"✅ Gemini Response Received.")
         else:
-            response_text = f"❌ CLI Error:\n{stderr.decode()}"
+            err_output = stderr.decode()
+            response_text = f"❌ CLI Error:\n{err_output}"
+            console.error(f"❌ Gemini CLI Failed: {err_output[:200]}...")
         
         # 3. Layered Saving
         log_m.write_log(user_text, response_text)
@@ -183,14 +201,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         response_text = f"⚠️ System Error: {str(e)}"
+        console.error(f"⚠️ System Exception: {str(e)}")
 
     # 4. Final Reply
     try:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
                                           text=response_text[:4000], parse_mode='Markdown')
+        play_notification_sound()
     except:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
                                           text=response_text[:4000])
+        play_notification_sound()
 
 if __name__ == '__main__':
     os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
