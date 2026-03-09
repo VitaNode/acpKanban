@@ -5,17 +5,16 @@ import asyncio
 import subprocess
 import datetime
 import math
-import glob
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Switching to the new google-genai package
+# SDK Imports
 try:
     from google import genai
     from google.genai import types
+    from PIL import Image
     USE_NEW_SDK = True
 except ImportError:
-    import google.generativeai as genai_legacy
     USE_NEW_SDK = False
 
 from telegram import Update
@@ -33,11 +32,7 @@ WORKSPACE_DIR = Path("./workspace")
 WORKSPACE_DIR.mkdir(exist_ok=True)
 
 # Initialize Clients
-if USE_NEW_SDK:
-    client = genai.Client(api_key=GEMINI_API_KEY)
-else:
-    genai_legacy.configure(api_key=EMBEDDING_API_KEY)
-    summary_model_legacy = genai_legacy.GenerativeModel('gemini-2.5-flash')
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # --- Enhanced Logging Setup ---
 Path("logs").mkdir(exist_ok=True)
@@ -74,26 +69,18 @@ def parse_cli_response(engine, raw_stdout):
             return "✅ Done (Result not found in JSON)."
     except: return raw_stdout or "✅ Done."
 
-async def scan_and_send_files(update: Update, context: ContextTypes.DEFAULT_TYPE, start_time: float):
-    """Scans the workspace for files created/modified after start_time and sends them."""
-    extensions = ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.pdf', '*.mp4', '*.mp3', '*.txt', '*.csv']
-    files_to_send = []
-    
-    for ext in extensions:
-        for file_path in WORKSPACE_DIR.glob(ext):
-            if file_path.stat().st_mtime > start_time:
-                files_to_send.append(file_path)
-    
-    for f in files_to_send:
-        try:
-            ext = f.suffix.lower()
-            if ext in ['.png', '.jpg', '.jpeg', '.gif']:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(f, 'rb'), caption=f"📸 Generated: {f.name}")
-            else:
-                await context.bot.send_document(chat_id=update.effective_chat.id, document=open(f, 'rb'), caption=f"📄 Generated: {f.name}")
-            console.info(f"📤 Sent file: {f.name}")
-        except Exception as e:
-            console.error(f"Failed to send file {f.name}: {e}")
+async def get_vision_analysis(prompt, image_path):
+    """Sends an image to Gemini for real visual analysis."""
+    try:
+        img = Image.open(image_path)
+        # Using 2.5-flash which is excellent at vision
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt, img]
+        )
+        return response.text
+    except Exception as e:
+        return f"⚠️ Vision Analysis Failed: {str(e)}"
 
 # --- Tier 1 & 2 & 3 Managers ---
 class LogManager:
@@ -125,24 +112,15 @@ class VectorMemory:
         return dot / (m1 * m2) if m1 > 0 and m2 > 0 else 0
     async def add_entry(self, text):
         try:
-            if USE_NEW_SDK:
-                result = client.models.embed_content(model="gemini-embedding-001", contents=text, config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"))
-                embedding = result.embeddings[0].values
-            else:
-                result = genai_legacy.embed_content(model="models/gemini-embedding-001", content=text, task_type="retrieval_document")
-                embedding = result['embedding']
-            self.memory.append({"text": text, "embedding": embedding, "timestamp": datetime.datetime.now().isoformat()})
+            result = client.models.embed_content(model="gemini-embedding-001", contents=text, config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"))
+            self.memory.append({"text": text, "embedding": result.embeddings[0].values, "timestamp": datetime.datetime.now().isoformat()})
             self._save()
         except Exception as e: logging.error(f"Vector error: {e}")
     async def search(self, query, top_k=3):
         if not self.memory: return []
         try:
-            if USE_NEW_SDK:
-                result = client.models.embed_content(model="gemini-embedding-001", contents=query, config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"))
-                qe = result.embeddings[0].values
-            else:
-                result = genai_legacy.embed_content(model="models/gemini-embedding-001", content=query, task_type="retrieval_query")
-                qe = result['embedding']
+            result = client.models.embed_content(model="gemini-embedding-001", contents=query, config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"))
+            qe = result.embeddings[0].values
             sims = sorted([(self._cosine_similarity(qe, e['embedding']), e['text']) for e in self.memory], reverse=True)
             return sims[:top_k]
         except: return []
@@ -164,8 +142,7 @@ class SummaryManager:
         try:
             with open(log_file, "r") as f: logs = f.read()
             prompt = f"Extract permanent facts, user preferences, and system states from these logs. Be concise. Bullet points.\n\nLOGS:\n{logs}"
-            if USE_NEW_SDK: facts = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
-            else: facts = (await asyncio.to_thread(summary_model_legacy.generate_content, prompt)).text
+            facts = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
             with open(self.summary_path, "a") as f: f.write(f"\n### {today} Permanent Facts\n{facts}\n")
             await vector_memory.add_entry(f"Knowledge Summary ({today}): {facts}")
             return f"✅ Facts for {today} summarized and stored."
@@ -205,10 +182,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     system_instruction = (
         "\n\n[System Instruction]:\n"
-        "- Name: '探机' (Probe), Assistant for '老兵'.\n"
+        "- Name: '探机'. Assistant for '老兵'.\n"
         "- Style: Simple, direct. Workspace: './workspace/'.\n"
-        "- Vision: To 'see' screen, run `screencapture ./workspace/screenshot.png`. Bot will auto-send any images created in workspace.\n"
-        "- Multimedia: You have `ffmpeg`, `yt-dlp`, and `cliclick` (for mouse/keyboard) installed."
+        "- Vision: If asked to see the screen, run `screencapture ./workspace/screenshot.png`. Confirmation is enough; vision model will handle analysis later.\n"
+        "- Operational Soul: More rules in './workspace/agent.md'."
     )
 
     context_str = ""
@@ -222,29 +199,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_prompt = f"{user_text}{context_str}{system_instruction}"
     debug_logger.debug(f"FULL PROMPT:\n{full_prompt}")
 
+    # Step 1: Tool Execution
     cmd = [CURRENT_ENGINE, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     start_time_float = datetime.datetime.now().timestamp()
-    console.info(f"🚀 Launching {CURRENT_ENGINE.upper()}...")
     
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = await process.communicate()
         duration = datetime.datetime.now().timestamp() - start_time_float
         
-        debug_logger.debug(f"RAW STDOUT:\n{stdout.decode()}")
-        if stderr: debug_logger.debug(f"RAW STDERR:\n{stderr.decode()}")
+        debug_logger.debug(f"STDOUT: {stdout.decode()}")
         
         if process.returncode == 0:
             response_text = parse_cli_response(CURRENT_ENGINE, stdout.decode())
             console.info(f"✅ {CURRENT_ENGINE.upper()} Response ({duration:.1f}s).")
         else:
-            response_text = f"❌ {CURRENT_ENGINE.upper()} CLI Error:\n{stderr.decode()}"
+            response_text = f"❌ {CURRENT_ENGINE.upper()} Error:\n{stderr.decode()}"
             console.error(f"❌ Failed.")
-        
+
+        # Step 2: Check for Vision Trigger (Screenshot)
+        screenshot_path = WORKSPACE_DIR / "screenshot.png"
+        if screenshot_path.exists() and screenshot_path.stat().st_mtime > start_time_float:
+            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Screen captured. Analyzing...")
+            vision_analysis = await get_vision_analysis(f"User asked: {user_text}. Based on this screen, provide the answer.", screenshot_path)
+            response_text = vision_analysis
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(screenshot_path, 'rb'))
+
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
-        
-        # 4. Scan and Send generated files (Screenshots, etc.)
-        await scan_and_send_files(update, context, start_time_float)
         
         log_m.write_log(CURRENT_ENGINE, user_text, response_text)
         await vec_m.add_entry(f"User: {user_text}\nResponse: {response_text}")
