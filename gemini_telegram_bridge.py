@@ -8,7 +8,15 @@ import math
 from pathlib import Path
 from dotenv import load_dotenv
 
-import google.generativeai as genai
+# Switching to the new google-genai package
+try:
+    from google import genai
+    from google.genai import types
+    USE_NEW_SDK = True
+except ImportError:
+    import google.generativeai as genai_legacy
+    USE_NEW_SDK = False
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
@@ -19,27 +27,26 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
 
-# Configure Gemini
-genai.configure(api_key=EMBEDDING_API_KEY)
-# Using gemini-2.0-flash as it is the latest and highly capable for summarization
-summary_model = genai.GenerativeModel('gemini-2.0-flash')
+# Initialize Clients
+if USE_NEW_SDK:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    genai_legacy.configure(api_key=EMBEDDING_API_KEY)
+    summary_model_legacy = genai_legacy.GenerativeModel('gemini-2.0-flash')
 
-# Logging configuration - suppress noise from libraries
+# Logging configuration
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-# Suppress noisy library logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 
-# Custom console logger for bot activity
 console = logging.getLogger("bot_activity")
 
 def play_notification_sound():
     """Plays a system sound on macOS to notify message delivery."""
     try:
-        # afplay is a direct shell command on macOS
         subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except Exception:
         pass
@@ -75,11 +82,9 @@ class VectorMemory:
         return []
 
     def _save(self):
-        # Eviction strategy: Keep only the most recent max_entries
         if len(self.memory) > self.max_entries:
             self.memory = self.memory[-self.max_entries:]
             logging.info(f"Memory sharded: Kept latest {self.max_entries} entries.")
-            
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.storage_path, "w", encoding="utf-8") as f:
             json.dump(self.memory, f, ensure_ascii=False, indent=2)
@@ -92,10 +97,20 @@ class VectorMemory:
 
     async def add_entry(self, text):
         try:
-            result = genai.embed_content(model="models/gemini-embedding-001", content=text, task_type="retrieval_document")
+            if USE_NEW_SDK:
+                result = client.models.embed_content(
+                    model="text-embedding-004", # text-embedding-004 is recommended for new SDK
+                    contents=text,
+                    config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+                )
+                embedding = result.embeddings[0].values
+            else:
+                result = genai_legacy.embed_content(model="models/gemini-embedding-001", content=text, task_type="retrieval_document")
+                embedding = result['embedding']
+                
             self.memory.append({
                 "text": text,
-                "embedding": result['embedding'],
+                "embedding": embedding,
                 "timestamp": datetime.datetime.now().isoformat()
             })
             self._save()
@@ -105,14 +120,23 @@ class VectorMemory:
     async def search(self, query, top_k=3):
         if not self.memory: return []
         try:
-            result = genai.embed_content(model="models/gemini-embedding-001", content=query, task_type="retrieval_query")
-            qe = result['embedding']
+            if USE_NEW_SDK:
+                result = client.models.embed_content(
+                    model="text-embedding-004",
+                    contents=query,
+                    config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY")
+                )
+                qe = result.embeddings[0].values
+            else:
+                result = genai_legacy.embed_content(model="models/gemini-embedding-001", content=query, task_type="retrieval_query")
+                qe = result['embedding']
+                
             sims = sorted([(self._cosine_similarity(qe, e['embedding']), e['text']) for e in self.memory], reverse=True)
             return sims[:top_k]
         except Exception as e:
             logging.error(f"Search error: {e}"); return []
 
-# --- Tier 2: Summary Manager (Integrated Facts) ---
+# --- Tier 2: Summary Manager ---
 class SummaryManager:
     def __init__(self, summary_path="gemini_memory/memory_summary.md"):
         self.summary_path = Path(summary_path)
@@ -122,27 +146,34 @@ class SummaryManager:
         try:
             with open(self.summary_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            # Return last few lines of the summary file
-            return "".join(lines[-count*10:]) # Heuristic to get recent facts
+            return "".join(lines[-count*10:])
         except: return ""
 
     async def generate_daily_summary(self, log_dir, vector_memory):
         today = datetime.date.today().isoformat()
         log_file = Path(log_dir) / f"{today}.md"
-        if not log_file.exists(): return "No logs found for today."
+        if not log_file.exists(): 
+            return f"No logs found for today ({today}). Logs directory: {log_dir}"
         
         try:
             with open(log_file, "r", encoding="utf-8") as f:
                 logs = f.read()
             
             prompt = f"Extract permanent facts, user preferences, and system states from these logs. Be concise. Format as bullet points.\n\nLOGS:\n{logs}"
-            response = await asyncio.to_thread(summary_model.generate_content, prompt)
-            facts = response.text
+            
+            if USE_NEW_SDK:
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt
+                )
+                facts = response.text
+            else:
+                response = await asyncio.to_thread(summary_model_legacy.generate_content, prompt)
+                facts = response.text
             
             with open(self.summary_path, "a", encoding="utf-8") as f:
                 f.write(f"\n### {today} Permanent Facts\n{facts}\n")
             
-            # Also add summary to vector memory for semantic retrieval
             await vector_memory.add_entry(f"System Knowledge Summary ({today}): {facts}")
             return f"✅ Facts for {today} summarized and stored."
         except Exception as e:
@@ -150,20 +181,35 @@ class SummaryManager:
 
 # --- Initialize ---
 log_m = LogManager()
-vec_m = VectorMemory(max_entries=300) # Only keep 300 recent vectors to save space
+vec_m = VectorMemory(max_entries=300)
 sum_m = SummaryManager()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ALLOWED_USER_ID: return
+    # Debug logging for authorization
+    user_id = update.effective_user.id
+    console.info(f"📥 Received message from {user_id}: {update.message.text}")
+    
+    if user_id != ALLOWED_USER_ID:
+        console.warning(f"Unauthorized User ID: {user_id}. Expected: {ALLOWED_USER_ID}")
+        return
+
     user_text = update.message.text
     if not user_text: return
 
-    console.info(f"📥 Received from User: {user_text[:100]}...")
-
+    # MANUAL COMMAND HANDLING (because we removed filters.COMMAND)
     if user_text == "/summary":
+        console.info("Executing /summary command...")
         res = await sum_m.generate_daily_summary("logs", vec_m)
-        await update.message.reply_text(res or "No logs to summarize today.")
+        await update.message.reply_text(res)
         play_notification_sound()
+        return
+
+    if user_text.startswith("/search "):
+        console.info("Executing /search command...")
+        query = user_text.replace("/search ", "").strip()
+        results = await vec_m.search(query)
+        resp = "🔍 Search results:\n\n" + "\n\n".join([f"• {t}" for s, t in results])
+        await update.message.reply_text(resp if results else "No memories found.")
         return
 
     # 1. Hybrid Context Retrieval
@@ -182,7 +228,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_prompt = f"{user_text}{context_str}{system_instruction}"
     cmd = ["gemini", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     
-    console.info(f"🚀 Launching Gemini CLI (YOLO Mode)...")
+    console.info(f"🚀 Launching Gemini CLI...")
     
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -195,17 +241,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             err_output = stderr.decode()
             response_text = f"❌ CLI Error:\n{err_output}"
-            console.error(f"❌ Gemini CLI Failed: {err_output[:200]}...")
+            console.error(f"❌ Gemini CLI Failed.")
         
-        # 3. Layered Saving
         log_m.write_log(user_text, response_text)
         await vec_m.add_entry(f"User: {user_text}\nGemini: {response_text}")
 
     except Exception as e:
         response_text = f"⚠️ System Error: {str(e)}"
-        console.error(f"⚠️ System Exception: {str(e)}")
+        console.error(f"⚠️ Exception: {str(e)}")
 
-    # 4. Final Reply
     try:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
                                           text=response_text[:4000], parse_mode='Markdown')
@@ -217,7 +261,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == '__main__':
     os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
+    # REMOVED filters.COMMAND to allow handle_message to catch /summary
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    print("--- Pro-Tiered Gemini Bot with Hybrid Memory Online ---")
+    app.add_handler(MessageHandler(filters.TEXT, handle_message))
+    
+    print("--- Pro-Tiered Gemini Bot with Hybrid Memory Online (google-genai) ---")
     app.run_polling()
