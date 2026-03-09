@@ -40,7 +40,7 @@ else:
 # --- Enhanced Logging Setup ---
 Path("logs").mkdir(exist_ok=True)
 
-# Standard logging for console
+# 1. Standard logging for console (User-friendly)
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -48,12 +48,22 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 
-# Debug file logger for full trace
+# 2. Silent Debug Logger (File only, isolated from terminal)
 debug_logger = logging.getLogger("debug_trace")
 debug_logger.setLevel(logging.DEBUG)
-fh = logging.FileHandler("logs/debug.log", encoding='utf-8')
-fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-debug_logger.addHandler(fh)
+debug_logger.propagate = False # Crucial: Don't show debug_logger outputs on console
+
+def update_debug_handler():
+    """Dynamically updates the debug log file based on current date."""
+    today = datetime.date.today().isoformat()
+    log_file = f"logs/{today}.log"
+    # Remove old handlers
+    for h in debug_logger.handlers[:]:
+        debug_logger.removeHandler(h)
+    # Add new daily handler
+    fh = logging.FileHandler(log_file, encoding='utf-8')
+    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    debug_logger.addHandler(fh)
 
 console = logging.getLogger("bot_activity")
 
@@ -114,7 +124,6 @@ class VectorMemory:
     def _save(self):
         if len(self.memory) > self.max_entries:
             self.memory = self.memory[-self.max_entries:]
-            logging.info(f"Memory sharded: Kept latest {self.max_entries} entries.")
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.storage_path, "w", encoding="utf-8") as f:
             json.dump(self.memory, f, ensure_ascii=False, indent=2)
@@ -183,8 +192,9 @@ class SummaryManager:
         today = datetime.date.today().isoformat()
         log_file = Path(log_dir) / f"{today}.md"
         if not log_file.exists(): 
-            return f"No logs found for today ({today}). Logs directory: {log_dir}"
+            return f"No logs found for today ({today})."
         
+        update_debug_handler() # Ensure correct daily log file
         try:
             with open(log_file, "r", encoding="utf-8") as f:
                 logs = f.read()
@@ -220,9 +230,11 @@ sum_m = SummaryManager()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CURRENT_ENGINE
+    update_debug_handler() # Ensure debug logs go to the correct daily file
+    
     user_id = update.effective_user.id
-    console.info(f"📥 Received message from {user_id}: {update.message.text}")
-    debug_logger.info(f"--- New Message Handling (Engine: {CURRENT_ENGINE}) ---")
+    console.info(f"📥 Received from {user_id}: {update.message.text[:50]}...")
+    debug_logger.info(f"--- Handling Message (Engine: {CURRENT_ENGINE}) ---")
     
     if user_id != ALLOWED_USER_ID:
         console.warning(f"Unauthorized User ID: {user_id}")
@@ -270,7 +282,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 2. Execute via Selected Engine CLI
     full_prompt = f"{user_text}{context_str}{system_instruction}"
-    
     debug_logger.debug(f"FULL INJECTED PROMPT ({CURRENT_ENGINE}):\n{full_prompt}")
 
     if CURRENT_ENGINE == "gemini":
@@ -284,8 +295,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = await process.communicate()
-        end_time = datetime.datetime.now()
-        duration = (end_time - start_time).total_seconds()
+        duration = (datetime.datetime.now() - start_time).total_seconds()
         
         debug_logger.debug(f"CLI Execution Time: {duration}s")
         debug_logger.debug(f"RAW STDOUT:\n{stdout.decode()}")
@@ -319,6 +329,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == '__main__':
     os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
+    update_debug_handler() # Initial setup
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
     print(f"--- Pro-Tiered Bot Online (Current Engine: {CURRENT_ENGINE.upper()}) ---")
