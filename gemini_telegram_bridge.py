@@ -153,6 +153,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # B: Explicit Facts (Summary File)
     permanent_facts = sum_m.get_latest_facts()
     
+    # System Instruction to isolate robot tasks
+    system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
+
     context_str = "\n\n[Permanent Facts]:\n" + permanent_facts if permanent_facts else ""
     if relevant:
         context_str += "\n\n[Related Past Interactions]:\n" + "\n".join([f"- {t}" for _, t in relevant])
@@ -160,8 +163,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text("🧠 Processing...")
 
     # 2. Execute via Gemini CLI
-    # We pass BOTH permanent facts and relevant semantic memories
-    full_prompt = f"{user_text}{context_str}"
+    # We pass BOTH permanent facts and relevant semantic memories + System Instruction
+    full_prompt = f"{user_text}{context_str}{system_instruction}"
     cmd = ["gemini", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     
     try:
