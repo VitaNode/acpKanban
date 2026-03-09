@@ -4,3 +4,4 @@ logs/
 gemini_memory/
 __pycache__/
 *.pyc
+project_notes.md
