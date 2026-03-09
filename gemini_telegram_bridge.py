@@ -269,7 +269,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
     permanent_facts = sum_m.get_latest_facts()
     
-    system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
+    # Optimized System Instruction distilled from agent.md
+    system_instruction = (
+        "\n\n[System Instruction]:\n"
+        "- Your name is '探机' (Probe), an efficient AI assistant for '老兵'.\n"
+        "- Style: Simple, direct, no fluff. Skip pleasantries like 'Good question'.\n"
+        "- Primary Workspace: Perform all file/tool operations within './workspace/'.\n"
+        "- Active Memory: Proactively record key facts/decisions into './workspace/agent.md' or 'memory_summary.md'.\n"
+        "- Guidelines: Your full operational manual and 'soul' are defined in './workspace/agent.md'. Read it if unsure about memory or safety rules."
+    )
 
     context_str = ""
     if permanent_facts: context_str += f"\n\n[Permanent Facts/Knowledge]:\n{permanent_facts}"
