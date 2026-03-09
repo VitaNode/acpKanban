@@ -37,13 +37,23 @@ else:
     genai_legacy.configure(api_key=EMBEDDING_API_KEY)
     summary_model_legacy = genai_legacy.GenerativeModel('gemini-2.5-flash')
 
-# Logging configuration
+# --- Enhanced Logging Setup ---
+Path("logs").mkdir(exist_ok=True)
+
+# Standard logging for console
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
+
+# Debug file logger for full trace
+debug_logger = logging.getLogger("debug_trace")
+debug_logger.setLevel(logging.DEBUG)
+fh = logging.FileHandler("logs/debug.log", encoding='utf-8')
+fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+debug_logger.addHandler(fh)
 
 console = logging.getLogger("bot_activity")
 
@@ -59,10 +69,8 @@ def parse_cli_response(engine, raw_stdout):
     try:
         data = json.loads(raw_stdout)
         if engine == "gemini":
-            # Gemini CLI usually returns a single object with a "response" field
             return data.get("response", "✅ Done.")
         elif engine == "qwen":
-            # Qwen Code returns a list of objects, we look for type == "result"
             if isinstance(data, list):
                 for item in data:
                     if item.get("type") == "result":
@@ -182,7 +190,8 @@ class SummaryManager:
                 logs = f.read()
             
             prompt = f"Extract permanent facts, user preferences, and system states from these logs. Be concise. Format as bullet points.\n\nLOGS:\n{logs}"
-            
+            debug_logger.debug(f"Summary Prompt Sent:\n{prompt}")
+
             if USE_NEW_SDK:
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
@@ -193,12 +202,15 @@ class SummaryManager:
                 response = await asyncio.to_thread(summary_model_legacy.generate_content, prompt)
                 facts = response.text
             
+            debug_logger.debug(f"Summary Result:\n{facts}")
+
             with open(self.summary_path, "a", encoding="utf-8") as f:
                 f.write(f"\n### {today} Permanent Facts\n{facts}\n")
             
             await vector_memory.add_entry(f"System Knowledge Summary ({today}): {facts}")
             return f"✅ Facts for {today} summarized and stored."
         except Exception as e:
+            debug_logger.error(f"Summary Task Failed: {str(e)}")
             return f"❌ Summary Error: {str(e)}"
 
 # --- Initialize ---
@@ -210,17 +222,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CURRENT_ENGINE
     user_id = update.effective_user.id
     console.info(f"📥 Received message from {user_id}: {update.message.text}")
+    debug_logger.info(f"--- New Message Handling (Engine: {CURRENT_ENGINE}) ---")
     
     if user_id != ALLOWED_USER_ID:
-        console.warning(f"Unauthorized User ID: {user_id}. Expected: {ALLOWED_USER_ID}")
+        console.warning(f"Unauthorized User ID: {user_id}")
         return
 
     user_text = update.message.text
     if not user_text: return
 
     # --- Manual Command Handling ---
-    
-    # 1. /engine command
     if user_text.startswith("/engine"):
         parts = user_text.split()
         if len(parts) > 1:
@@ -229,31 +240,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 CURRENT_ENGINE = new_engine
                 await update.message.reply_text(f"🚀 Engine switched to: **{CURRENT_ENGINE.upper()}**", parse_mode='Markdown')
             else:
-                await update.message.reply_text("⚠️ Unknown engine. Use 'gemini' or 'qwen'.")
+                await update.message.reply_text("⚠️ Unknown engine.")
         else:
-            await update.message.reply_text(f"🤖 Current Engine: **{CURRENT_ENGINE.upper()}**\nUse `/engine [gemini|qwen]` to switch.", parse_mode='Markdown')
+            await update.message.reply_text(f"🤖 Current Engine: **{CURRENT_ENGINE.upper()}**")
         return
 
-    # 2. /summary command
     if user_text == "/summary":
-        console.info("Executing /summary command...")
         res = await sum_m.generate_daily_summary("logs", vec_m)
         await update.message.reply_text(res)
         play_notification_sound()
         return
 
-    # 3. /search command
-    if user_text.startswith("/search "):
-        console.info("Executing /search command...")
-        query = user_text.replace("/search ", "").strip()
-        results = await vec_m.search(query)
-        resp = "🔍 Search results:\n\n" + "\n\n".join([f"• {t}" for s, t in results])
-        await update.message.reply_text(resp if results else "No memories found.")
-        return
-
     # --- Normal Dialogue Handling with RAG ---
-
-    # 1. Hybrid Context Retrieval
     relevant = await vec_m.search(user_text, top_k=2)
     recent_convo = vec_m.memory[-3:] if vec_m.memory else []
     recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
@@ -262,47 +260,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
 
     context_str = ""
-    if permanent_facts:
-        context_str += f"\n\n[Permanent Facts/Knowledge]:\n{permanent_facts}"
-    if recent_str:
-        context_str += f"\n\n[Recent Conversation History]:\n{recent_str}"
+    if permanent_facts: context_str += f"\n\n[Permanent Facts/Knowledge]:\n{permanent_facts}"
+    if recent_str: context_str += f"\n\n[Recent Conversation History]:\n{recent_str}"
     if relevant:
         semantic_str = "\n".join([f"- {t}" for _, t in relevant if t not in recent_str])
-        if semantic_str:
-            context_str += f"\n\n[Related Past Context]:\n{semantic_str}"
+        if semantic_str: context_str += f"\n\n[Related Past Context]:\n{semantic_str}"
 
     status_msg = await update.message.reply_text(f"🧠 {CURRENT_ENGINE.upper()} is thinking...")
 
     # 2. Execute via Selected Engine CLI
     full_prompt = f"{user_text}{context_str}{system_instruction}"
     
-    # Commands are very similar for both
+    debug_logger.debug(f"FULL INJECTED PROMPT ({CURRENT_ENGINE}):\n{full_prompt}")
+
     if CURRENT_ENGINE == "gemini":
         cmd = ["gemini", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     else: # qwen
         cmd = ["qwen", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     
     console.info(f"🚀 Launching {CURRENT_ENGINE.upper()} CLI...")
-    
+    start_time = datetime.datetime.now()
+
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = await process.communicate()
+        end_time = datetime.datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        debug_logger.debug(f"CLI Execution Time: {duration}s")
+        debug_logger.debug(f"RAW STDOUT:\n{stdout.decode()}")
+        if stderr: debug_logger.debug(f"RAW STDERR:\n{stderr.decode()}")
         
         if process.returncode == 0:
             response_text = parse_cli_response(CURRENT_ENGINE, stdout.decode())
-            console.info(f"✅ {CURRENT_ENGINE.upper()} Response Received.")
+            console.info(f"✅ {CURRENT_ENGINE.upper()} Response Received ({duration:.1f}s).")
         else:
             err_output = stderr.decode()
             response_text = f"❌ {CURRENT_ENGINE.upper()} CLI Error:\n{err_output}"
             console.error(f"❌ {CURRENT_ENGINE.upper()} CLI Failed.")
         
-        # 3. Layered Saving (Shared Memory!)
         log_m.write_log(CURRENT_ENGINE, user_text, response_text)
         await vec_m.add_entry(f"[{CURRENT_ENGINE.upper()}] User: {user_text}\nResponse: {response_text}")
 
     except Exception as e:
         response_text = f"⚠️ System Error: {str(e)}"
         console.error(f"⚠️ Exception: {str(e)}")
+        debug_logger.exception("Catastrophic handling failure:")
 
     # 4. Final Reply
     try:
@@ -318,6 +321,5 @@ if __name__ == '__main__':
     os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    
     print(f"--- Pro-Tiered Bot Online (Current Engine: {CURRENT_ENGINE.upper()}) ---")
     app.run_polling()
