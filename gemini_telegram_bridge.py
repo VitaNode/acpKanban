@@ -32,7 +32,7 @@ if USE_NEW_SDK:
     client = genai.Client(api_key=GEMINI_API_KEY)
 else:
     genai_legacy.configure(api_key=EMBEDDING_API_KEY)
-    summary_model_legacy = genai_legacy.GenerativeModel('gemini-2.0-flash')
+    summary_model_legacy = genai_legacy.GenerativeModel('gemini-2.5-flash')
 
 # Logging configuration
 logging.basicConfig(
@@ -163,7 +163,7 @@ class SummaryManager:
             
             if USE_NEW_SDK:
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model='gemini-2.5-flash',
                     contents=prompt
                 )
                 facts = response.text
