@@ -27,6 +27,9 @@ ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
 
+# Global state for engine
+CURRENT_ENGINE = "gemini" # Default engine
+
 # Initialize Clients
 if USE_NEW_SDK:
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -51,19 +54,38 @@ def play_notification_sound():
     except Exception:
         pass
 
+def parse_cli_response(engine, raw_stdout):
+    """Parses JSON output based on the engine type."""
+    try:
+        data = json.loads(raw_stdout)
+        if engine == "gemini":
+            # Gemini CLI usually returns a single object with a "response" field
+            return data.get("response", "✅ Done.")
+        elif engine == "qwen":
+            # Qwen Code returns a list of objects, we look for type == "result"
+            if isinstance(data, list):
+                for item in data:
+                    if item.get("type") == "result":
+                        return item.get("result", "✅ Done.")
+            return "✅ Done (Result not found in JSON)."
+    except json.JSONDecodeError:
+        return raw_stdout or "✅ Done (No output)."
+    except Exception as e:
+        return f"⚠️ Parsing Error: {str(e)}"
+
 # --- Tier 1: Log Manager ---
 class LogManager:
     def __init__(self, log_dir="logs"):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_log(self, user_text, bot_response):
+    def write_log(self, engine, user_text, bot_response):
         today = datetime.date.today().isoformat()
         log_file = self.log_dir / f"{today}.md"
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"### [{timestamp}] User\n{user_text}\n\n")
-            f.write(f"### [{timestamp}] Gemini\n{bot_response}\n\n---\n\n")
+            f.write(f"### [{timestamp}] [{engine.upper()}] User\n{user_text}\n\n")
+            f.write(f"### [{timestamp}] [{engine.upper()}] Response\n{bot_response}\n\n---\n\n")
 
 # --- Tier 3: Optimized Vector Memory ---
 class VectorMemory:
@@ -185,7 +207,7 @@ vec_m = VectorMemory(max_entries=300)
 sum_m = SummaryManager()
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Debug logging for authorization
+    global CURRENT_ENGINE
     user_id = update.effective_user.id
     console.info(f"📥 Received message from {user_id}: {update.message.text}")
     
@@ -196,7 +218,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     if not user_text: return
 
-    # MANUAL COMMAND HANDLING (because we removed filters.COMMAND)
+    # --- Manual Command Handling ---
+    
+    # 1. /engine command
+    if user_text.startswith("/engine"):
+        parts = user_text.split()
+        if len(parts) > 1:
+            new_engine = parts[1].lower()
+            if new_engine in ["gemini", "qwen"]:
+                CURRENT_ENGINE = new_engine
+                await update.message.reply_text(f"🚀 Engine switched to: **{CURRENT_ENGINE.upper()}**", parse_mode='Markdown')
+            else:
+                await update.message.reply_text("⚠️ Unknown engine. Use 'gemini' or 'qwen'.")
+        else:
+            await update.message.reply_text(f"🤖 Current Engine: **{CURRENT_ENGINE.upper()}**\nUse `/engine [gemini|qwen]` to switch.", parse_mode='Markdown')
+        return
+
+    # 2. /summary command
     if user_text == "/summary":
         console.info("Executing /summary command...")
         res = await sum_m.generate_daily_summary("logs", vec_m)
@@ -204,6 +242,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         play_notification_sound()
         return
 
+    # 3. /search command
     if user_text.startswith("/search "):
         console.info("Executing /search command...")
         query = user_text.replace("/search ", "").strip()
@@ -212,75 +251,73 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(resp if results else "No memories found.")
         return
 
-    # 1. Hybrid Context Retrieval
-    # A: Semantic Memory (Vector Search for cross-time relevance)
-    relevant = await vec_m.search(user_text, top_k=2)
+    # --- Normal Dialogue Handling with RAG ---
 
-    # B: Sliding Window Memory (Last 3 rounds for natural flow)
-    # We get the literal last 3 entries from the vector memory list
+    # 1. Hybrid Context Retrieval
+    relevant = await vec_m.search(user_text, top_k=2)
     recent_convo = vec_m.memory[-3:] if vec_m.memory else []
     recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
-
-    # C: Explicit Facts (Summary File)
     permanent_facts = sum_m.get_latest_facts()
-
+    
     system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
 
     context_str = ""
     if permanent_facts:
         context_str += f"\n\n[Permanent Facts/Knowledge]:\n{permanent_facts}"
-
     if recent_str:
         context_str += f"\n\n[Recent Conversation History]:\n{recent_str}"
-
     if relevant:
-        # Filter out duplicates that might be in recent_str
         semantic_str = "\n".join([f"- {t}" for _, t in relevant if t not in recent_str])
         if semantic_str:
             context_str += f"\n\n[Related Past Context]:\n{semantic_str}"
 
-    status_msg = await update.message.reply_text("🧠 Processing...")
+    status_msg = await update.message.reply_text(f"🧠 {CURRENT_ENGINE.upper()} is thinking...")
 
-    # 2. Execute via Gemini CLI
+    # 2. Execute via Selected Engine CLI
     full_prompt = f"{user_text}{context_str}{system_instruction}"
-    cmd = ["gemini", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     
-    console.info(f"🚀 Launching Gemini CLI...")
+    # Commands are very similar for both
+    if CURRENT_ENGINE == "gemini":
+        cmd = ["gemini", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
+    else: # qwen
+        cmd = ["qwen", full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
+    
+    console.info(f"🚀 Launching {CURRENT_ENGINE.upper()} CLI...")
     
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = await process.communicate()
         
         if process.returncode == 0:
-            result = json.loads(stdout.decode())
-            response_text = result.get("response", "✅ Done.")
-            console.info(f"✅ Gemini Response Received.")
+            response_text = parse_cli_response(CURRENT_ENGINE, stdout.decode())
+            console.info(f"✅ {CURRENT_ENGINE.upper()} Response Received.")
         else:
             err_output = stderr.decode()
-            response_text = f"❌ CLI Error:\n{err_output}"
-            console.error(f"❌ Gemini CLI Failed.")
+            response_text = f"❌ {CURRENT_ENGINE.upper()} CLI Error:\n{err_output}"
+            console.error(f"❌ {CURRENT_ENGINE.upper()} CLI Failed.")
         
-        log_m.write_log(user_text, response_text)
-        await vec_m.add_entry(f"User: {user_text}\nGemini: {response_text}")
+        # 3. Layered Saving (Shared Memory!)
+        log_m.write_log(CURRENT_ENGINE, user_text, response_text)
+        await vec_m.add_entry(f"[{CURRENT_ENGINE.upper()}] User: {user_text}\nResponse: {response_text}")
 
     except Exception as e:
         response_text = f"⚠️ System Error: {str(e)}"
         console.error(f"⚠️ Exception: {str(e)}")
 
+    # 4. Final Reply
     try:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
                                           text=response_text[:4000], parse_mode='Markdown')
-        play_notification_sound()
     except:
         await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
                                           text=response_text[:4000])
-        play_notification_sound()
+    
+    play_notification_sound()
 
 if __name__ == '__main__':
     os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
-    # REMOVED filters.COMMAND to allow handle_message to catch /summary
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
     
-    print("--- Pro-Tiered Gemini Bot with Hybrid Memory Online (google-genai) ---")
+    print(f"--- Pro-Tiered Bot Online (Current Engine: {CURRENT_ENGINE.upper()}) ---")
     app.run_polling()
