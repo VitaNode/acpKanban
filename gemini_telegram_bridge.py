@@ -211,18 +211,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resp = "🔍 Search results:\n\n" + "\n\n".join([f"• {t}" for s, t in results])
         await update.message.reply_text(resp if results else "No memories found.")
         return
+# 1. Hybrid Context Retrieval
+# A: Semantic Memory (Vector Search for cross-time relevance)
+relevant = await vec_m.search(user_text, top_k=2)
 
-    # 1. Hybrid Context Retrieval
-    relevant = await vec_m.search(user_text, top_k=3)
-    permanent_facts = sum_m.get_latest_facts()
-    
-    system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
+# B: Sliding Window Memory (Last 3 rounds for natural flow)
+# We get the literal last 3 entries from the vector memory list
+recent_convo = vec_m.memory[-3:] if vec_m.memory else []
+recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
 
-    context_str = "\n\n[Permanent Facts]:\n" + permanent_facts if permanent_facts else ""
-    if relevant:
-        context_str += "\n\n[Related Past Interactions]:\n" + "\n".join([f"- {t}" for _, t in relevant])
+# C: Explicit Facts (Summary File)
+permanent_facts = sum_m.get_latest_facts()
 
-    status_msg = await update.message.reply_text("🧠 Processing...")
+system_instruction = "\n\n[System Instruction]: Your primary working directory for file operations, tool installations, and project tasks is the './workspace/' folder. Please perform all work inside it to avoid conflicts with the bot's core logic."
+
+context_str = ""
+if permanent_facts:
+    context_str += f"\n\n[Permanent Facts/Knowledge]:\n{permanent_facts}"
+
+if recent_str:
+    context_str += f"\n\n[Recent Conversation History]:\n{recent_str}"
+
+if relevant:
+    # Filter out duplicates that might be in recent_str
+    semantic_str = "\n".join([f"- {t}" for _, t in relevant if t not in recent_str])
+    if semantic_str:
+        context_str += f"\n\n[Related Past Context]:\n{semantic_str}"
+
+status_msg = await update.message.reply_text("🧠 Processing...")
 
     # 2. Execute via Gemini CLI
     full_prompt = f"{user_text}{context_str}{system_instruction}"
