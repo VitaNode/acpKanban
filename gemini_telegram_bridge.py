@@ -87,16 +87,31 @@ def parse_cli_response(engine, raw_stdout, logger=None):
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
-        usage = find_usage_info(data)
+        
+        # For Qwen (array format), prioritize usage from type="result" object
+        if engine == "qwen" and isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("type") == "result":
+                    if "usage" in item:
+                        usage = item["usage"]
+                    if "result" in item:
+                        text = item.get("result")
+                    break
+        
+        # Fallback to recursive search if usage not found
+        if usage is None:
+            usage = find_usage_info(data)
+        
+        # For Gemini
+        if engine == "gemini" and text is None:
+            text = data.get("response")
+        
+        # Fallback for any dict response
+        if text is None and isinstance(data, dict):
+            text = data.get("result") or data.get("response")
+            
         if usage is None and logger:
             logger.debug(f"⚠️ No usage info found. JSON: {json.dumps(data, indent=2)[:2000]}...")
-        if engine == "gemini": text = data.get("response")
-        elif engine == "qwen" and isinstance(data, list):
-            for item in data:
-                if item.get("type") == "result":
-                    text = item.get("result")
-                    break
-        if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
     except: pass
     if text is None: text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
     return text or "✅ Done.", usage
