@@ -69,27 +69,33 @@ def safe_truncate_html(text, limit=4000):
     truncated += "\n\n<i>(Truncated)</i>"
     return truncated
 
-def find_usage_info(data):
-    """Recursively search for usage/token information in the JSON data."""
-    if not isinstance(data, (dict, list)): return None
+def find_max_tokens(data):
+    """Recursively scans the entire JSON to find the highest token count value."""
+    max_count = 0
     if isinstance(data, dict):
-        if "usage" in data: return data["usage"]
-        if "tokens" in data: return data["tokens"]
+        # Look for common token count keys
+        for key in ["total_tokens", "totalTokens", "total", "total_count"]:
+            if key in data and isinstance(data[key], (int, float)):
+                max_count = max(max_count, int(data[key]))
+        # Also check 'usage' or 'tokens' nested dictionaries
+        for key in ["usage", "tokens"]:
+            if key in data and isinstance(data[key], (dict, list)):
+                max_count = max(max_count, find_max_tokens(data[key]))
+        # Recursively search all other values
         for val in data.values():
-            res = find_usage_info(val)
-            if res: return res
+            if isinstance(val, (dict, list)):
+                max_count = max(max_count, find_max_tokens(val))
     elif isinstance(data, list):
         for item in data:
-            res = find_usage_info(item)
-            if res: return res
-    return None
+            max_count = max(max_count, find_max_tokens(item))
+    return max_count
 
 def parse_cli_response(engine, raw_stdout):
-    text, usage = None, None
+    text, total_tokens = None, 0
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
-        usage = find_usage_info(data)
+        total_tokens = find_max_tokens(data)
         if engine == "gemini": text = data.get("response")
         elif engine == "qwen" and isinstance(data, list):
             for item in data:
@@ -99,7 +105,7 @@ def parse_cli_response(engine, raw_stdout):
         if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
     except: pass
     if text is None: text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    return text or "✅ Done.", usage
+    return text or "✅ Done.", total_tokens
 
 # --- Bot Instance Class ---
 class GeminiBotInstance:
@@ -243,7 +249,7 @@ class GeminiBotInstance:
             self.debug_logger.debug(f"RAW STDOUT: {raw_stdout}")
             if stderr: self.debug_logger.debug(f"RAW STDERR: {stderr.decode()}")
             
-            response_text, usage = parse_cli_response(self.engine, raw_stdout)
+            response_text, total_tokens = parse_cli_response(self.engine, raw_stdout)
 
             shot = self.workspace_dir / "screenshot.png"
             if shot.exists() and shot.stat().st_mtime > start_ts:
@@ -258,17 +264,21 @@ class GeminiBotInstance:
                 self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
                 self._save_memory()
 
+            # 6. UI RENDER (Add Token Usage Footer before truncation)
             footer = ""
-            if usage:
-                total = usage.get("total_tokens") or usage.get("total") or usage.get("totalTokens")
-                if total:
-                    if self.engine == "gemini": footer = f"\n\n<pre>Context Left: {(1048576 - total)/1000:.1f}k</pre>"
-                    else: footer = f"\n\n<pre>Tokens Used: {total/1000:.1f}k</pre>"
+            if total_tokens > 0:
+                if self.engine == "gemini": 
+                    footer = f"\n\n<pre>Context Left: {(1048576 - total_tokens)/1000:.1f}k</pre>"
+                else: 
+                    footer = f"\n\n<pre>Tokens Used: {total_tokens/1000:.1f}k</pre>"
 
             final_html = safe_truncate_html(smart_format_render(response_text) + footer)
+            
             if status_msg:
                 try: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=final_html, parse_mode=ParseMode.HTML)
-                except: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
+                except Exception as e:
+                    self.console.warning(f"HTML fail: {e}")
+                    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
             else: await update.message.reply_text(text=response_text[:4000])
             self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s)")
 
