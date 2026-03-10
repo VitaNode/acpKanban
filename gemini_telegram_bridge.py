@@ -70,23 +70,58 @@ def safe_truncate_html(text, limit=4000):
     truncated += "\n\n<i>(Truncated)</i>"
     return truncated
 
+def find_usage_info(data):
+    """Recursively search for usage/token information in the JSON data."""
+    if not isinstance(data, (dict, list)):
+        return None
+    
+    # Check if current level has usage info
+    if isinstance(data, dict):
+        if "usage" in data:
+            return data["usage"]
+        # Look for stats or metadata which might contain usage
+        for key in ["stats", "metadata"]:
+            if key in data:
+                result = find_usage_info(data[key])
+                if result: return result
+        # Search all values
+        for val in data.values():
+            result = find_usage_info(val)
+            if result: return result
+    elif isinstance(data, list):
+        for item in data:
+            result = find_usage_info(item)
+            if result: return result
+    return None
+
 def parse_cli_response(engine, raw_stdout):
-    """Parses response and extracts usage info."""
-    text, usage = "✅ Done.", None
+    """Parses response and robustly extracts usage info."""
+    text, usage = None, None
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
+        
+        # Robustly find usage
+        usage = find_usage_info(data)
+        
         if engine == "gemini":
-            text = data.get("response", "✅ Done.")
-            usage = data.get("usage")
-        if engine == "qwen" and isinstance(data, list):
+            text = data.get("response")
+        elif engine == "qwen" and isinstance(data, list):
             for item in data:
                 if item.get("type") == "result":
-                    text = item.get("result", "✅ Done.")
-                    usage = item.get("usage")
-    except:
-        text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip() or "✅ Done."
-    return text, usage
+                    text = item.get("result")
+                    break
+        
+        # If text is still None, try to find any result/response field
+        if text is None and isinstance(data, dict):
+            text = data.get("result") or data.get("response")
+            
+    except: pass
+    
+    if text is None:
+        text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
+    
+    return text or "⚠️ Empty response from CLI.", usage
 
 # --- Bot Instance Class ---
 class GeminiBotInstance:
@@ -127,7 +162,7 @@ class GeminiBotInstance:
 
     def update_daily_log_handler(self):
         today = datetime.date.today().isoformat()
-        log_path = self.base_dir / f"logs/{today}.log"
+        log_path = self.log_dir / f"{today}.log"
         for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
         fh = logging.FileHandler(log_path, encoding='utf-8')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -172,52 +207,49 @@ class GeminiBotInstance:
                 with open(self.summary_file, "a") as f: f.write(f"\n### {datetime.date.today().isoformat()} Facts\n{facts}\n")
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
 
-            # 2. PROMPT CONSTRUCTION (Dialogue Style)
+            # 2. PROMPT CONSTRUCTION (Dialogue Style - Safely escaped)
             facts_str = ""
             if self.summary_file.exists():
-                with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:])
+                with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:]).strip()
 
-            # Natural dialogue-based prompt
-            # We don't include history here because we use --resume/--continue
+            # Using === instead of [...] to avoid shell globbing issues
             full_prompt = (
-                f"[系统：你的名字是 '{self.name.capitalize()}'，一名高效的 AI 助手。用户是 '老兵'。当前工作目录在 '{self.base_dir}/workspace/'。]\n"
-                f"[已知事实：{facts_str or '暂无。'}]\n"
+                f"=== SYSTEM: 你的名字是 '{self.name.capitalize()}'，一名高效的 AI 助手。用户是 '老兵'。当前工作目录在 '{self.base_dir}/workspace/'。 ===\n"
+                f"=== 已知事实：{facts_str or '暂无。'} ===\n"
                 f"老兵：{user_text}"
             )
             
-            # /compact command override
-            if user_text == "/compact":
-                full_prompt = "/compact"
+            if user_text == "/compact": full_prompt = "/compact"
 
             status_msg = None
             try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
             except: pass
 
-            # 3. CLI EXECUTION WITH NATIVE SESSION
+            # 3. CLI EXECUTION
+            # For Qwen, use positional argument with quotes to avoid shell splitting
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
             
-            # Apply session persistence flags
             if not self.skip_session_once:
                 if self.engine == "gemini": cmd.append("--resume=latest")
                 elif self.engine == "qwen": cmd.extend(["--continue", f"--session-id={self.name}"])
             else:
-                self.skip_session_once = False # Reset for next turn
+                self.skip_session_once = False
 
             start_ts = datetime.datetime.now().timestamp()
             self.debug_logger.debug(f"CMD: {' '.join(cmd)}")
             
-            # Set CWD to workspace to ensure session persistence files stay organized
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.base_dir / "workspace")
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             except asyncio.TimeoutError:
                 proc.kill()
-                if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout (120s).")
+                if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
                 return
 
             duration = datetime.datetime.now().timestamp() - start_ts
             raw_stdout = stdout.decode()
             self.debug_logger.debug(f"RAW STDOUT: {raw_stdout}")
+            if stderr: self.debug_logger.debug(f"RAW STDERR: {stderr.decode()}")
             
             response_text, usage = parse_cli_response(self.engine, raw_stdout)
 
@@ -233,19 +265,20 @@ class GeminiBotInstance:
                 today_md = self.base_dir / f"logs/{datetime.date.today().isoformat()}.md"
                 with open(today_md, "a", encoding="utf-8") as f:
                     f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
-                # We still keep memory.json for semantic /search, though history is handled by CLI session
                 self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
-                self._save_memory()
+                self._save_memory_file()
 
             # 6. UI RENDER (Add Token Usage)
             footer = ""
             if usage:
-                tokens = usage.get("total_tokens", usage.get("total", 0))
-                if self.engine == "gemini":
-                    left = 1048576 - tokens
-                    footer = f"\n\n<pre>Context Left: {left/1000:.1f}k</pre>"
-                else:
-                    footer = f"\n\n<pre>Tokens Used: {tokens/1000:.1f}k</pre>"
+                # Usage structure can vary, search for total tokens
+                total = usage.get("total_tokens") or usage.get("total") or usage.get("totalTokens")
+                if total:
+                    if self.engine == "gemini":
+                        left = 1048576 - total
+                        footer = f"\n\n<pre>Context Left: {left/1000:.1f}k</pre>"
+                    else:
+                        footer = f"\n\n<pre>Tokens Used: {total/1000:.1f}k</pre>"
 
             final_html = safe_truncate_html(smart_format_render(response_text) + footer)
             
