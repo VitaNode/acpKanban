@@ -205,17 +205,30 @@ class GeminiBotInstance:
             # 3. CLI Execution
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
             start_ts = datetime.datetime.now().timestamp()
+            
+            # 🚀 Logging-First: ensure we have the prompt even if it hangs
+            self.debug_logger.debug(f"FULL PROMPT SENT:\n{full_prompt}")
+            self.console.info(f"🚀 Launching {self.engine.upper()} CLI...")
+
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             except asyncio.TimeoutError:
                 proc.kill()
+                # 🛑 Improved Error Logging
+                self.console.error(f"❌ {self.engine.upper()} TIMEOUT after 120s")
+                self.debug_logger.error(f"Execution TIMEOUT after 120s for prompt: {user_text[:50]}...")
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
                 return
 
             duration = datetime.datetime.now().timestamp() - start_ts
             raw_stdout = stdout.decode()
-            self.debug_logger.debug(f"RAW STDOUT: {raw_stdout}")
+            raw_stderr = stderr.decode()
+            
+            self.debug_logger.debug(f"CLI Duration: {duration:.1f}s")
+            self.debug_logger.debug(f"RAW STDOUT:\n{raw_stdout}")
+            if raw_stderr: self.debug_logger.debug(f"RAW STDERR:\n{raw_stderr}")
+            
             response_text = parse_cli_response(self.engine, raw_stdout)
 
             # 4. Vision Check
