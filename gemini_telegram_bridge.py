@@ -45,22 +45,34 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CURRENT_ENGINE = "gemini" 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Logging
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("telegram").setLevel(logging.WARNING)
+# --- Enhanced Logging Setup ---
+# 1. Console Logger (Clean & Minimal)
 console = logging.getLogger("bot_activity")
+console.setLevel(logging.INFO)
+if not console.handlers:
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    console.addHandler(sh)
+
+# 2. Silent Debug Logger (Detailed, File Only)
 debug_logger = logging.getLogger("debug_trace")
 debug_logger.setLevel(logging.DEBUG)
-debug_logger.propagate = False
+debug_logger.propagate = False # Isolation from console
 
 def update_debug_handler():
+    """Ensures logs go to the correct daily file."""
     today = datetime.date.today().isoformat()
     log_file = LOG_DIR / f"{today}.log"
-    for h in debug_logger.handlers[:]: debug_logger.removeHandler(h)
+    # Clean old handlers to avoid multiple writes to the same file or old files
+    for h in debug_logger.handlers[:]:
+        debug_logger.removeHandler(h)
     fh = logging.FileHandler(log_file, encoding='utf-8')
     fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     debug_logger.addHandler(fh)
+
+# Suppress noisy library logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
 
 def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
@@ -70,38 +82,42 @@ def smart_format_markdown(text):
     """
     Optimizes text for Telegram:
     1. Detects Markdown tables and wraps them in code blocks for alignment.
-    2. Escapes risky characters or ensures proper Markdown structure.
+    2. Converts Markdown headers (#) to Bold since Telegram doesn't support headers.
     """
     if not text: return "✅ Done."
     
-    # Simple Table Detection: lines starting and ending with | or containing multiple |
+    # Replace Headers with Bold text
+    # e.g., "### Title" -> "*Title*"
+    text = re.sub(r'^#+\s+(.*)$', r'*\1*', text, flags=re.MULTILINE)
+
     lines = text.split('\n')
     formatted_lines = []
     in_table = False
     
     for line in lines:
-        # Heuristic: line looks like part of a table if it has | and follows or starts a header/divider
+        # Detect table rows
         is_table_row = line.strip().startswith('|') and line.strip().count('|') >= 2
         
         if is_table_row and not in_table:
-            formatted_lines.append("```") # Start code block for table
+            formatted_lines.append("```text") # Language 'text' helps with scrolling in some clients
             in_table = True
             formatted_lines.append(line)
         elif not is_table_row and in_table:
-            formatted_lines.append("```") # End code block
-            in_table = False
-            formatted_lines.append(line)
+            # End of table
+            if line.strip() == "": # Optional: skip one empty line after table
+                formatted_lines.append("```")
+                in_table = False
+            else:
+                formatted_lines.append("```")
+                in_table = False
+                formatted_lines.append(line)
         else:
             formatted_lines.append(line)
             
     if in_table:
         formatted_lines.append("```")
         
-    final_text = '\n'.join(formatted_lines)
-    
-    # Telegram Legacy Markdown is more forgiving but still picky
-    # We ensure code blocks don't nest and bolding is closed
-    return final_text
+    return '\n'.join(formatted_lines)
 
 def extract_json_response(raw_output):
     try:
@@ -124,12 +140,18 @@ def parse_cli_response(engine, raw_stdout):
 async def get_vision_analysis(user_query, image_path):
     try:
         img = Image.open(image_path)
-        prompt = f"You are '{BOT_NAME.capitalize()}'. Analyze screenshot for '老兵'. Request: {user_query}. Respond in Markdown."
+        prompt = (
+            f"You are '{BOT_NAME.capitalize()}'. You are an AI assistant for '老兵'.\n"
+            f"The user asked: {user_query}\n"
+            f"Analyze this screenshot and answer the user directly. Use Markdown for formatting."
+        )
         response = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
         return response.text
-    except Exception as e: return f"⚠️ Vision Failed: {str(e)}"
+    except Exception as e:
+        debug_logger.exception("Vision analysis failed:")
+        return f"⚠️ Vision Failed: {str(e)}"
 
-# --- Managers ---
+# --- Tier 1 & 2 & 3 Managers ---
 class LogManager:
     def write_log(self, engine, user_text, bot_response):
         today = datetime.date.today().isoformat()
@@ -159,7 +181,7 @@ class VectorMemory:
             result = client.models.embed_content(model="gemini-embedding-001", contents=text, config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"))
             self.memory.append({"text": text, "embedding": result.embeddings[0].values, "timestamp": datetime.datetime.now().isoformat()})
             self._save()
-        except Exception as e: logging.error(f"Vector error: {e}")
+        except Exception as e: debug_logger.error(f"Vector error: {e}")
     async def search(self, query, top_k=3):
         if not self.memory: return []
         try:
@@ -181,6 +203,7 @@ class SummaryManager:
         today = datetime.date.today().isoformat()
         log_file = Path(log_dir) / f"{today}.md"
         if not log_file.exists(): return f"No logs found."
+        update_debug_handler()
         try:
             with open(log_file, "r") as f: logs = f.read()
             prompt = f"Summarize key facts from logs for '老兵'.\n\nLOGS:\n{logs}"
@@ -197,9 +220,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global CURRENT_ENGINE
     update_debug_handler()
     user_id = update.effective_user.id
-    if user_id != ALLOWED_USER_ID: return
+    
+    if user_id != ALLOWED_USER_ID:
+        console.warning(f"Unauthorized User ID: {user_id}")
+        return
+
     user_text = update.message.text
     if not user_text: return
+    
+    console.info(f"📥 Received from User: {user_text[:50]}...")
 
     # Commands
     if user_text.startswith("/engine"):
@@ -215,28 +244,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = await sum_m.generate_daily_summary(LOG_DIR, vec_m)
         await update.message.reply_text(res); play_notification_sound(); return
 
-    # Context
+    # Context Construction
     relevant = await vec_m.search(user_text, top_k=2)
     recent_convo = vec_m.memory[-3:] if vec_m.memory else []
     recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
     facts = sum_m.get_latest_facts()
-    agent_md_path = WORKSPACE_DIR / "agent.md"
     
     full_prompt = (
         f"### USER REQUEST\n{user_text}\n\n"
         f"### LONG-TERM FACTS\n{facts or 'No facts yet.'}\n\n"
         f"### RECENT CONVERSATION HISTORY\n{recent_str or 'No history yet.'}\n\n"
+        f"### RELATED PAST INTERACTIONS\n" + ("\n".join([f"- {t}" for _, t in relevant]) if relevant else "None.") + "\n\n"
         f"### SYSTEM INSTRUCTIONS\n"
-        f"- Name is '{BOT_NAME.capitalize()}', assistant for '老兵'.\n"
+        f"- Name: '{BOT_NAME.capitalize()}', assistant for '老兵'.\n"
         f"- Sandbox: Work in '{WORKSPACE_DIR}/'.\n"
         f"- Vision: run `screencapture {WORKSPACE_DIR}/screenshot.png` to see screen.\n"
-        f"- Format: Use Markdown for tables and code blocks."
+        f"- Format: Use Markdown tables and code blocks. Headers will be handled."
     )
 
     status_msg = await update.message.reply_text(f"🧠 {CURRENT_ENGINE.upper()}...")
-    
+    debug_logger.debug(f"FULL PROMPT SENT:\n{full_prompt}")
+
     cmd = [CURRENT_ENGINE, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
     start_ts = datetime.datetime.now().timestamp()
+    console.info(f"🚀 Launching {CURRENT_ENGINE.upper()} CLI...")
     
     try:
         process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -244,16 +275,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
         except asyncio.TimeoutError:
             process.kill()
-            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
+            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout (120s).")
             return
 
+        duration = datetime.datetime.now().timestamp() - start_ts
         raw_stdout = stdout.decode()
+        debug_logger.debug(f"RAW STDOUT:\n{raw_stdout}")
+        if stderr: debug_logger.debug(f"RAW STDERR:\n{stderr.decode()}")
+
         resp_text = parse_cli_response(CURRENT_ENGINE, raw_stdout)
 
         # Vision Pass
         shot = WORKSPACE_DIR / "screenshot.png"
         if shot.exists() and shot.stat().st_mtime > start_ts:
-            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
+            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Screen captured. Analyzing...")
             resp_text = await get_vision_analysis(user_text, shot)
             await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
 
@@ -267,19 +302,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
         except Exception as e:
-            # Fallback to plain text if Markdown parsing fails
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id, 
-                message_id=status_msg.message_id, 
-                text=resp_text[:4000]
-            )
+            debug_logger.error(f"Markdown rendering failed: {e}")
+            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=resp_text[:4000])
+        
+        console.info(f"✅ {CURRENT_ENGINE.upper()} Response Received ({duration:.1f}s).")
         
         if process.returncode == 0:
             log_m.write_log(CURRENT_ENGINE, user_text, resp_text)
             await vec_m.add_entry(f"User: {user_text}\nResponse: {resp_text}")
 
     except Exception as e:
-        await update.message.reply_text(f"⚠️ Error: {str(e)}")
+        console.error(f"⚠️ Exception: {str(e)}")
+        debug_logger.exception("Execution failed:")
     
     play_notification_sound()
 
@@ -288,5 +322,5 @@ if __name__ == '__main__':
     update_debug_handler()
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    print(f"--- {BOT_NAME.upper()} Ready ---")
+    print(f"--- {BOT_NAME.upper()} Enhanced Online (Logging Restored) ---")
     app.run_polling()
