@@ -106,7 +106,14 @@ class GeminiBotInstance:
     def __init__(self, name, token):
         self.name = name.lower()
         self.token = token
-        self.engine = "gemini"
+        
+        # Default engine per bot
+        DEFAULT_ENGINES = {
+            "probe": "qwen",
+            "task": "gemini",
+        }
+        self.engine = DEFAULT_ENGINES.get(self.name, "gemini")
+        
         self.skip_session_once = False
         
         # Proper attribute assignment to fix AttributeError
