@@ -73,10 +73,8 @@ def find_usage_info(data):
     """Recursively search for usage/token information in the JSON data."""
     if not isinstance(data, (dict, list)): return None
     if isinstance(data, dict):
-        # Look for usage or tokens key
         if "usage" in data: return data["usage"]
         if "tokens" in data: return data["tokens"]
-        # Search deeper
         for val in data.values():
             res = find_usage_info(val)
             if res: return res
@@ -111,6 +109,7 @@ class GeminiBotInstance:
         self.engine = "gemini"
         self.skip_session_once = False
         
+        # Proper attribute assignment to fix AttributeError
         self.base_dir = Path(f"bots/{self.name}")
         self.log_dir = self.base_dir / "logs"
         self.memory_dir = self.base_dir / "gemini_memory"
@@ -207,7 +206,7 @@ class GeminiBotInstance:
                 with open(self.summary_file, "a") as f: f.write(f"\n### {datetime.date.today().isoformat()} Facts\n{facts}\n")
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
 
-            # Prompt Construction
+            # Context Construction
             facts_str = ""
             if self.summary_file.exists():
                 with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:]).strip()
@@ -216,19 +215,17 @@ class GeminiBotInstance:
             if user_text == "/compact": full_prompt = "/compact"
 
             status_msg = None
-            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...")
+            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
             except: pass
 
-            # CLI Execution Logic
+            # 🛠️ CLI Execution Logic - Fixed Qwen Session Parameters
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
             
             if not self.skip_session_once:
                 if self.engine == "gemini": cmd.append("--resume=latest")
-                elif self.engine == "qwen": cmd.append(f"--resume={self.name}") # Use ID to resume
+                elif self.engine == "qwen": cmd.append("--continue") # Use simple continue inside bot's workspace
             else:
-                # For /new
-                if self.engine == "qwen": cmd.append(f"--session-id={self.name}") # Start new ID session
-                self.skip_session_once = False
+                self.skip_session_once = False # Skip the resume/continue flag for one turn
 
             start_ts = datetime.datetime.now().timestamp()
             self.debug_logger.debug(f"CMD: {' '.join(cmd)}")
@@ -288,7 +285,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def main():
     bot_configs = {k.replace("_BOT_TOKEN", "").lower(): v for k, v in os.environ.items() if k.endswith("_BOT_TOKEN")}
     if not bot_configs: return
-    print(f"--- Starting Native Session Bridge (Total Bots: {len(bot_configs)}) ---")
+    print(f"--- Starting Native Session Bridge (Bots: {len(bot_configs)}) ---")
     apps = []
     for name, token in bot_configs.items():
         instance = GeminiBotInstance(name, token)
