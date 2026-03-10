@@ -39,7 +39,7 @@ def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
 
-# --- Robust Multi-Format Renderer ---
+# --- Shared Helper Functions ---
 def smart_format_render(text):
     if not text: return "✅ Done."
     placeholders = []
@@ -47,7 +47,6 @@ def smart_format_render(text):
         content = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
         placeholders.append(f"<pre>{html.escape(content.strip())}</pre>")
         return f"XYZPH{len(placeholders)-1}XYZ"
-    
     text = re.sub(r'```(?:[\w]*)\n?(.*?)```', save_block, text, flags=re.DOTALL)
     text = re.sub(r'((?:\n|^)\|.*?\|(?:\n|$)(?:\|.*?\|(?:\n|$))*)', save_block, text)
     def save_inline(match):
@@ -71,56 +70,37 @@ def safe_truncate_html(text, limit=4000):
     return truncated
 
 def find_usage_info(data):
-    """Recursively search for usage/token information in the JSON data."""
-    if not isinstance(data, (dict, list)):
-        return None
-    
-    # Check if current level has usage info
+    if not isinstance(data, (dict, list)): return None
     if isinstance(data, dict):
-        if "usage" in data:
-            return data["usage"]
-        # Look for stats or metadata which might contain usage
+        if "usage" in data: return data["usage"]
         for key in ["stats", "metadata"]:
             if key in data:
-                result = find_usage_info(data[key])
-                if result: return result
-        # Search all values
+                res = find_usage_info(data[key])
+                if res: return res
         for val in data.values():
-            result = find_usage_info(val)
-            if result: return result
+            res = find_usage_info(val)
+            if res: return res
     elif isinstance(data, list):
         for item in data:
-            result = find_usage_info(item)
-            if result: return result
+            res = find_usage_info(item)
+            if res: return res
     return None
 
 def parse_cli_response(engine, raw_stdout):
-    """Parses response and robustly extracts usage info."""
     text, usage = None, None
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
-        
-        # Robustly find usage
         usage = find_usage_info(data)
-        
-        if engine == "gemini":
-            text = data.get("response")
+        if engine == "gemini": text = data.get("response")
         elif engine == "qwen" and isinstance(data, list):
             for item in data:
                 if item.get("type") == "result":
                     text = item.get("result")
                     break
-        
-        # If text is still None, try to find any result/response field
-        if text is None and isinstance(data, dict):
-            text = data.get("result") or data.get("response")
-            
+        if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
     except: pass
-    
-    if text is None:
-        text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    
+    if text is None: text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
     return text or "⚠️ Empty response from CLI.", usage
 
 # --- Bot Instance Class ---
@@ -129,13 +109,14 @@ class GeminiBotInstance:
         self.name = name.lower()
         self.token = token
         self.engine = "gemini"
-        self.skip_session_once = False # For /new
+        self.skip_session_once = False
         
         self.base_dir = Path(f"bots/{self.name}")
         for d in ["logs", "gemini_memory", "workspace"]: (self.base_dir / d).mkdir(parents=True, exist_ok=True)
         
         self.memory_file = self.base_dir / "gemini_memory/memory.json"
         self.summary_file = self.base_dir / "gemini_memory/memory_summary.md"
+        self.agent_file = self.base_dir / "workspace/agent.md"
         self.memory_data = self._load_memory()
         
         self.debug_logger = logging.getLogger(f"debug_{self.name}")
@@ -148,6 +129,9 @@ class GeminiBotInstance:
             sh = logging.StreamHandler()
             sh.setFormatter(logging.Formatter(f'%(asctime)s - {self.name.upper()} - %(message)s'))
             self.console.addHandler(sh)
+        
+        # Initial identity sync
+        self.sync_identity_files()
 
     def _load_memory(self):
         if self.memory_file.exists():
@@ -160,9 +144,28 @@ class GeminiBotInstance:
         if len(self.memory_data) > 300: self.memory_data = self.memory_data[-300:]
         with open(self.memory_file, "w") as f: json.dump(self.memory_data, f, indent=2)
 
+    def sync_identity_files(self):
+        """Merges agent.md with core system rules into GEMINI.md and QWEN.md."""
+        agent_content = ""
+        if self.agent_file.exists():
+            agent_content = self.agent_file.read_text(encoding="utf-8")
+        
+        core_rules = (
+            f"\n\n# Mandatory System Rules\n"
+            f"- Your identity: '{self.name.capitalize()}', assistant for '老兵'.\n"
+            f"- Working Directory: You are running in your dedicated workspace. Perform all file operations here.\n"
+            f"- Vision: To see the screen, run `screencapture screenshot.png`. The system will automatically analyze it for you.\n"
+            f"- Output: Always respond in standard Markdown.\n"
+        )
+        
+        full_content = agent_content + core_rules
+        (self.base_dir / "workspace/GEMINI.md").write_text(full_content, encoding="utf-8")
+        (self.base_dir / "workspace/QWEN.md").write_text(full_content, encoding="utf-8")
+        self.debug_logger.debug("Identity files (GEMINI.md/QWEN.md) synchronized.")
+
     def update_daily_log_handler(self):
         today = datetime.date.today().isoformat()
-        log_path = self.log_dir / f"{today}.log"
+        log_path = self.base_dir / f"logs/{today}.log"
         for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
         fh = logging.FileHandler(log_path, encoding='utf-8')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -171,7 +174,7 @@ class GeminiBotInstance:
     async def get_vision_analysis(self, query, img_path):
         try:
             img = Image.open(img_path)
-            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Use HTML tags like <b> and <pre>."
+            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Respond in Markdown."
             res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
             return res.text
         except Exception as e: return f"⚠️ Vision Error: {str(e)}"
@@ -183,9 +186,11 @@ class GeminiBotInstance:
         if not user_text: return
         
         self.console.info(f"📥 Received: {user_text[:50]}...")
+        # Sync before each call in case agent.md was modified by the bot itself
+        self.sync_identity_files()
 
         try:
-            # 1. SPECIAL COMMANDS
+            # Command Handling
             if user_text.startswith("/engine"):
                 parts = user_text.split()
                 if len(parts) > 1 and parts[1].lower() in ["gemini", "qwen"]:
@@ -196,44 +201,35 @@ class GeminiBotInstance:
 
             if user_text == "/new":
                 self.skip_session_once = True
-                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Session Reset. Next message will start a new context.", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Session Reset.", parse_mode=ParseMode.HTML)
                 return
 
             if user_text == "/summary":
                 log_md = self.base_dir / f"logs/{datetime.date.today().isoformat()}.md"
                 if not log_md.exists():
-                    await update.message.reply_text("No logs yet."); return
+                    await update.message.reply_text("No logs today."); return
                 facts = client.models.generate_content(model='gemini-2.5-flash', contents=f"Extract facts for '老兵':\n\n{log_md.read_text()}").text
                 with open(self.summary_file, "a") as f: f.write(f"\n### {datetime.date.today().isoformat()} Facts\n{facts}\n")
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
 
-            # 2. PROMPT CONSTRUCTION (Dialogue Style - Safely escaped)
+            # Context Construction (Simplified)
             facts_str = ""
             if self.summary_file.exists():
                 with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:]).strip()
 
-            # Using === instead of [...] to avoid shell globbing issues
-            full_prompt = (
-                f"=== SYSTEM: 你的名字是 '{self.name.capitalize()}'，一名高效的 AI 助手。用户是 '老兵'。当前工作目录在 '{self.base_dir}/workspace/'。 ===\n"
-                f"=== 已知事实：{facts_str or '暂无。'} ===\n"
-                f"老兵：{user_text}"
-            )
-            
+            # The Prompt is now just the Dialogue
+            full_prompt = f"=== 已知事实：{facts_str or '暂无。'} ===\n老兵：{user_text}"
             if user_text == "/compact": full_prompt = "/compact"
 
             status_msg = None
             try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
             except: pass
 
-            # 3. CLI EXECUTION
-            # For Qwen, use positional argument with quotes to avoid shell splitting
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
-            
             if not self.skip_session_once:
                 if self.engine == "gemini": cmd.append("--resume=latest")
                 elif self.engine == "qwen": cmd.extend(["--continue", f"--session-id={self.name}"])
-            else:
-                self.skip_session_once = False
+            else: self.skip_session_once = False
 
             start_ts = datetime.datetime.now().timestamp()
             self.debug_logger.debug(f"CMD: {' '.join(cmd)}")
@@ -253,51 +249,37 @@ class GeminiBotInstance:
             
             response_text, usage = parse_cli_response(self.engine, raw_stdout)
 
-            # 4. Vision Check
             shot = self.base_dir / "workspace/screenshot.png"
             if shot.exists() and shot.stat().st_mtime > start_ts:
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
                 response_text = await self.get_vision_analysis(user_text, shot)
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
 
-            # 5. SAVE LOGS & MEMORY
             if proc.returncode == 0:
-                today_md = self.base_dir / f"logs/{datetime.date.today().isoformat()}.md"
+                today_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
                 with open(today_md, "a", encoding="utf-8") as f:
                     f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
                 self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
-                self._save_memory_file()
+                self._save_memory()
 
-            # 6. UI RENDER (Add Token Usage)
             footer = ""
             if usage:
-                # Usage structure can vary, search for total tokens
                 total = usage.get("total_tokens") or usage.get("total") or usage.get("totalTokens")
                 if total:
-                    if self.engine == "gemini":
-                        left = 1048576 - total
-                        footer = f"\n\n<pre>Context Left: {left/1000:.1f}k</pre>"
-                    else:
-                        footer = f"\n\n<pre>Tokens Used: {total/1000:.1f}k</pre>"
+                    if self.engine == "gemini": footer = f"\n\n<pre>Context Left: {(1048576 - total)/1000:.1f}k</pre>"
+                    else: footer = f"\n\n<pre>Tokens Used: {total/1000:.1f}k</pre>"
 
             final_html = safe_truncate_html(smart_format_render(response_text) + footer)
-            
             if status_msg:
-                try:
-                    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=final_html, parse_mode=ParseMode.HTML)
-                except Exception as e:
-                    self.console.warning(f"HTML fail: {e}")
-                    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
-            else:
-                await update.message.reply_text(text=response_text[:4000])
-
-            self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s) - Logged.")
+                try: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=final_html, parse_mode=ParseMode.HTML)
+                except: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
+            else: await update.message.reply_text(text=response_text[:4000])
+            self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s)")
 
         except (TimedOut, NetworkError): pass
         except Exception as e:
             self.console.error(f"⚠️ Error: {e}")
             self.debug_logger.exception("Catastrophic:")
-        
         play_notification_sound()
 
 # --- Multi-Bot Async Runner ---
