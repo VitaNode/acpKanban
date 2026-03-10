@@ -39,45 +39,26 @@ def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
 
-# --- Improved Robust Multi-Format Renderer ---
+# --- Robust Multi-Format Renderer ---
 def smart_format_render(text):
     if not text: return "✅ Done."
-    
     placeholders = []
-    
     def save_block(match):
         content = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
-        # Use <pre> for scrolling support
         placeholders.append(f"<pre>{html.escape(content.strip())}</pre>")
-        return f"XYZPH{len(placeholders)-1}XYZ" # Unique tag without underscores to avoid regex collision
-
-    # 1. Protect code blocks and tables first
-    # Triple backticks
-    text = re.sub(r'```(?:[\w]*)\n?(.*?)```', save_block, text, flags=re.DOTALL)
-    # Tables (lines starting/ending with |)
-    text = re.sub(r'((?:\n|^)\|.*?\|(?:\n|$)(?:\|.*?\|(?:\n|$))*)', save_block, text)
+        return f"XYZPH{len(placeholders)-1}XYZ"
     
-    # Inline code
+    text = re.sub(r'```(?:[\w]*)\n?(.*?)```', save_block, text, flags=re.DOTALL)
+    text = re.sub(r'((?:\n|^)\|.*?\|(?:\n|$)(?:\|.*?\|(?:\n|$))*)', save_block, text)
     def save_inline(match):
         placeholders.append(f"<code>{html.escape(match.group(1))}</code>")
         return f"XYZPH{len(placeholders)-1}XYZ"
     text = re.sub(r'`(.*?)`', save_inline, text)
-
-    # 2. Escape all other HTML special characters
     text = html.escape(text)
-
-    # 3. Apply formatting to the escaped text
-    # Bold **text**
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    # Headers # -> Bold
     text = re.sub(r'^#+\s+(.*)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-    # Italic _text_ (Only if bounded by word boundaries and not part of our placeholder)
     text = re.sub(r'(?<!\w)_(.*?)_(?!\w)', r'<i>\1</i>', text)
-
-    # 4. Restore the protected blocks
-    for i, ph in enumerate(placeholders):
-        text = text.replace(f"XYZPH{i}XYZ", ph)
-
+    for i, ph in enumerate(placeholders): text = text.replace(f"XYZPH{i}XYZ", ph)
     return text
 
 def safe_truncate_html(text, limit=4000):
@@ -90,15 +71,22 @@ def safe_truncate_html(text, limit=4000):
     return truncated
 
 def parse_cli_response(engine, raw_stdout):
+    """Parses response and extracts usage info."""
+    text, usage = "✅ Done.", None
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
-        if engine == "gemini": return data.get("response", "✅ Done.")
+        if engine == "gemini":
+            text = data.get("response", "✅ Done.")
+            usage = data.get("usage")
         if engine == "qwen" and isinstance(data, list):
             for item in data:
-                if item.get("type") == "result": return item.get("result", "✅ Done.")
-    except: pass
-    return re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip() or "✅ Done."
+                if item.get("type") == "result":
+                    text = item.get("result", "✅ Done.")
+                    usage = item.get("usage")
+    except:
+        text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip() or "✅ Done."
+    return text, usage
 
 # --- Bot Instance Class ---
 class GeminiBotInstance:
@@ -106,15 +94,13 @@ class GeminiBotInstance:
         self.name = name.lower()
         self.token = token
         self.engine = "gemini"
+        self.skip_session_once = False # For /new
         
         self.base_dir = Path(f"bots/{self.name}")
-        self.log_dir = self.base_dir / "logs"
-        self.memory_dir = self.base_dir / "gemini_memory"
-        self.workspace_dir = self.base_dir / "workspace"
-        for d in [self.log_dir, self.memory_dir, self.workspace_dir]: d.mkdir(parents=True, exist_ok=True)
+        for d in ["logs", "gemini_memory", "workspace"]: (self.base_dir / d).mkdir(parents=True, exist_ok=True)
         
-        self.memory_file = self.memory_dir / "memory.json"
-        self.summary_file = self.memory_dir / "memory_summary.md"
+        self.memory_file = self.base_dir / "gemini_memory/memory.json"
+        self.summary_file = self.base_dir / "gemini_memory/memory_summary.md"
         self.memory_data = self._load_memory()
         
         self.debug_logger = logging.getLogger(f"debug_{self.name}")
@@ -141,7 +127,7 @@ class GeminiBotInstance:
 
     def update_daily_log_handler(self):
         today = datetime.date.today().isoformat()
-        log_path = self.log_dir / f"{today}.log"
+        log_path = self.base_dir / f"logs/{today}.log"
         for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
         fh = logging.FileHandler(log_path, encoding='utf-8')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -150,12 +136,10 @@ class GeminiBotInstance:
     async def get_vision_analysis(self, query, img_path):
         try:
             img = Image.open(img_path)
-            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Respond in Markdown."
+            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Use HTML tags like <b> and <pre>."
             res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
             return res.text
-        except Exception as e:
-            self.debug_logger.exception("Vision fail:")
-            return f"⚠️ Vision Error: {str(e)}"
+        except Exception as e: return f"⚠️ Vision Error: {str(e)}"
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
@@ -166,7 +150,7 @@ class GeminiBotInstance:
         self.console.info(f"📥 Received: {user_text[:50]}...")
 
         try:
-            # 1. Command Handling
+            # 1. SPECIAL COMMANDS
             if user_text.startswith("/engine"):
                 parts = user_text.split()
                 if len(parts) > 1 and parts[1].lower() in ["gemini", "qwen"]:
@@ -175,80 +159,95 @@ class GeminiBotInstance:
                 else: await update.message.reply_text(f"🤖 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
                 return
 
+            if user_text == "/new":
+                self.skip_session_once = True
+                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Session Reset. Next message will start a new context.", parse_mode=ParseMode.HTML)
+                return
+
             if user_text == "/summary":
-                log_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
+                log_md = self.base_dir / f"logs/{datetime.date.today().isoformat()}.md"
                 if not log_md.exists():
                     await update.message.reply_text("No logs yet."); return
                 facts = client.models.generate_content(model='gemini-2.5-flash', contents=f"Extract facts for '老兵':\n\n{log_md.read_text()}").text
                 with open(self.summary_file, "a") as f: f.write(f"\n### {datetime.date.today().isoformat()} Facts\n{facts}\n")
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
 
-            # 2. Context Construction
-            recent_convo = "\n".join([f"- {m['text']}" for m in self.memory_data[-3:]])
+            # 2. PROMPT CONSTRUCTION (Dialogue Style)
             facts_str = ""
             if self.summary_file.exists():
                 with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:])
 
+            # Natural dialogue-based prompt
+            # We don't include history here because we use --resume/--continue
             full_prompt = (
-                f"### USER REQUEST\n{user_text}\n\n"
-                f"### FACTS\n{facts_str or 'None.'}\n\n"
-                f"### RECENT HISTORY\n{recent_convo or 'None.'}\n\n"
-                f"### SYSTEM\n- Name: '{self.name.capitalize()}'. Assistant for '老兵'.\n"
-                f"- Workspace: '{self.workspace_dir}/'.\n"
-                f"- Vision: run `screencapture {self.workspace_dir}/screenshot.png`."
+                f"[系统：你的名字是 '{self.name.capitalize()}'，一名高效的 AI 助手。用户是 '老兵'。当前工作目录在 '{self.base_dir}/workspace/'。]\n"
+                f"[已知事实：{facts_str or '暂无。'}]\n"
+                f"老兵：{user_text}"
             )
+            
+            # /compact command override
+            if user_text == "/compact":
+                full_prompt = "/compact"
 
             status_msg = None
-            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...")
+            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
             except: pass
 
-            # 3. CLI Execution
+            # 3. CLI EXECUTION WITH NATIVE SESSION
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
-            start_ts = datetime.datetime.now().timestamp()
             
-            # 🚀 Logging-First: ensure we have the prompt even if it hangs
-            self.debug_logger.debug(f"FULL PROMPT SENT:\n{full_prompt}")
-            self.console.info(f"🚀 Launching {self.engine.upper()} CLI...")
+            # Apply session persistence flags
+            if not self.skip_session_once:
+                if self.engine == "gemini": cmd.append("--resume=latest")
+                elif self.engine == "qwen": cmd.extend(["--continue", f"--session-id={self.name}"])
+            else:
+                self.skip_session_once = False # Reset for next turn
 
-            proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            start_ts = datetime.datetime.now().timestamp()
+            self.debug_logger.debug(f"CMD: {' '.join(cmd)}")
+            
+            # Set CWD to workspace to ensure session persistence files stay organized
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.base_dir / "workspace")
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             except asyncio.TimeoutError:
                 proc.kill()
-                # 🛑 Improved Error Logging
-                self.console.error(f"❌ {self.engine.upper()} TIMEOUT after 120s")
-                self.debug_logger.error(f"Execution TIMEOUT after 120s for prompt: {user_text[:50]}...")
-                if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
+                if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout (120s).")
                 return
 
             duration = datetime.datetime.now().timestamp() - start_ts
             raw_stdout = stdout.decode()
-            raw_stderr = stderr.decode()
+            self.debug_logger.debug(f"RAW STDOUT: {raw_stdout}")
             
-            self.debug_logger.debug(f"CLI Duration: {duration:.1f}s")
-            self.debug_logger.debug(f"RAW STDOUT:\n{raw_stdout}")
-            if raw_stderr: self.debug_logger.debug(f"RAW STDERR:\n{raw_stderr}")
-            
-            response_text = parse_cli_response(self.engine, raw_stdout)
+            response_text, usage = parse_cli_response(self.engine, raw_stdout)
 
             # 4. Vision Check
-            shot = self.workspace_dir / "screenshot.png"
+            shot = self.base_dir / "workspace/screenshot.png"
             if shot.exists() and shot.stat().st_mtime > start_ts:
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
                 response_text = await self.get_vision_analysis(user_text, shot)
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
 
-            # 5. IMMEDIATELY SAVE LOGS AND MEMORY (Before rendering/sending)
+            # 5. SAVE LOGS & MEMORY
             if proc.returncode == 0:
-                today_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
+                today_md = self.base_dir / f"logs/{datetime.date.today().isoformat()}.md"
                 with open(today_md, "a", encoding="utf-8") as f:
-                    f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] User: {user_text}\nResponse: {response_text}\n\n")
-                self.memory_data.append({"text": f"User: {user_text}\nBot: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
+                    f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
+                # We still keep memory.json for semantic /search, though history is handled by CLI session
+                self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
                 self._save_memory()
-                self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s) - Logged.")
 
-            # 6. Render and Send to Telegram
-            final_html = safe_truncate_html(smart_format_render(response_text))
+            # 6. UI RENDER (Add Token Usage)
+            footer = ""
+            if usage:
+                tokens = usage.get("total_tokens", usage.get("total", 0))
+                if self.engine == "gemini":
+                    left = 1048576 - tokens
+                    footer = f"\n\n<pre>Context Left: {left/1000:.1f}k</pre>"
+                else:
+                    footer = f"\n\n<pre>Tokens Used: {tokens/1000:.1f}k</pre>"
+
+            final_html = safe_truncate_html(smart_format_render(response_text) + footer)
             
             if status_msg:
                 try:
@@ -258,6 +257,8 @@ class GeminiBotInstance:
                     await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
             else:
                 await update.message.reply_text(text=response_text[:4000])
+
+            self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s) - Logged.")
 
         except (TimedOut, NetworkError): pass
         except Exception as e:
@@ -273,7 +274,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def main():
     bot_configs = {k.replace("_BOT_TOKEN", "").lower(): v for k, v in os.environ.items() if k.endswith("_BOT_TOKEN")}
     if not bot_configs: return
-    print(f"--- Starting Bridge (Bots: {len(bot_configs)}) ---")
+    print(f"--- Starting Native Session Bridge (Bots: {len(bot_configs)}) ---")
     apps = []
     for name, token in bot_configs.items():
         instance = GeminiBotInstance(name, token)
