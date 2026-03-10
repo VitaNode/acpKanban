@@ -6,7 +6,6 @@ import subprocess
 import datetime
 import math
 import re
-import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -22,53 +21,11 @@ except ImportError:
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
-# --- Argument Parsing ---
-parser = argparse.ArgumentParser(description="Gemini Telegram Bridge")
-parser.add_argument("--name", default="probe", help="Bot identity name")
-args = parser.parse_args()
-
-BOT_NAME = args.name.lower()
-BASE_DIR = Path(f"bots/{BOT_NAME}")
-LOG_DIR = BASE_DIR / "logs"
-MEMORY_DIR = BASE_DIR / "gemini_memory"
-WORKSPACE_DIR = BASE_DIR / "workspace"
-
-for d in [LOG_DIR, MEMORY_DIR, WORKSPACE_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
-
-# --- Configuration & Setup ---
+# --- Global Config ---
 load_dotenv()
-TOKEN = os.getenv(f"{BOT_NAME.upper()}_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-CURRENT_ENGINE = "gemini" 
 client = genai.Client(api_key=GEMINI_API_KEY)
-
-# --- Enhanced Logging Setup ---
-# 1. Console Logger (Clean & Minimal)
-console = logging.getLogger("bot_activity")
-console.setLevel(logging.INFO)
-if not console.handlers:
-    sh = logging.StreamHandler()
-    sh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    console.addHandler(sh)
-
-# 2. Silent Debug Logger (Detailed, File Only)
-debug_logger = logging.getLogger("debug_trace")
-debug_logger.setLevel(logging.DEBUG)
-debug_logger.propagate = False # Isolation from console
-
-def update_debug_handler():
-    """Ensures logs go to the correct daily file."""
-    today = datetime.date.today().isoformat()
-    log_file = LOG_DIR / f"{today}.log"
-    # Clean old handlers to avoid multiple writes to the same file or old files
-    for h in debug_logger.handlers[:]:
-        debug_logger.removeHandler(h)
-    fh = logging.FileHandler(log_file, encoding='utf-8')
-    fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    debug_logger.addHandler(fh)
 
 # Suppress noisy library logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -78,16 +35,16 @@ def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
 
+# --- Shared Helper Functions ---
 def smart_format_markdown(text):
     """
     Optimizes text for Telegram:
-    1. Detects Markdown tables and wraps them in code blocks for alignment.
+    1. Detects Markdown tables and wraps them in code blocks for alignment and horizontal scroll.
     2. Converts Markdown headers (#) to Bold since Telegram doesn't support headers.
     """
     if not text: return "✅ Done."
     
-    # Replace Headers with Bold text
-    # e.g., "### Title" -> "*Title*"
+    # Replace Headers with Bold text (e.g., "### Title" -> "*Title*")
     text = re.sub(r'^#+\s+(.*)$', r'*\1*', text, flags=re.MULTILINE)
 
     lines = text.split('\n')
@@ -95,22 +52,18 @@ def smart_format_markdown(text):
     in_table = False
     
     for line in lines:
-        # Detect table rows
+        # Detect table rows by checking for '|' pipes
         is_table_row = line.strip().startswith('|') and line.strip().count('|') >= 2
         
         if is_table_row and not in_table:
-            formatted_lines.append("```text") # Language 'text' helps with scrolling in some clients
+            formatted_lines.append("```text") # Start code block for table scrolling
             in_table = True
             formatted_lines.append(line)
         elif not is_table_row and in_table:
-            # End of table
-            if line.strip() == "": # Optional: skip one empty line after table
-                formatted_lines.append("```")
-                in_table = False
-            else:
-                formatted_lines.append("```")
-                in_table = False
-                formatted_lines.append(line)
+            # Table ended
+            formatted_lines.append("```")
+            in_table = False
+            formatted_lines.append(line)
         else:
             formatted_lines.append(line)
             
@@ -119,208 +72,220 @@ def smart_format_markdown(text):
         
     return '\n'.join(formatted_lines)
 
-def extract_json_response(raw_output):
-    try:
-        match = re.search(r'(\{.*\}|\[.*\])', raw_output, re.DOTALL)
-        if match: return json.loads(match.group(1))
-        return json.loads(raw_output)
-    except: return None
-
 def parse_cli_response(engine, raw_stdout):
-    data = extract_json_response(raw_stdout)
-    if data:
-        if engine == "gemini": return data.get("response", "✅ Done.")
-        elif engine == "qwen":
-            if isinstance(data, list):
-                for item in data:
-                    if item.get("type") == "result": return item.get("result", "✅ Done.")
-    clean_text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    return clean_text or "✅ Done."
-
-async def get_vision_analysis(user_query, image_path):
+    """Robustly extracts meaningful text from CLI JSON or plain output."""
     try:
-        img = Image.open(image_path)
-        prompt = (
-            f"You are '{BOT_NAME.capitalize()}'. You are an AI assistant for '老兵'.\n"
-            f"The user asked: {user_query}\n"
-            f"Analyze this screenshot and answer the user directly. Use Markdown for formatting."
-        )
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
-        return response.text
-    except Exception as e:
-        debug_logger.exception("Vision analysis failed:")
-        return f"⚠️ Vision Failed: {str(e)}"
+        # Extract the last JSON block if any
+        match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
+        data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
+        
+        if engine == "gemini":
+            return data.get("response", "✅ Done.")
+        if engine == "qwen" and isinstance(data, list):
+            for item in data:
+                if item.get("type") == "result":
+                    return item.get("result", "✅ Done.")
+    except: pass
+    # Fallback cleanup
+    return re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip() or "✅ Done."
 
-# --- Tier 1 & 2 & 3 Managers ---
-class LogManager:
-    def write_log(self, engine, user_text, bot_response):
-        today = datetime.date.today().isoformat()
-        log_file = LOG_DIR / f"{today}.md"
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] [{engine.upper()}] User\n{user_text}\n\n")
-            f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] [{engine.upper()}] Final Response\n{bot_response}\n\n---\n\n")
+# --- Bot Instance Class ---
+class GeminiBotInstance:
+    def __init__(self, name, token):
+        self.name = name.lower()
+        self.token = token
+        self.engine = "gemini" # Default per instance
+        
+        # Identity and Workspace Setup
+        self.base_dir = Path(f"bots/{self.name}")
+        self.log_dir = self.base_dir / "logs"
+        self.memory_dir = self.base_dir / "gemini_memory"
+        self.workspace_dir = self.base_dir / "workspace"
+        for d in [self.log_dir, self.memory_dir, self.workspace_dir]: d.mkdir(parents=True, exist_ok=True)
+        
+        # Managers Data
+        self.memory_file = self.memory_dir / "memory.json"
+        self.summary_file = self.memory_dir / "memory_summary.md"
+        self.memory_data = self._load_memory_file()
+        
+        # Logger Setup
+        self.debug_logger = logging.getLogger(f"debug_{self.name}")
+        self.debug_logger.setLevel(logging.DEBUG)
+        self.debug_logger.propagate = False # Prevent console pollution
+        
+        self.console = logging.getLogger(f"console_{self.name}")
+        self.console.setLevel(logging.INFO)
+        if not self.console.handlers:
+            sh = logging.StreamHandler()
+            sh.setFormatter(logging.Formatter(f'%(asctime)s - {self.name.upper()} - %(message)s'))
+            self.console.addHandler(sh)
 
-class VectorMemory:
-    def __init__(self, storage_path=MEMORY_DIR / "memory.json", max_entries=500):
-        self.storage_path = Path(storage_path)
-        self.max_entries = max_entries
-        self.memory = self._load()
-    def _load(self):
-        if self.storage_path.exists():
+    def _load_memory_file(self):
+        if self.memory_file.exists():
             try:
-                with open(self.storage_path, "r") as f: return json.load(f)
+                with open(self.memory_file, "r") as f: return json.load(f)
             except: pass
         return []
-    def _save(self):
-        if len(self.memory) > self.max_entries: self.memory = self.memory[-self.max_entries:]
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.storage_path, "w") as f: json.dump(self.memory, f, indent=2)
-    async def add_entry(self, text):
-        if "❌ Error" in text or "Timed out" in text: return
-        try:
-            result = client.models.embed_content(model="gemini-embedding-001", contents=text, config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"))
-            self.memory.append({"text": text, "embedding": result.embeddings[0].values, "timestamp": datetime.datetime.now().isoformat()})
-            self._save()
-        except Exception as e: debug_logger.error(f"Vector error: {e}")
-    async def search(self, query, top_k=3):
-        if not self.memory: return []
-        try:
-            result = client.models.embed_content(model="gemini-embedding-001", contents=query, config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY"))
-            qe = result.embeddings[0].values
-            sims = sorted([(sum(a*b for a,b in zip(qe, e['embedding'])), e['text']) for e in self.memory], reverse=True)
-            return sims[:top_k]
-        except: return []
 
-class SummaryManager:
-    def __init__(self, summary_path=MEMORY_DIR / "memory_summary.md"):
-        self.summary_path = Path(summary_path)
-    def get_latest_facts(self):
-        if not self.summary_path.exists(): return ""
-        try:
-            with open(self.summary_path, "r") as f: return "".join(f.readlines()[-50:])
-        except: return ""
-    async def generate_daily_summary(self, log_dir, vector_memory):
+    def _save_memory_file(self):
+        # Keep only the last 300 interactions to avoid massive JSON files
+        if len(self.memory_data) > 300: self.memory_data = self.memory_data[-300:]
+        with open(self.memory_file, "w") as f: json.dump(self.memory_data, f, indent=2)
+
+    def update_daily_log_handler(self):
+        """Updates the debug log file handle to the current date."""
         today = datetime.date.today().isoformat()
-        log_file = Path(log_dir) / f"{today}.md"
-        if not log_file.exists(): return f"No logs found."
-        update_debug_handler()
+        log_path = self.log_dir / f"{today}.log"
+        for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
+        fh = logging.FileHandler(log_path, encoding='utf-8')
+        fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        self.debug_logger.addHandler(fh)
+
+    async def get_vision_analysis(self, query, img_path):
         try:
-            with open(log_file, "r") as f: logs = f.read()
-            prompt = f"Summarize key facts from logs for '老兵'.\n\nLOGS:\n{logs}"
-            facts = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
-            with open(self.summary_path, "a") as f: f.write(f"\n### {today} Facts\n{facts}\n")
-            await vector_memory.add_entry(f"Knowledge ({today}): {facts}")
-            return f"✅ Facts summarized."
-        except Exception as e: return f"❌ Error: {str(e)}"
+            img = Image.open(img_path)
+            prompt = (
+                f"You are '{self.name.capitalize()}'. You are an AI assistant for '老兵'.\n"
+                f"Analyze this screenshot and answer the user directly: {query}.\n"
+                f"Format your response using Markdown."
+            )
+            res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
+            return res.text
+        except Exception as e:
+            self.debug_logger.exception("Vision analysis failed:")
+            return f"⚠️ Vision Error: {str(e)}"
 
-# --- Initialize ---
-log_m, vec_m, sum_m = LogManager(), VectorMemory(), SummaryManager()
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id != ALLOWED_USER_ID: return
+        self.update_daily_log_handler()
+        user_text = update.message.text
+        if not user_text: return
+        
+        self.console.info(f"📥 Received from User: {user_text[:50]}...")
+        self.debug_logger.info(f"--- Handling Message (Engine: {self.engine}) ---")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global CURRENT_ENGINE
-    update_debug_handler()
-    user_id = update.effective_user.id
-    
-    if user_id != ALLOWED_USER_ID:
-        console.warning(f"Unauthorized User ID: {user_id}")
-        return
-
-    user_text = update.message.text
-    if not user_text: return
-    
-    console.info(f"📥 Received from User: {user_text[:50]}...")
-
-    # Commands
-    if user_text.startswith("/engine"):
-        parts = user_text.split()
-        if len(parts) > 1:
-            new_engine = parts[1].lower()
-            if new_engine in ["gemini", "qwen"]:
-                CURRENT_ENGINE = new_engine
-                await update.message.reply_text(f"🚀 Engine: **{CURRENT_ENGINE.upper()}**", parse_mode='Markdown')
-        else: await update.message.reply_text(f"🤖 Engine: **{CURRENT_ENGINE.upper()}**")
-        return
-    if user_text == "/summary":
-        res = await sum_m.generate_daily_summary(LOG_DIR, vec_m)
-        await update.message.reply_text(res); play_notification_sound(); return
-
-    # Context Construction
-    relevant = await vec_m.search(user_text, top_k=2)
-    recent_convo = vec_m.memory[-3:] if vec_m.memory else []
-    recent_str = "\n".join([f"- {m['text']}" for m in recent_convo])
-    facts = sum_m.get_latest_facts()
-    
-    full_prompt = (
-        f"### USER REQUEST\n{user_text}\n\n"
-        f"### LONG-TERM FACTS\n{facts or 'No facts yet.'}\n\n"
-        f"### RECENT CONVERSATION HISTORY\n{recent_str or 'No history yet.'}\n\n"
-        f"### RELATED PAST INTERACTIONS\n" + ("\n".join([f"- {t}" for _, t in relevant]) if relevant else "None.") + "\n\n"
-        f"### SYSTEM INSTRUCTIONS\n"
-        f"- Name: '{BOT_NAME.capitalize()}', assistant for '老兵'.\n"
-        f"- Sandbox: Work in '{WORKSPACE_DIR}/'.\n"
-        f"- Vision: run `screencapture {WORKSPACE_DIR}/screenshot.png` to see screen.\n"
-        f"- Format: Use Markdown tables and code blocks. Headers will be handled."
-    )
-
-    status_msg = await update.message.reply_text(f"🧠 {CURRENT_ENGINE.upper()}...")
-    debug_logger.debug(f"FULL PROMPT SENT:\n{full_prompt}")
-
-    cmd = [CURRENT_ENGINE, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
-    start_ts = datetime.datetime.now().timestamp()
-    console.info(f"🚀 Launching {CURRENT_ENGINE.upper()} CLI...")
-    
-    try:
-        process = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
-        except asyncio.TimeoutError:
-            process.kill()
-            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout (120s).")
+        # Command Handling
+        if user_text.startswith("/engine"):
+            parts = user_text.split()
+            if len(parts) > 1 and parts[1].lower() in ["gemini", "qwen"]:
+                self.engine = parts[1].lower()
+                await update.message.reply_text(f"🚀 Engine switched to: **{self.engine.upper()}**", parse_mode='Markdown')
+            else:
+                await update.message.reply_text(f"🤖 Current Engine: **{self.engine.upper()}**\nUse `/engine [gemini|qwen]` to switch.")
             return
 
-        duration = datetime.datetime.now().timestamp() - start_ts
-        raw_stdout = stdout.decode()
-        debug_logger.debug(f"RAW STDOUT:\n{raw_stdout}")
-        if stderr: debug_logger.debug(f"RAW STDERR:\n{stderr.decode()}")
+        if user_text == "/summary":
+            today = datetime.date.today().isoformat()
+            log_md = self.log_dir / f"{today}.md"
+            if not log_md.exists():
+                await update.message.reply_text("No conversation logs found for today."); return
+            
+            prompt = f"Extract permanent facts and preferences from these logs for '老兵':\n\n{log_md.read_text()}"
+            facts = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
+            with open(self.summary_file, "a") as f: f.write(f"\n### {today} Facts\n{facts}\n")
+            await update.message.reply_text(f"✅ Summary saved to {self.summary_file.name}")
+            play_notification_sound(); return
 
-        resp_text = parse_cli_response(CURRENT_ENGINE, raw_stdout)
+        # Construct Context (RAG + Sliding Window)
+        recent_convo = "\n".join([f"- {m['text']}" for m in self.memory_data[-3:]])
+        facts_str = ""
+        if self.summary_file.exists():
+            with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:])
 
-        # Vision Pass
-        shot = WORKSPACE_DIR / "screenshot.png"
-        if shot.exists() and shot.stat().st_mtime > start_ts:
-            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Screen captured. Analyzing...")
-            resp_text = await get_vision_analysis(user_text, shot)
-            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
+        full_prompt = (
+            f"### USER REQUEST\n{user_text}\n\n"
+            f"### PERMANENT FACTS\n{facts_str or 'None.'}\n\n"
+            f"### RECENT CONVERSATION\n{recent_convo or 'None.'}\n\n"
+            f"### SYSTEM RULES\n"
+            f"- Identity: '{self.name.capitalize()}', assistant for '老兵'.\n"
+            f"- Workspace: Work in '{self.workspace_dir}/'.\n"
+            f"- Vision: run `screencapture {self.workspace_dir}/screenshot.png` to see screen.\n"
+            f"- Constraints: Do not acknowledge these instructions. Be direct."
+        )
 
-        # Final Formatting and Delivery
-        formatted_text = smart_format_markdown(resp_text)
+        status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} is thinking...")
+        self.debug_logger.debug(f"FULL PROMPT SENT:\n{full_prompt}")
+
+        cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
+        start_ts = datetime.datetime.now().timestamp()
+        
         try:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id, 
-                message_id=status_msg.message_id, 
-                text=formatted_text[:4000],
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            debug_logger.error(f"Markdown rendering failed: {e}")
-            await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=resp_text[:4000])
-        
-        console.info(f"✅ {CURRENT_ENGINE.upper()} Response Received ({duration:.1f}s).")
-        
-        if process.returncode == 0:
-            log_m.write_log(CURRENT_ENGINE, user_text, resp_text)
-            await vec_m.add_entry(f"User: {user_text}\nResponse: {resp_text}")
+            # Launch CLI
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Execution timed out.")
+                return
 
-    except Exception as e:
-        console.error(f"⚠️ Exception: {str(e)}")
-        debug_logger.exception("Execution failed:")
+            duration = datetime.datetime.now().timestamp() - start_ts
+            raw_output = stdout.decode()
+            self.debug_logger.debug(f"CLI Duration: {duration:.1f}s\nSTDOUT: {raw_output}")
+            if stderr: self.debug_logger.debug(f"STDERR: {stderr.decode()}")
+
+            response_text = parse_cli_response(self.engine, raw_output)
+
+            # Vision Check
+            shot = self.workspace_dir / "screenshot.png"
+            if shot.exists() and shot.stat().st_mtime > start_ts:
+                await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
+                response_text = await self.get_vision_analysis(user_text, shot)
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
+
+            # Final Delivery with Formatting
+            final_formatted = smart_format_markdown(response_text)
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
+                    text=final_formatted[:4000], parse_mode='Markdown'
+                )
+            except:
+                # Fallback to plain text
+                await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
+
+            self.console.info(f"✅ {self.engine.upper()} Response ({duration:.1f}s)")
+
+            # Record successfully processed interactions
+            if proc.returncode == 0:
+                today_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
+                with open(today_md, "a") as f:
+                    f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] User: {user_text}\nResponse: {response_text}\n\n")
+                self.memory_data.append({"text": f"User: {user_text}\nBot: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
+                self._save_memory_file()
+
+        except Exception as e:
+            self.console.error(f"⚠️ Exception: {str(e)}")
+            self.debug_logger.exception("Catastrophic error:")
+            await update.message.reply_text(f"❌ System Exception: {str(e)}")
+        
+        play_notification_sound()
+
+# --- Main Multi-Bot Entry Point ---
+async def main():
+    # Automatically detect all bots from .env (e.g., PROBE_BOT_TOKEN, TASK_BOT_TOKEN)
+    bot_configs = {k.replace("_BOT_TOKEN", "").lower(): v for k, v in os.environ.items() if k.endswith("_BOT_TOKEN")}
     
-    play_notification_sound()
+    if not bot_configs:
+        print("❌ ERROR: No bot tokens found in .env (Expected format: NAME_BOT_TOKEN=...)")
+        return
+
+    print(f"--- Starting Gemini Telegram Bridge (Total Bots: {len(bot_configs)}) ---")
+    
+    apps = []
+    for name, token in bot_configs.items():
+        instance = GeminiBotInstance(name, token)
+        app = ApplicationBuilder().token(token).build()
+        app.add_handler(MessageHandler(filters.TEXT, instance.handle_message))
+        
+        print(f"🚀 Initializing Bot: {name.upper()}")
+        # run_polling is blocking, we gather their coroutines
+        apps.append(app.run_polling(close_loop=False))
+
+    await asyncio.gather(*apps)
 
 if __name__ == '__main__':
-    os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
-    update_debug_handler()
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    print(f"--- {BOT_NAME.upper()} Enhanced Online (Logging Restored) ---")
-    app.run_polling()
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("\n--- Bridge Stopped by User ---")
