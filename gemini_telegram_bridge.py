@@ -4,9 +4,7 @@ import logging
 import asyncio
 import subprocess
 import datetime
-import math
 import re
-import argparse
 import signal
 import html
 from pathlib import Path
@@ -84,12 +82,14 @@ def find_usage_info(data):
             if res: return res
     return None
 
-def parse_cli_response(engine, raw_stdout):
+def parse_cli_response(engine, raw_stdout, logger=None):
     text, usage = None, None
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
         usage = find_usage_info(data)
+        if usage is None and logger:
+            logger.debug(f"⚠️ No usage info found. JSON: {json.dumps(data, indent=2)[:2000]}...")
         if engine == "gemini": text = data.get("response")
         elif engine == "qwen" and isinstance(data, list):
             for item in data:
@@ -121,17 +121,23 @@ class GeminiBotInstance:
         self.agent_file = self.workspace_dir / "agent.md"
         self.memory_data = self._load_memory()
         
-        self.debug_logger = logging.getLogger(f"debug_{self.name}")
-        self.debug_logger.setLevel(logging.DEBUG)
-        self.debug_logger.propagate = False
+        # 统一日志：终端全量输出（DEBUG 级别），带颜色区分
+        self.logger = logging.getLogger(f"bot_{self.name}")
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.propagate = False
         
-        self.console = logging.getLogger(f"console_{self.name}")
-        self.console.setLevel(logging.INFO)
-        if not self.console.handlers:
+        # 清除已有 handler（避免重复）
+        if not self.logger.handlers:
+            # 终端 handler - 彩色输出
             sh = logging.StreamHandler()
-            sh.setFormatter(logging.Formatter(f'%(asctime)s - {self.name.upper()} - %(message)s'))
-            self.console.addHandler(sh)
-        
+            sh.setLevel(logging.DEBUG)
+            # 格式：时间 | Bot 名 | 级别 | 消息
+            sh.setFormatter(logging.Formatter(
+                f'%(asctime)s | %(name)s | %(levelname)-8s | %(message)s',
+                datefmt='%H:%M:%S'
+            ))
+            self.logger.addHandler(sh)
+
         self.sync_identity_files()
 
     def _load_memory(self):
@@ -158,14 +164,6 @@ class GeminiBotInstance:
         (self.workspace_dir / "GEMINI.md").write_text(full_content, encoding="utf-8")
         (self.workspace_dir / "QWEN.md").write_text(full_content, encoding="utf-8")
 
-    def update_daily_log_handler(self):
-        today = datetime.date.today().isoformat()
-        log_path = self.log_dir / f"{today}.log"
-        for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
-        fh = logging.FileHandler(log_path, encoding='utf-8')
-        fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        self.debug_logger.addHandler(fh)
-
     async def get_vision_analysis(self, query, img_path):
         try:
             img = Image.open(img_path)
@@ -176,12 +174,18 @@ class GeminiBotInstance:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
-        self.update_daily_log_handler()
         user_text = update.message.text
         if not user_text: return
-        
-        self.console.info(f"📥 Received: {user_text[:50]}...")
+
+        session_start = datetime.datetime.now().timestamp()
+        self.logger.info(f"📥 Received: {user_text[:50]}...")
         self.sync_identity_files()
+
+        def log_phase(name: str):
+            """记录阶段耗时"""
+            now = datetime.datetime.now().timestamp()
+            elapsed = now - session_start
+            self.logger.debug(f"⏱️ [{elapsed:5.1f}s] {name}")
 
         try:
             # Command Handling
@@ -191,31 +195,38 @@ class GeminiBotInstance:
                     self.engine = parts[1].lower()
                     await update.message.reply_text(f"🚀 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
                 else: await update.message.reply_text(f"🤖 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
+                log_phase(f"Command /engine ({self.engine})")
                 return
 
             if user_text == "/new":
                 self.skip_session_once = True
                 await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Reset.", parse_mode=ParseMode.HTML)
+                log_phase("Command /new (session reset)")
                 return
 
             if user_text == "/summary":
+                log_phase("Starting /summary...")
                 log_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
                 if not log_md.exists():
                     await update.message.reply_text("No logs yet."); return
                 facts = client.models.generate_content(model='gemini-2.5-flash', contents=f"Extract facts for '老兵':\n\n{log_md.read_text()}").text
                 with open(self.summary_file, "a") as f: f.write(f"\n### {datetime.date.today().isoformat()} Facts\n{facts}\n")
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
+                log_phase(f"/summary completed")
 
             # Context Construction
             facts_str = ""
             if self.summary_file.exists():
                 with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:]).strip()
+            log_phase("Context built")
 
             full_prompt = f"=== 已知事实: {facts_str or '暂无'} ===\n老兵: {user_text}"
             if user_text == "/compact": full_prompt = "/compact"
 
             status_msg = None
-            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
+            try: 
+                status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
+                log_phase("Status message sent")
             except: pass
 
             # 🛠️ CLI Execution Logic - Fixed Qwen Session Parameters
@@ -227,29 +238,38 @@ class GeminiBotInstance:
             else:
                 self.skip_session_once = False # Skip the resume/continue flag for one turn
 
-            start_ts = datetime.datetime.now().timestamp()
-            self.debug_logger.debug(f"CMD: {' '.join(cmd)}")
-            
+            self.logger.debug(f"CMD: {' '.join(cmd)}")
+            log_phase("CLI start")
+
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.workspace_dir)
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             except asyncio.TimeoutError:
                 proc.kill()
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
+                self.logger.warning("⏱️ CLI execution timeout (>120s)")
+                log_phase("CLI TIMEOUT")
                 return
 
-            duration = datetime.datetime.now().timestamp() - start_ts
+            cli_end = datetime.datetime.now().timestamp()
+            cli_duration = cli_end - session_start
             raw_stdout = stdout.decode()
-            self.debug_logger.debug(f"RAW STDOUT: {raw_stdout}")
-            if stderr: self.debug_logger.debug(f"RAW STDERR: {stderr.decode()}")
+            self.logger.debug(f"RAW STDOUT: {raw_stdout[:500]}...")
+            if stderr:
+                stderr_text = stderr.decode()
+                self.logger.debug(f"RAW STDERR: {stderr_text[:500]}...")
+            log_phase(f"CLI completed ({cli_duration:.1f}s)")
             
-            response_text, usage = parse_cli_response(self.engine, raw_stdout)
+            response_text, usage = parse_cli_response(self.engine, raw_stdout, self.logger)
+            log_phase("Response parsed")
 
             shot = self.workspace_dir / "screenshot.png"
-            if shot.exists() and shot.stat().st_mtime > start_ts:
+            if shot.exists() and shot.stat().st_mtime > cli_end:
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
+                log_phase("Vision analysis start")
                 response_text = await self.get_vision_analysis(user_text, shot)
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
+                log_phase("Vision completed")
 
             if proc.returncode == 0:
                 today_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
@@ -257,6 +277,7 @@ class GeminiBotInstance:
                     f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
                 self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
                 self._save_memory()
+                log_phase("Logs & memory saved")
 
             footer = ""
             if usage:
@@ -270,12 +291,18 @@ class GeminiBotInstance:
                 try: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=final_html, parse_mode=ParseMode.HTML)
                 except: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
             else: await update.message.reply_text(text=response_text[:4000])
-            self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s)")
+            log_phase("Response sent")
+            
+            total_duration = datetime.datetime.now().timestamp() - session_start
+            self.logger.info(f"✅ {self.engine.upper()} ({total_duration:.1f}s)")
 
-        except (TimedOut, NetworkError): pass
+        except (TimedOut, NetworkError):
+            self.logger.warning("⚠️ Network timeout (ignored)")
+            log_phase("Network error")
         except Exception as e:
-            self.console.error(f"⚠️ Error: {e}")
-            self.debug_logger.exception("Catastrophic:")
+            self.logger.error(f"⚠️ Error: {e}")
+            self.logger.exception("Catastrophic:")
+            log_phase("Error")
         play_notification_sound()
 
 # --- Multi-Bot Async Runner ---
