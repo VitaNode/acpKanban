@@ -22,6 +22,7 @@ except ImportError:
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.constants import ParseMode
 
 # --- Global Config ---
 load_dotenv()
@@ -39,23 +40,41 @@ def play_notification_sound():
 
 # --- Shared Helper Functions ---
 def smart_format_markdown(text):
+    """
+    Optimizes text for Telegram:
+    1. Detects Markdown tables and wraps them in code blocks for alignment and horizontal scroll.
+    2. Converts Markdown headers (#) to Bold since Telegram legacy Markdown handles it better this way.
+    """
     if not text: return "✅ Done."
+    
+    # Headers -> Bold (e.g., "### Title" -> "*Title*")
     text = re.sub(r'^#+\s+(.*)$', r'*\1*', text, flags=re.MULTILINE)
+
     lines = text.split('\n')
-    formatted, in_table = [], False
+    formatted_lines = []
+    in_table = False
+    
     for line in lines:
-        is_row = line.strip().startswith('|') and line.strip().count('|') >= 2
-        if is_row and not in_table:
-            formatted.append("```text")
+        # Detect table rows
+        is_table_row = line.strip().startswith('|') and line.strip().count('|') >= 2
+        
+        if is_table_row and not in_table:
+            formatted_lines.append("```text")
             in_table = True
-            formatted.append(line)
-        elif not is_row and in_table:
-            formatted.append("```")
+            formatted_lines.append(line)
+        elif not is_table_row and in_table:
+            # End of table detected (usually an empty line or non-table line)
+            formatted_lines.append("```")
             in_table = False
-            formatted.append(line)
-        else: formatted.append(line)
-    if in_table: formatted.append("```")
-    return '\n'.join(formatted)
+            if line.strip(): # Don't lose the line content
+                formatted_lines.append(line)
+        else:
+            formatted_lines.append(line)
+            
+    if in_table:
+        formatted_lines.append("```")
+        
+    return '\n'.join(formatted_lines)
 
 def parse_cli_response(engine, raw_stdout):
     try:
@@ -66,6 +85,7 @@ def parse_cli_response(engine, raw_stdout):
             for item in data:
                 if item.get("type") == "result": return item.get("result", "✅ Done.")
     except: pass
+    # Fallback to cleaning text
     return re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip() or "✅ Done."
 
 # --- Bot Instance Class ---
@@ -86,6 +106,7 @@ class GeminiBotInstance:
         self.summary_file = self.memory_dir / "memory_summary.md"
         self.memory_data = self._load_memory_file()
         
+        # Loggers
         self.debug_logger = logging.getLogger(f"debug_{self.name}")
         self.debug_logger.setLevel(logging.DEBUG)
         self.debug_logger.propagate = False
@@ -119,7 +140,7 @@ class GeminiBotInstance:
     async def get_vision_analysis(self, query, img_path):
         try:
             img = Image.open(img_path)
-            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Use Markdown."
+            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Respond in Markdown."
             res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
             return res.text
         except Exception as e:
@@ -134,12 +155,12 @@ class GeminiBotInstance:
         
         self.console.info(f"📥 Received: {user_text[:50]}...")
 
-        # Command Handling
+        # Commands
         if user_text.startswith("/engine"):
             parts = user_text.split()
             if len(parts) > 1 and parts[1].lower() in ["gemini", "qwen"]:
                 self.engine = parts[1].lower()
-                await update.message.reply_text(f"🚀 Engine: **{self.engine.upper()}**", parse_mode='Markdown')
+                await update.message.reply_text(f"🚀 Engine: **{self.engine.upper()}**", parse_mode=ParseMode.MARKDOWN)
             else: await update.message.reply_text(f"🤖 Engine: **{self.engine.upper()}**")
             return
 
@@ -166,7 +187,8 @@ class GeminiBotInstance:
             f"### RECENT HISTORY\n{recent_convo or 'None.'}\n\n"
             f"### SYSTEM\n- Name: '{self.name.capitalize()}'. Assistant for '老兵'.\n"
             f"- Workspace: '{self.workspace_dir}/'.\n"
-            f"- Vision: run `screencapture {self.workspace_dir}/screenshot.png`."
+            f"- Vision: run `screencapture {self.workspace_dir}/screenshot.png`.\n"
+            f"- Important: Return answers in standard Markdown."
         )
 
         status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...")
@@ -195,15 +217,23 @@ class GeminiBotInstance:
                 response_text = await self.get_vision_analysis(user_text, shot)
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
 
-            # Final Render
+            # Final Render with robust fallback
             final_formatted = smart_format_markdown(response_text)
             try:
                 await context.bot.edit_message_text(
-                    chat_id=update.effective_chat.id, message_id=status_msg.message_id, 
-                    text=final_formatted[:4000], parse_mode='Markdown'
+                    chat_id=update.effective_chat.id, 
+                    message_id=status_msg.message_id, 
+                    text=final_formatted[:4000], 
+                    parse_mode=ParseMode.MARKDOWN
                 )
-            except:
-                await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
+            except Exception as e:
+                self.console.warning(f"Markdown render failed, falling back to plain text: {e}")
+                # If first parse_mode fails, try without it to at least deliver the content
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id, 
+                    message_id=status_msg.message_id, 
+                    text=response_text[:4000]
+                )
 
             self.console.info(f"✅ {self.engine.upper()} ({duration:.1f}s)")
 
@@ -237,16 +267,12 @@ async def main():
         app.add_handler(MessageHandler(filters.TEXT, instance.handle_message))
         
         print(f"🚀 Launching Bot: {name.upper()}")
-        # Manually initialize and start
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
         apps.append(app)
 
-    # Use a permanent wait event
     stop_event = asyncio.Event()
-    
-    # Handle termination signals
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: stop_event.set())
