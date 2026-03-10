@@ -8,6 +8,7 @@ import math
 import re
 import argparse
 import signal
+import html
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -39,25 +40,68 @@ def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
 
-# --- Shared Helper Functions ---
-def smart_format_markdown(text):
+# --- Robust Multi-Format Renderer ---
+def smart_format_render(text):
+    """
+    Optimizes text for Telegram using HTML mode for maximum reliability.
+    1. Escapes HTML entities.
+    2. Converts Markdown tables and code blocks to <pre> or <code>.
+    3. Converts **bold** and # headers to <b>.
+    """
     if not text: return "✅ Done."
-    text = re.sub(r'^#+\s+(.*)$', r'*\1*', text, flags=re.MULTILINE)
-    lines = text.split('\n')
-    formatted_lines, in_table = [], False
-    for line in lines:
-        is_table_row = line.strip().startswith('|') and line.strip().count('|') >= 2
-        if is_table_row and not in_table:
-            formatted_lines.append("```text")
-            in_table = True
-            formatted_lines.append(line)
-        elif not is_table_row and in_table:
-            formatted_lines.append("```")
-            in_table = False
-            if line.strip(): formatted_lines.append(line)
-        else: formatted_lines.append(line)
-    if in_table: formatted_lines.append("```")
-    return '\n'.join(formatted_lines)
+    
+    # 1. First, protect code blocks and tables by extracting them
+    placeholders = []
+    
+    def save_block(match):
+        content = match.group(1) if match.lastindex >= 1 else match.group(0)
+        # Use <pre> for blocks to support scrolling
+        placeholders.append(f"<pre>{html.escape(content.strip())}</pre>")
+        return f"__PLACEHOLDER_{len(placeholders)-1}__"
+
+    # Save Triple Backtick Blocks
+    text = re.sub(r'```(?:[\w]*)\n?(.*?)```', save_block, text, flags=re.DOTALL)
+    
+    # Save Tables (any block of lines starting/ending with |)
+    text = re.sub(r'((?:\n|^)\|.*?\|(?:\n|$)(?:\|.*?\|(?:\n|$))*)', save_block, text)
+
+    # Save Inline Code `...`
+    def save_inline(match):
+        placeholders.append(f"<code>{html.escape(match.group(1))}</code>")
+        return f"__PLACEHOLDER_{len(placeholders)-1}__"
+    text = re.sub(r'`(.*?)`', save_inline, text)
+
+    # 2. Escape the rest of the text for HTML
+    text = html.escape(text)
+
+    # 3. Apply formatting to the escaped text
+    # Headers # -> Bold
+    text = re.sub(r'^#+\s+(.*)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    # Bold ** -> <b>
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    # Italic _ -> <i> (Simplified, can be tricky with underscores)
+    text = re.sub(r'\b_(.*?)_\b', r'<i>\1</i>', text)
+
+    # 4. Restore the protected blocks
+    for i, ph in enumerate(placeholders):
+        text = text.replace(html.escape(f"__PLACEHOLDER_{i}__"), ph)
+
+    return text
+
+def safe_truncate_html(text, limit=4000):
+    """Truncates HTML safely by ensuring tags are closed."""
+    if len(text) <= limit: return text
+    
+    truncated = text[:limit-50] + "..."
+    # A very basic tag balancer for common tags
+    for tag in ['pre', 'code', 'b', 'i']:
+        open_count = truncated.count(f'<{tag}>')
+        close_count = truncated.count(f'</{tag}>')
+        if open_count > close_count:
+            truncated += f'</{tag}>'
+    
+    truncated += "\n\n<i>(Content truncated due to length)</i>"
+    return truncated
 
 def parse_cli_response(engine, raw_stdout):
     try:
@@ -117,7 +161,7 @@ class GeminiBotInstance:
     async def get_vision_analysis(self, query, img_path):
         try:
             img = Image.open(img_path)
-            prompt = f"You are '{self.name.capitalize()}'. Helping '老兵'. Request: {query}. Respond in Markdown."
+            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Respond in Markdown."
             res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
             return res.text
         except Exception as e:
@@ -138,8 +182,8 @@ class GeminiBotInstance:
                 parts = user_text.split()
                 if len(parts) > 1 and parts[1].lower() in ["gemini", "qwen"]:
                     self.engine = parts[1].lower()
-                    await update.message.reply_text(f"🚀 Engine: **{self.engine.upper()}**", parse_mode=ParseMode.MARKDOWN)
-                else: await update.message.reply_text(f"🤖 Engine: **{self.engine.upper()}**")
+                    await update.message.reply_text(f"🚀 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
+                else: await update.message.reply_text(f"🤖 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
                 return
 
             if user_text == "/summary":
@@ -165,12 +209,11 @@ class GeminiBotInstance:
                 f"- Vision: run `screencapture {self.base_dir}/workspace/screenshot.png`."
             )
 
-            # 🧠 Send thinking status with error handling
             status_msg = None
             try:
                 status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
             except Exception as e:
-                self.console.warning(f"Could not send thinking status: {e}")
+                self.console.warning(f"Status msg fail: {e}")
 
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
             start_ts = datetime.datetime.now().timestamp()
@@ -184,7 +227,9 @@ class GeminiBotInstance:
                 return
 
             duration = datetime.datetime.now().timestamp() - start_ts
-            response_text = parse_cli_response(self.engine, stdout.decode())
+            raw_output = stdout.decode()
+            self.debug_logger.debug(f"RAW: {raw_output}")
+            response_text = parse_cli_response(self.engine, raw_output)
 
             # Vision Check
             shot = self.base_dir / "workspace/screenshot.png"
@@ -193,14 +238,26 @@ class GeminiBotInstance:
                 response_text = await self.get_vision_analysis(user_text, shot)
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
 
-            # Final Render
-            final_formatted = smart_format_markdown(response_text)
-            send_kwargs = {"chat_id": update.effective_chat.id, "text": final_formatted[:4000], "parse_mode": ParseMode.MARKDOWN}
+            # Final Render (Switching to HTML for robustness)
+            final_html = smart_format_render(response_text)
+            final_html = safe_truncate_html(final_html)
+            
             if status_msg:
                 try:
-                    await context.bot.edit_message_text(message_id=status_msg.message_id, **send_kwargs)
-                except:
-                    await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
+                    await context.bot.edit_message_text(
+                        chat_id=update.effective_chat.id, 
+                        message_id=status_msg.message_id, 
+                        text=final_html, 
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    self.console.warning(f"HTML Render fail: {e}")
+                    # Ultimate fallback: No formatting, just raw response text truncated
+                    await context.bot.edit_message_text(
+                        chat_id=update.effective_chat.id, 
+                        message_id=status_msg.message_id, 
+                        text=response_text[:4000]
+                    )
             else:
                 await update.message.reply_text(text=response_text[:4000])
 
@@ -212,23 +269,22 @@ class GeminiBotInstance:
                 self.memory_data.append({"text": f"User: {user_text}\nBot: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
                 self._save_memory_file()
 
-        except (TimedOut, NetworkError) as e:
-            self.console.error(f"🌐 Network/Timeout error: {e}")
+        except (TimedOut, NetworkError): pass
         except Exception as e:
-            self.console.error(f"⚠️ Handler error: {e}")
-            self.debug_logger.exception("Catastrophic error:")
+            self.console.error(f"⚠️ Error: {e}")
+            self.debug_logger.exception("Fail:")
         
         play_notification_sound()
 
-# --- Async Multi-Bot Runner ---
+# --- Multi-Bot Async Runner ---
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logging.error("Exception while handling an update:", exc_info=context.error)
+    logging.error("Exception while handling update:", exc_info=context.error)
 
 async def main():
     bot_configs = {k.replace("_BOT_TOKEN", "").lower(): v for k, v in os.environ.items() if k.endswith("_BOT_TOKEN")}
     if not bot_configs: return
 
-    print(f"--- Starting Bridge (Bots: {len(bot_configs)}) ---")
+    print(f"--- Starting Bridge (Total Bots: {len(bot_configs)}) ---")
     apps = []
     for name, token in bot_configs.items():
         instance = GeminiBotInstance(name, token)
