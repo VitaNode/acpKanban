@@ -139,7 +139,7 @@ class GeminiBotInstance:
         if len(self.memory_data) > 300: self.memory_data = self.memory_data[-300:]
         with open(self.memory_file, "w") as f: json.dump(self.memory_data, f, indent=2)
 
-    def update_debug_handler(self):
+    def update_daily_log_handler(self):
         today = datetime.date.today().isoformat()
         log_path = self.log_dir / f"{today}.log"
         for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
