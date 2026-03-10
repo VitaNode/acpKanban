@@ -39,7 +39,7 @@ def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
 
-# --- Shared Helper Functions ---
+# --- Robust Multi-Format Renderer ---
 def smart_format_render(text):
     if not text: return "✅ Done."
     placeholders = []
@@ -70,13 +70,13 @@ def safe_truncate_html(text, limit=4000):
     return truncated
 
 def find_usage_info(data):
+    """Recursively search for usage/token information in the JSON data."""
     if not isinstance(data, (dict, list)): return None
     if isinstance(data, dict):
+        # Look for usage or tokens key
         if "usage" in data: return data["usage"]
-        for key in ["stats", "metadata"]:
-            if key in data:
-                res = find_usage_info(data[key])
-                if res: return res
+        if "tokens" in data: return data["tokens"]
+        # Search deeper
         for val in data.values():
             res = find_usage_info(val)
             if res: return res
@@ -101,7 +101,7 @@ def parse_cli_response(engine, raw_stdout):
         if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
     except: pass
     if text is None: text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    return text or "⚠️ Empty response from CLI.", usage
+    return text or "✅ Done.", usage
 
 # --- Bot Instance Class ---
 class GeminiBotInstance:
@@ -112,11 +112,14 @@ class GeminiBotInstance:
         self.skip_session_once = False
         
         self.base_dir = Path(f"bots/{self.name}")
-        for d in ["logs", "gemini_memory", "workspace"]: (self.base_dir / d).mkdir(parents=True, exist_ok=True)
+        self.log_dir = self.base_dir / "logs"
+        self.memory_dir = self.base_dir / "gemini_memory"
+        self.workspace_dir = self.base_dir / "workspace"
+        for d in [self.log_dir, self.memory_dir, self.workspace_dir]: d.mkdir(parents=True, exist_ok=True)
         
-        self.memory_file = self.base_dir / "gemini_memory/memory.json"
-        self.summary_file = self.base_dir / "gemini_memory/memory_summary.md"
-        self.agent_file = self.base_dir / "workspace/agent.md"
+        self.memory_file = self.memory_dir / "memory.json"
+        self.summary_file = self.memory_dir / "memory_summary.md"
+        self.agent_file = self.workspace_dir / "agent.md"
         self.memory_data = self._load_memory()
         
         self.debug_logger = logging.getLogger(f"debug_{self.name}")
@@ -130,7 +133,6 @@ class GeminiBotInstance:
             sh.setFormatter(logging.Formatter(f'%(asctime)s - {self.name.upper()} - %(message)s'))
             self.console.addHandler(sh)
         
-        # Initial identity sync
         self.sync_identity_files()
 
     def _load_memory(self):
@@ -145,27 +147,21 @@ class GeminiBotInstance:
         with open(self.memory_file, "w") as f: json.dump(self.memory_data, f, indent=2)
 
     def sync_identity_files(self):
-        """Merges agent.md with core system rules into GEMINI.md and QWEN.md."""
-        agent_content = ""
-        if self.agent_file.exists():
-            agent_content = self.agent_file.read_text(encoding="utf-8")
-        
+        agent_content = self.agent_file.read_text(encoding="utf-8") if self.agent_file.exists() else ""
         core_rules = (
             f"\n\n# Mandatory System Rules\n"
             f"- Your identity: '{self.name.capitalize()}', assistant for '老兵'.\n"
-            f"- Working Directory: You are running in your dedicated workspace. Perform all file operations here.\n"
-            f"- Vision: To see the screen, run `screencapture screenshot.png`. The system will automatically analyze it for you.\n"
+            f"- Working Directory: Perform all file operations here in your workspace.\n"
+            f"- Vision: run `screencapture screenshot.png` to see screen.\n"
             f"- Output: Always respond in standard Markdown.\n"
         )
-        
         full_content = agent_content + core_rules
-        (self.base_dir / "workspace/GEMINI.md").write_text(full_content, encoding="utf-8")
-        (self.base_dir / "workspace/QWEN.md").write_text(full_content, encoding="utf-8")
-        self.debug_logger.debug("Identity files (GEMINI.md/QWEN.md) synchronized.")
+        (self.workspace_dir / "GEMINI.md").write_text(full_content, encoding="utf-8")
+        (self.workspace_dir / "QWEN.md").write_text(full_content, encoding="utf-8")
 
     def update_daily_log_handler(self):
         today = datetime.date.today().isoformat()
-        log_path = self.base_dir / f"logs/{today}.log"
+        log_path = self.log_dir / f"{today}.log"
         for h in self.debug_logger.handlers[:]: self.debug_logger.removeHandler(h)
         fh = logging.FileHandler(log_path, encoding='utf-8')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -174,7 +170,7 @@ class GeminiBotInstance:
     async def get_vision_analysis(self, query, img_path):
         try:
             img = Image.open(img_path)
-            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Analysis for: {query}. Respond in Markdown."
+            prompt = f"You are '{self.name.capitalize()}'. AI for '老兵'. Request: {query}. Respond in Markdown."
             res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
             return res.text
         except Exception as e: return f"⚠️ Vision Error: {str(e)}"
@@ -186,7 +182,6 @@ class GeminiBotInstance:
         if not user_text: return
         
         self.console.info(f"📥 Received: {user_text[:50]}...")
-        # Sync before each call in case agent.md was modified by the bot itself
         self.sync_identity_files()
 
         try:
@@ -201,40 +196,44 @@ class GeminiBotInstance:
 
             if user_text == "/new":
                 self.skip_session_once = True
-                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Session Reset.", parse_mode=ParseMode.HTML)
+                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Reset.", parse_mode=ParseMode.HTML)
                 return
 
             if user_text == "/summary":
-                log_md = self.base_dir / f"logs/{datetime.date.today().isoformat()}.md"
+                log_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
                 if not log_md.exists():
-                    await update.message.reply_text("No logs today."); return
+                    await update.message.reply_text("No logs yet."); return
                 facts = client.models.generate_content(model='gemini-2.5-flash', contents=f"Extract facts for '老兵':\n\n{log_md.read_text()}").text
                 with open(self.summary_file, "a") as f: f.write(f"\n### {datetime.date.today().isoformat()} Facts\n{facts}\n")
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
 
-            # Context Construction (Simplified)
+            # Prompt Construction
             facts_str = ""
             if self.summary_file.exists():
                 with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:]).strip()
 
-            # The Prompt is now just the Dialogue
-            full_prompt = f"=== 已知事实：{facts_str or '暂无。'} ===\n老兵：{user_text}"
+            full_prompt = f"=== 已知事实: {facts_str or '暂无'} ===\n老兵: {user_text}"
             if user_text == "/compact": full_prompt = "/compact"
 
             status_msg = None
-            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...", read_timeout=10, connect_timeout=10)
+            try: status_msg = await update.message.reply_text(f"🧠 {self.engine.upper()} thinking...")
             except: pass
 
+            # CLI Execution Logic
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
+            
             if not self.skip_session_once:
                 if self.engine == "gemini": cmd.append("--resume=latest")
-                elif self.engine == "qwen": cmd.extend(["--continue", f"--session-id={self.name}"])
-            else: self.skip_session_once = False
+                elif self.engine == "qwen": cmd.append(f"--resume={self.name}") # Use ID to resume
+            else:
+                # For /new
+                if self.engine == "qwen": cmd.append(f"--session-id={self.name}") # Start new ID session
+                self.skip_session_once = False
 
             start_ts = datetime.datetime.now().timestamp()
             self.debug_logger.debug(f"CMD: {' '.join(cmd)}")
             
-            proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.base_dir / "workspace")
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.workspace_dir)
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             except asyncio.TimeoutError:
@@ -249,7 +248,7 @@ class GeminiBotInstance:
             
             response_text, usage = parse_cli_response(self.engine, raw_stdout)
 
-            shot = self.base_dir / "workspace/screenshot.png"
+            shot = self.workspace_dir / "screenshot.png"
             if shot.exists() and shot.stat().st_mtime > start_ts:
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
                 response_text = await self.get_vision_analysis(user_text, shot)
@@ -289,7 +288,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def main():
     bot_configs = {k.replace("_BOT_TOKEN", "").lower(): v for k, v in os.environ.items() if k.endswith("_BOT_TOKEN")}
     if not bot_configs: return
-    print(f"--- Starting Native Session Bridge (Bots: {len(bot_configs)}) ---")
+    print(f"--- Starting Native Session Bridge (Total Bots: {len(bot_configs)}) ---")
     apps = []
     for name, token in bot_configs.items():
         instance = GeminiBotInstance(name, token)
