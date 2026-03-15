@@ -161,6 +161,13 @@ def find_usage_info(data):
 
 def parse_cli_response(engine, raw_stdout, logger=None):
     text, usage = None, None
+    
+    # 🕵️ Detect Chat Compression Info (Special Case)
+    compact_match = re.search(r'Chat history compressed from (\d+) to (\d+) tokens', raw_stdout)
+    if compact_match:
+        old, new = compact_match.groups()
+        return f"📉 <b>Context Compressed!</b>\n<code>{old}</code> → <code>{new}</code> tokens", None
+
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
@@ -329,7 +336,8 @@ class GeminiBotInstance:
             log_phase("Context built")
 
             full_prompt = f"=== 已知事实: {facts_str or '暂无'} ===\n老兵: {user_text}"
-            if user_text == "/compact": full_prompt = "/compact"
+            if user_text in ["/compact", "/compress"]: 
+                full_prompt = user_text
 
             status_msg = None
             try: 
