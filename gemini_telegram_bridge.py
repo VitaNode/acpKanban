@@ -432,7 +432,7 @@ class GeminiBotInstance:
                 self.logger.debug(f"RAW STDERR ({len(stderr_text)} chars): {stderr_text}")
             log_phase(f"CLI completed ({cli_duration:.1f}s)")
             
-            response_text, usage = parse_cli_response(self.engine, raw_stdout, self.logger)
+            response_text, total_tokens = parse_cli_response(self.engine, raw_stdout, self.logger)
             log_phase("Response parsed")
 
             shot = self.workspace_dir / "screenshot.png"
@@ -462,11 +462,11 @@ class GeminiBotInstance:
                 log_phase("Logs & workspace memory saved")
 
             footer = ""
-            if usage:
-                total = usage.get("total_tokens") or usage.get("total") or usage.get("totalTokens")
-                if total:
-                    if self.engine == "gemini": footer = f"\n\n<pre>Context Left: {(1048576 - total)/1000:.1f}k</pre>"
-                    else: footer = f"\n\n<pre>Tokens Used: {total/1000:.1f}k</pre>"
+            if total_tokens > 0:
+                if self.engine == "gemini": 
+                    footer = f"\n\n<pre>Context Left: {(1048576 - total_tokens)/1000:.1f}k</pre>"
+                else: 
+                    footer = f"\n\n<pre>Tokens Used: {total_tokens/1000:.1f}k</pre>"
 
             # 7. Render and Send (Smart Split)
             final_html = smart_format_render(response_text) + footer
