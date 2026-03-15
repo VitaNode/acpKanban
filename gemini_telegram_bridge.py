@@ -168,6 +168,10 @@ def parse_cli_response(engine, raw_stdout, logger=None):
         old, new = compact_match.groups()
         return f"📉 <b>Context Compressed!</b>\n<code>{old}</code> → <code>{new}</code> tokens", None
 
+    # 🚨 Detect 429 / Capacity Exhausted
+    if "RESOURCE_EXHAUSTED" in raw_stdout or "MODEL_CAPACITY_EXHAUSTED" in raw_stdout or "status: 429" in raw_stdout:
+        return "⚠️ <b>Google 服务器负载过高</b>\n当前模型资源已耗尽 (Resource Exhausted)，请稍后再试或切换引擎。", None
+
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
