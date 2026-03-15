@@ -380,12 +380,22 @@ class GeminiBotInstance:
                 log_phase("Vision completed")
 
             if proc.returncode == 0:
-                today_md = self.log_dir / f"{datetime.date.today().isoformat()}.md"
-                with open(today_md, "a", encoding="utf-8") as f:
+                # 1. Save to System Logs (for debugging)
+                today_str = datetime.date.today().isoformat()
+                system_log = self.log_dir / f"{today_str}.md"
+                with open(system_log, "a", encoding="utf-8") as f:
                     f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
+                
+                # 2. Save to AI Workspace Memory (for AI retrieval)
+                workspace_memory_dir = self.workspace_dir / "memory"
+                workspace_memory_dir.mkdir(exist_ok=True)
+                workspace_log = workspace_memory_dir / f"{today_str}.md"
+                with open(workspace_log, "a", encoding="utf-8") as f:
+                    f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
+
                 self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
                 self._save_memory()
-                log_phase("Logs & memory saved")
+                log_phase("Logs & workspace memory saved")
 
             footer = ""
             if usage:
