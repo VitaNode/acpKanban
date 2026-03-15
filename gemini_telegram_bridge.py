@@ -179,43 +179,61 @@ def find_usage_tokens(data, is_trusted=False):
     return max_count
 
 def parse_cli_response(engine, raw_stdout, logger=None):
-    text, total_tokens = None, 0
+    text, occupancy, session_id = None, 0, None
     
     # 🕵️ Detect Chat Compression Info
     compact_match = re.search(r'Chat history compressed from (\d+) to (\d+) tokens', raw_stdout)
     if compact_match:
         old, new = compact_match.groups()
-        return f"📉 <b>Context Compressed!</b>\n<code>{old}</code> → <code>{new}</code> tokens", int(new)
+        return f"📉 <b>Context Compressed!</b>\n<code>{old}</code> → <code>{new}</code> tokens", int(new), None
 
     # 🚨 Detect 429
     if "RESOURCE_EXHAUSTED" in raw_stdout or "MODEL_CAPACITY_EXHAUSTED" in raw_stdout or "status: 429" in raw_stdout:
-        return "⚠️ <b>Google 服务器负载过高</b>\n当前模型资源已耗尽，请稍后再试或切换引擎。", 0
+        return "⚠️ <b>Google 服务器负载过高</b>\n当前模型资源已耗尽，请稍后再试或切换引擎。", 0, None
 
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
         
+        # 🆔 Capture Session ID
+        if isinstance(data, dict):
+            session_id = data.get("session_id")
+        elif isinstance(data, list) and data:
+            session_id = data[-1].get("session_id") or data[0].get("session_id")
+
+        # 📊 Capture Occupancy (Input Tokens of the final state)
         qwen_usage = None
         if engine == "qwen" and isinstance(data, list):
-            for item in data:
+            for item in reversed(data):
                 if isinstance(item, dict) and item.get("type") == "result":
                     text = item.get("result")
                     qwen_usage = item.get("usage")
+                    if qwen_usage:
+                        # For occupancy, we want to know how much history + current prompt is in the "pot"
+                        occupancy = qwen_usage.get("input_tokens") or qwen_usage.get("total_tokens") or 0
                     break
         
-        # If we have a specific Qwen usage dict, scan it with trust=True immediately
-        if qwen_usage:
-            total_tokens = find_usage_tokens(qwen_usage, is_trusted=True)
-        else:
-            total_tokens = find_usage_tokens(data)
+        if engine == "gemini":
+            if isinstance(data, dict):
+                text = data.get("response")
+                # Try to get input_tokens from the main stats block
+                stats = data.get("stats", {})
+                usage = stats.get("usage") or data.get("usage")
+                if usage:
+                    occupancy = usage.get("input_tokens") or usage.get("total_tokens") or usage.get("total") or 0
+        
+        # Fallback to general scanner if specific fields weren't found
+        if occupancy == 0:
+            occupancy = find_usage_tokens(data)
             
-        if engine == "gemini" and text is None: text = data.get("response")
-        if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
+        if text is None and isinstance(data, dict):
+            text = data.get("result") or data.get("response")
     except: pass
     
     if text is None:
         text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    return text or "✅ Done.", total_tokens
+    
+    return text or "✅ Done.", occupancy, session_id
 
 # --- Bot Instance Class ---
 class GeminiBotInstance:
@@ -232,7 +250,6 @@ class GeminiBotInstance:
         
         self.skip_session_once = False
         
-        # Proper attribute assignment to fix AttributeError
         # Directories
         self.base_dir = Path(f"bots/{self.name}")
         self.log_dir = self.base_dir / "logs"
@@ -244,6 +261,7 @@ class GeminiBotInstance:
         self.memory_file = self.memory_dir / "memory.json"
         self.summary_file = self.memory_dir / "memory_summary.md"
         self.agent_file = self.workspace_dir / "agent.md"
+        self.session_id_file = self.base_dir / "current_session.id" # Persistent session locking
         self.memory_data = self._load_memory()
         
         # 统一日志：终端全量输出（DEBUG 级别），带颜色区分
@@ -371,7 +389,8 @@ class GeminiBotInstance:
 
             if user_text == "/new":
                 self.skip_session_once = True
-                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Reset.", parse_mode=ParseMode.HTML)
+                if self.session_id_file.exists(): self.session_id_file.unlink()
+                await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Session Reset.", parse_mode=ParseMode.HTML)
                 log_phase("Command /new (session reset)")
                 return
 
@@ -401,14 +420,18 @@ class GeminiBotInstance:
                 log_phase("Status message sent")
             except: pass
 
-            # 🛠️ CLI Execution Logic - Fixed Qwen Session Parameters
+            # 🛠️ CLI Execution Logic - Robust Session Locking
             cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
             
             if not self.skip_session_once:
-                if self.engine == "gemini": cmd.append("--resume=latest")
-                elif self.engine == "qwen": cmd.append("--continue") # Use simple continue inside bot's workspace
+                if self.session_id_file.exists():
+                    saved_id = self.session_id_file.read_text().strip()
+                    if saved_id: cmd.append(f"--resume={saved_id}")
+                else:
+                    if self.engine == "gemini": cmd.append("--resume=latest")
+                    elif self.engine == "qwen": cmd.append("--continue")
             else:
-                self.skip_session_once = False # Skip the resume/continue flag for one turn
+                self.skip_session_once = False # Force new session
 
             self.logger.debug(f"CMD: {' '.join(cmd)}")
             log_phase("CLI start")
@@ -432,8 +455,13 @@ class GeminiBotInstance:
                 self.logger.debug(f"RAW STDERR ({len(stderr_text)} chars): {stderr_text}")
             log_phase(f"CLI completed ({cli_duration:.1f}s)")
             
-            response_text, total_tokens = parse_cli_response(self.engine, raw_stdout, self.logger)
+            response_text, occupancy, session_id = parse_cli_response(self.engine, raw_stdout, self.logger)
             log_phase("Response parsed")
+
+            # 🆔 Persistent Session Locking
+            if session_id:
+                self.session_id_file.write_text(session_id)
+                self.logger.debug(f"🆔 Locked to session: {session_id}")
 
             shot = self.workspace_dir / "screenshot.png"
             if shot.exists() and shot.stat().st_mtime > cli_end:
@@ -462,11 +490,10 @@ class GeminiBotInstance:
                 log_phase("Logs & workspace memory saved")
 
             footer = ""
-            if total_tokens > 0:
-                if self.engine == "gemini": 
-                    footer = f"\n\n<pre>Context Left: {(1048576 - total_tokens)/1000:.1f}k</pre>"
-                else: 
-                    footer = f"\n\n<pre>Tokens Used: {total_tokens/1000:.1f}k</pre>"
+            if occupancy > 0:
+                kb = occupancy / 1000
+                percent = (occupancy / 1048576) * 100
+                footer = f"\n\n<pre>🗂️ Context: {kb:.1f}k / 1024k ({percent:.1f}%)</pre>"
 
             # 7. Render and Send (Smart Split)
             final_html = smart_format_render(response_text) + footer
