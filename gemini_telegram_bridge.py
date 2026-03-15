@@ -118,10 +118,10 @@ def split_html_message(text, limit=4000):
 
     return chunks
 
-async def send_smart_reply(update, context, text, status_msg=None, bot_instance=None):
-    """Sends long messages in chunks to Telegram. If fails, saves to outbox."""
+async def send_smart_reply(update, context, text, query, status_msg=None, bot_instance=None):
+    """Sends long messages in chunks to Telegram. If fails, saves to outbox with original query."""
     chunks = split_html_message(text)
-
+    
     try:
         # Send first chunk (edit status_msg or reply)
         if status_msg:
@@ -140,14 +140,14 @@ async def send_smart_reply(update, context, text, status_msg=None, bot_instance=
                 )
         else:
             await update.message.reply_text(chunks[0], parse_mode=ParseMode.HTML)
-
+        
         # Send remaining chunks
         for chunk in chunks[1:]:
             await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
-
+            
     except (TimedOut, NetworkError) as e:
         if bot_instance:
-            await bot_instance.save_to_outbox(update.effective_chat.id, text)
+            await bot_instance.save_to_outbox(update.effective_chat.id, text, query)
         raise e # Re-raise to let handle_message know it failed
 
 def find_usage_info(data):
@@ -300,11 +300,11 @@ class GeminiBotInstance:
             return res.text
         except Exception as e: return f"⚠️ Vision Error: {str(e)}"
 
-    async def save_to_outbox(self, chat_id, text):
-        """Saves failed messages to disk for later retry."""
+    async def save_to_outbox(self, chat_id, text, query):
+        """Saves failed messages to disk for later retry, including the original query."""
         ts = int(datetime.datetime.now().timestamp())
         path = self.outbox_dir / f"msg_{ts}.json"
-        data = {"chat_id": chat_id, "text": text, "ts": ts}
+        data = {"chat_id": chat_id, "text": text, "query": query, "ts": ts}
         with open(path, "w") as f: json.dump(data, f)
         self.logger.warning(f"📩 Message saved to outbox: {path.name}")
 
@@ -321,20 +321,21 @@ class GeminiBotInstance:
                     with open(f, "r") as json_f:
                         data = json.load(json_f)
                     
-                    # Prefix with timestamp to let the user know it's a late reply
                     time_str = datetime.datetime.fromtimestamp(data["ts"]).strftime("%H:%M")
-                    text = f"🕒 <b>Delayed Reply [{time_str}]</b>\n\n{data['text']}"
+                    query_snip = data.get("query", "Unknown")[:100] + ("..." if len(data.get("query", "")) > 100 else "")
                     
-                    # Try splitting and sending
-                    chunks = split_html_message(text)
+                    header = f"🕒 <b>Delayed Reply [{time_str}]</b>\n❓ <b>问题:</b> {html.escape(query_snip)}\n\n💡 <b>回答:</b>\n"
+                    full_text = header + data["text"]
+                    
+                    chunks = split_html_message(full_text)
                     for chunk in chunks:
                         await bot.send_message(chat_id=data["chat_id"], text=chunk, parse_mode=ParseMode.HTML)
                     
-                    f.unlink() # Success! Delete file
+                    f.unlink() # Success!
                     self.logger.info(f"✅ Outbox message sent: {f.name}")
                 except Exception as e:
                     self.logger.warning(f"❌ Failed to send outbox message {f.name}: {e}")
-                    break # Stop processing this bot's outbox until next cycle
+                    break
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
@@ -463,7 +464,7 @@ class GeminiBotInstance:
 
             # 7. Render and Send (Smart Split)
             final_html = smart_format_render(response_text) + footer
-            await send_smart_reply(update, context, final_html, status_msg, bot_instance=self)
+            await send_smart_reply(update, context, final_html, user_text, status_msg, bot_instance=self)
             log_phase("Response sent")
             
             total_duration = datetime.datetime.now().timestamp() - session_start
