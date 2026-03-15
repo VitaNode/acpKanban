@@ -150,66 +150,59 @@ async def send_smart_reply(update, context, text, query, status_msg=None, bot_in
             await bot_instance.save_to_outbox(update.effective_chat.id, text, query)
         raise e # Re-raise to let handle_message know it failed
 
-def find_usage_info(data):
-
-    """Recursively search for usage/token information in the JSON data."""
-    if not isinstance(data, (dict, list)): return None
+def find_usage_tokens(data, is_usage_block=False):
+    """Recursively scans for token counts, but only inside confirmed usage/token blocks."""
+    max_count = 0
     if isinstance(data, dict):
-        if "usage" in data: return data["usage"]
-        if "tokens" in data: return data["tokens"]
-        for val in data.values():
-            res = find_usage_info(val)
-            if res: return res
+        if is_usage_block:
+            for key in ["total_tokens", "totalTokens", "total", "input_tokens", "output_tokens"]:
+                if key in data and isinstance(data[key], (int, float)):
+                    max_count = max(max_count, int(data[key]))
+        for key in ["usage", "tokens", "stats"]:
+            if key in data and isinstance(data[key], (dict, list)):
+                max_count = max(max_count, find_usage_tokens(data[key], is_usage_block=True))
+        if not is_usage_block:
+            for val in data.values():
+                if isinstance(val, (dict, list)):
+                    max_count = max(max_count, find_usage_tokens(val, is_usage_block=False))
     elif isinstance(data, list):
         for item in data:
-            res = find_usage_info(item)
-            if res: return res
-    return None
+            max_count = max(max_count, find_usage_tokens(item, is_usage_block))
+    return max_count
 
 def parse_cli_response(engine, raw_stdout, logger=None):
-    text, usage = None, None
+    text, total_tokens = None, 0
     
-    # 🕵️ Detect Chat Compression Info (Special Case)
+    # 🕵️ Detect Chat Compression Info
     compact_match = re.search(r'Chat history compressed from (\d+) to (\d+) tokens', raw_stdout)
     if compact_match:
         old, new = compact_match.groups()
-        return f"📉 <b>Context Compressed!</b>\n<code>{old}</code> → <code>{new}</code> tokens", None
+        return f"📉 <b>Context Compressed!</b>\n<code>{old}</code> → <code>{new}</code> tokens", int(new)
 
-    # 🚨 Detect 429 / Capacity Exhausted
+    # 🚨 Detect 429
     if "RESOURCE_EXHAUSTED" in raw_stdout or "MODEL_CAPACITY_EXHAUSTED" in raw_stdout or "status: 429" in raw_stdout:
-        return "⚠️ <b>Google 服务器负载过高</b>\n当前模型资源已耗尽 (Resource Exhausted)，请稍后再试或切换引擎。", None
+        return "⚠️ <b>Google 服务器负载过高</b>\n当前模型资源已耗尽，请稍后再试或切换引擎。", 0
 
     try:
         match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
         data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
         
-        # For Qwen (array format), prioritize usage from type="result" object
+        qwen_usage = None
         if engine == "qwen" and isinstance(data, list):
             for item in data:
                 if isinstance(item, dict) and item.get("type") == "result":
-                    if "usage" in item:
-                        usage = item["usage"]
-                    if "result" in item:
-                        text = item.get("result")
+                    text = item.get("result")
+                    qwen_usage = item.get("usage")
                     break
         
-        # Fallback to recursive search if usage not found
-        if usage is None:
-            usage = find_usage_info(data)
-        
-        # For Gemini
-        if engine == "gemini" and text is None:
-            text = data.get("response")
-        
-        # Fallback for any dict response
-        if text is None and isinstance(data, dict):
-            text = data.get("result") or data.get("response")
-            
-        if usage is None and logger:
-            logger.debug(f"⚠️ No usage info found. JSON: {json.dumps(data, indent=2)[:2000]}...")
+        total_tokens = find_usage_tokens(qwen_usage if qwen_usage else data)
+        if engine == "gemini" and text is None: text = data.get("response")
+        if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
     except: pass
-    if text is None: text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    return text or "✅ Done.", usage
+    
+    if text is None:
+        text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
+    return text or "✅ Done.", total_tokens
 
 # --- Bot Instance Class ---
 class GeminiBotInstance:
