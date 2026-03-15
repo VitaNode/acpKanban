@@ -151,34 +151,40 @@ async def send_smart_reply(update, context, text, query, status_msg=None, bot_in
         raise e # Re-raise to let handle_message know it failed
 
 def find_usage_tokens(data, is_trusted=False):
-    """Recursively scans for token counts with transitive trust for sub-blocks."""
+    """Recursively scans for token counts, strictly avoiding latency/time fields."""
     max_count = 0
     if isinstance(data, dict):
-        # 1. Capture highly specific keys even without trust
-        for key in ["total_tokens", "totalTokens", "input_tokens", "output_tokens"]:
+        # 1. Skip keys that are definitely NOT tokens (like latency or timestamps)
+        blacklist = ["latency", "ms", "duration", "time", "ts", "timestamp"]
+        
+        # 2. Capture highly specific token keys
+        for key in ["input_tokens", "inputTokens", "prompt_tokens", "total_tokens", "totalTokens"]:
             if key in data and isinstance(data[key], (int, float)):
-                max_count = max(max_count, int(data[key]))
+                val = int(data[key])
+                # Filter out obvious timestamps or giant non-token numbers
+                if val < 5000000: max_count = max(max_count, val)
         
-        # 2. Capture generic 'total' only if in a trusted usage/tokens block
-        if is_trusted and "total" in data and isinstance(data["total"], (int, float)):
-            max_count = max(max_count, int(data["total"]))
+        # 3. Capture generic 'total' or 'input' ONLY if in a trusted block and NOT blacklisted
+        if is_trusted:
+            for key in ["total", "input"]:
+                if key in data and isinstance(data[key], (int, float)):
+                    if not any(b in key.lower() for b in blacklist):
+                        max_count = max(max_count, int(data[key]))
         
-        # 3. Recurse with transitive trust
+        # 4. Recurse with transitive trust
         for key, val in data.items():
             if isinstance(val, (dict, list)):
-                # If current key is a known usage indicator, or parent was trusted, child is trusted
-                child_trusted = is_trusted or key in ["usage", "tokens", "stats"]
+                child_trusted = is_trusted or any(k in key.lower() for k in ["usage", "tokens", "stats"])
                 res = find_usage_tokens(val, child_trusted)
                 max_count = max(max_count, res)
-                
     elif isinstance(data, list):
         for item in data:
             res = find_usage_tokens(item, is_trusted)
             max_count = max(max_count, res)
-            
     return max_count
 
 def parse_cli_response(engine, raw_stdout, logger=None):
+    """Parses response and robustly extracts occupancy from the FINAL JSON block."""
     text, occupancy, session_id = None, 0, None
     
     # 🕵️ Detect Chat Compression Info
@@ -192,47 +198,43 @@ def parse_cli_response(engine, raw_stdout, logger=None):
         return "⚠️ <b>Google 服务器负载过高</b>\n当前模型资源已耗尽，请稍后再试或切换引擎。", 0, None
 
     try:
-        match = re.search(r'(\{.*\}|\[.*\])', raw_stdout, re.DOTALL)
-        data = json.loads(match.group(1)) if match else json.loads(raw_stdout)
+        # 🔍 Find ALL JSON blocks and take the LAST one
+        json_blocks = re.findall(r'(\{.*?\}|\[.*?\])', raw_stdout, re.DOTALL)
+        if not json_blocks: raise ValueError("No JSON found")
+        data = json.loads(json_blocks[-1])
         
         # 🆔 Capture Session ID
-        if isinstance(data, dict):
-            session_id = data.get("session_id")
+        if isinstance(data, dict): session_id = data.get("session_id")
         elif isinstance(data, list) and data:
-            session_id = data[-1].get("session_id") or data[0].get("session_id")
+            session_id = data[-1].get("session_id") if isinstance(data[-1], dict) else None
 
-        # 📊 Capture Occupancy (Input Tokens of the final state)
-        qwen_usage = None
+        # 📊 Capture Occupancy
         if engine == "qwen" and isinstance(data, list):
             for item in reversed(data):
                 if isinstance(item, dict) and item.get("type") == "result":
                     text = item.get("result")
-                    qwen_usage = item.get("usage")
-                    if qwen_usage:
-                        # For occupancy, we want to know how much history + current prompt is in the "pot"
-                        occupancy = qwen_usage.get("input_tokens") or qwen_usage.get("total_tokens") or 0
+                    usage = item.get("usage", {})
+                    occupancy = usage.get("input_tokens") or usage.get("total_tokens") or 0
                     break
         
-        if engine == "gemini":
-            if isinstance(data, dict):
-                text = data.get("response")
-                # Try to get input_tokens from the main stats block
-                stats = data.get("stats", {})
-                usage = stats.get("usage") or data.get("usage")
-                if usage:
-                    occupancy = usage.get("input_tokens") or usage.get("total_tokens") or usage.get("total") or 0
+        if engine == "gemini" and isinstance(data, dict):
+            text = data.get("response")
+            stats = data.get("stats", {})
+            models = stats.get("models", {})
+            for m_info in models.values():
+                tks = m_info.get("tokens", {})
+                occupancy = max(occupancy, tks.get("input") or tks.get("input_tokens") or 0)
+            if occupancy == 0:
+                usage = data.get("usage") or stats.get("usage")
+                if usage: occupancy = usage.get("input_tokens") or usage.get("total_tokens") or usage.get("total") or 0
         
-        # Fallback to general scanner if specific fields weren't found
-        if occupancy == 0:
-            occupancy = find_usage_tokens(data)
-            
-        if text is None and isinstance(data, dict):
-            text = data.get("result") or data.get("response")
-    except: pass
+        if occupancy == 0: occupancy = find_usage_tokens(data)
+        if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
+    except Exception as e:
+        if logger: logger.debug(f"Stats parse fail: {e}")
     
     if text is None:
         text = re.sub(r'Loaded cached credentials\..*?YOLO mode is enabled.*?\n', '', raw_stdout, flags=re.DOTALL).strip()
-    
     return text or "✅ Done.", occupancy, session_id
 
 # --- Bot Instance Class ---
