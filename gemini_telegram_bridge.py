@@ -118,33 +118,40 @@ def split_html_message(text, limit=4000):
 
     return chunks
 
-async def send_smart_reply(update, context, text, status_msg=None):
-    """Sends long messages in chunks to Telegram."""
+async def send_smart_reply(update, context, text, status_msg=None, bot_instance=None):
+    """Sends long messages in chunks to Telegram. If fails, saves to outbox."""
     chunks = split_html_message(text)
 
-    # Send first chunk (edit status_msg or reply)
-    if status_msg:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=status_msg.message_id,
-                text=chunks[0],
-                parse_mode=ParseMode.HTML
-            )
-        except Exception:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=status_msg.message_id,
-                text=re.sub('<[^<]+?>', '', chunks[0])[:4000] # Strip HTML if it fails
-            )
-    else:
-        await update.message.reply_text(chunks[0], parse_mode=ParseMode.HTML)
+    try:
+        # Send first chunk (edit status_msg or reply)
+        if status_msg:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=status_msg.message_id,
+                    text=chunks[0],
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=status_msg.message_id,
+                    text=re.sub('<[^<]+?>', '', chunks[0])[:4000] # Strip HTML if it fails
+                )
+        else:
+            await update.message.reply_text(chunks[0], parse_mode=ParseMode.HTML)
 
-    # Send remaining chunks
-    for chunk in chunks[1:]:
-        await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+        # Send remaining chunks
+        for chunk in chunks[1:]:
+            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+
+    except (TimedOut, NetworkError) as e:
+        if bot_instance:
+            await bot_instance.save_to_outbox(update.effective_chat.id, text)
+        raise e # Re-raise to let handle_message know it failed
 
 def find_usage_info(data):
+
     """Recursively search for usage/token information in the JSON data."""
     if not isinstance(data, (dict, list)): return None
     if isinstance(data, dict):
@@ -220,12 +227,14 @@ class GeminiBotInstance:
         self.skip_session_once = False
         
         # Proper attribute assignment to fix AttributeError
+        # Directories
         self.base_dir = Path(f"bots/{self.name}")
         self.log_dir = self.base_dir / "logs"
         self.memory_dir = self.base_dir / "gemini_memory"
         self.workspace_dir = self.base_dir / "workspace"
-        for d in [self.log_dir, self.memory_dir, self.workspace_dir]: d.mkdir(parents=True, exist_ok=True)
-        
+        self.outbox_dir = self.base_dir / "outbox"
+        for d in [self.log_dir, self.memory_dir, self.workspace_dir, self.outbox_dir]: d.mkdir(parents=True, exist_ok=True)
+
         self.memory_file = self.memory_dir / "memory.json"
         self.summary_file = self.memory_dir / "memory_summary.md"
         self.agent_file = self.workspace_dir / "agent.md"
@@ -290,6 +299,42 @@ class GeminiBotInstance:
             res = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, img])
             return res.text
         except Exception as e: return f"⚠️ Vision Error: {str(e)}"
+
+    async def save_to_outbox(self, chat_id, text):
+        """Saves failed messages to disk for later retry."""
+        ts = int(datetime.datetime.now().timestamp())
+        path = self.outbox_dir / f"msg_{ts}.json"
+        data = {"chat_id": chat_id, "text": text, "ts": ts}
+        with open(path, "w") as f: json.dump(data, f)
+        self.logger.warning(f"📩 Message saved to outbox: {path.name}")
+
+    async def outbox_reaper(self, bot):
+        """Background task to periodically try and send pending outbox messages."""
+        while True:
+            await asyncio.sleep(60) # Try every 60s
+            files = sorted(list(self.outbox_dir.glob("msg_*.json")))
+            if not files: continue
+            
+            self.logger.info(f"🔄 Processing {len(files)} messages in outbox...")
+            for f in files:
+                try:
+                    with open(f, "r") as json_f:
+                        data = json.load(json_f)
+                    
+                    # Prefix with timestamp to let the user know it's a late reply
+                    time_str = datetime.datetime.fromtimestamp(data["ts"]).strftime("%H:%M")
+                    text = f"🕒 <b>Delayed Reply [{time_str}]</b>\n\n{data['text']}"
+                    
+                    # Try splitting and sending
+                    chunks = split_html_message(text)
+                    for chunk in chunks:
+                        await bot.send_message(chat_id=data["chat_id"], text=chunk, parse_mode=ParseMode.HTML)
+                    
+                    f.unlink() # Success! Delete file
+                    self.logger.info(f"✅ Outbox message sent: {f.name}")
+                except Exception as e:
+                    self.logger.warning(f"❌ Failed to send outbox message {f.name}: {e}")
+                    break # Stop processing this bot's outbox until next cycle
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
@@ -418,7 +463,7 @@ class GeminiBotInstance:
 
             # 7. Render and Send (Smart Split)
             final_html = smart_format_render(response_text) + footer
-            await send_smart_reply(update, context, final_html, status_msg)
+            await send_smart_reply(update, context, final_html, status_msg, bot_instance=self)
             log_phase("Response sent")
             
             total_duration = datetime.datetime.now().timestamp() - session_start
@@ -447,6 +492,10 @@ async def main():
         app = ApplicationBuilder().token(token).connect_timeout(20).read_timeout(20).build()
         app.add_handler(MessageHandler(filters.TEXT, instance.handle_message))
         app.add_error_handler(error_handler)
+        
+        # Start background tasks
+        asyncio.create_task(instance.outbox_reaper(app.bot))
+        
         await app.initialize(); await app.start(); await app.updater.start_polling()
         apps.append(app); print(f"🚀 {name.upper()} Ready")
     stop_event = asyncio.Event()
