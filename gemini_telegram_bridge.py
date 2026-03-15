@@ -58,14 +58,79 @@ def smart_format_render(text):
     for i, ph in enumerate(placeholders): text = text.replace(f"XYZPH{i}XYZ", ph)
     return text
 
-def safe_truncate_html(text, limit=4000):
-    if len(text) <= limit: return text
-    truncated = text[:limit-100] + "..."
-    for tag in ['pre', 'code', 'b', 'i']:
-        if truncated.count(f'<{tag}>') > truncated.count(f'</{tag}>'):
-            truncated += f'</{tag}>'
-    truncated += "\n\n<i>(Truncated)</i>"
-    return truncated
+def split_html_message(text, limit=4000):
+    """Splits an HTML message into chunks, ensuring tags are closed and reopened."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    current_text = text
+
+    while current_text:
+        if len(current_text) <= limit:
+            chunks.append(current_text)
+            break
+
+        # Find a safe split point (prefer newline)
+        split_at = current_text.rfind('\n', 0, limit)
+        if split_at < limit * 0.7: # If no newline in last 30% of chunk, hard split
+            split_at = limit
+
+        # Ensure we don't split in the middle of a tag <...>
+        tag_start = current_text.rfind('<', 0, split_at)
+        tag_end = current_text.rfind('>', 0, split_at)
+        if tag_start > tag_end: # We are inside a tag
+            split_at = tag_start
+
+        chunk = current_text[:split_at]
+        remaining = current_text[split_at:]
+
+        # Handle tag closure and reopening
+        open_tags = []
+        for tag in ['b', 'i', 'code', 'pre']:
+            # Count tags in THIS chunk
+            opened = chunk.count(f"<{tag}>")
+            closed = chunk.count(f"</{tag}>")
+            if opened > closed:
+                open_tags.append(tag)
+                chunk += f"</{tag}>"
+
+        chunks.append(chunk)
+
+        # Prefix the next chunk with reopened tags in correct order
+        if remaining and open_tags:
+            prefix = "".join([f"<{t}>" for t in open_tags])
+            remaining = prefix + remaining
+
+        current_text = remaining
+
+    return chunks
+
+async def send_smart_reply(update, context, text, status_msg=None):
+    """Sends long messages in chunks to Telegram."""
+    chunks = split_html_message(text)
+
+    # Send first chunk (edit status_msg or reply)
+    if status_msg:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=status_msg.message_id,
+                text=chunks[0],
+                parse_mode=ParseMode.HTML
+            )
+        except Exception:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=status_msg.message_id,
+                text=re.sub('<[^<]+?>', '', chunks[0])[:4000] # Strip HTML if it fails
+            )
+    else:
+        await update.message.reply_text(chunks[0], parse_mode=ParseMode.HTML)
+
+    # Send remaining chunks
+    for chunk in chunks[1:]:
+        await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
 
 def find_usage_info(data):
     """Recursively search for usage/token information in the JSON data."""
@@ -308,11 +373,9 @@ class GeminiBotInstance:
                     if self.engine == "gemini": footer = f"\n\n<pre>Context Left: {(1048576 - total)/1000:.1f}k</pre>"
                     else: footer = f"\n\n<pre>Tokens Used: {total/1000:.1f}k</pre>"
 
-            final_html = safe_truncate_html(smart_format_render(response_text) + footer)
-            if status_msg:
-                try: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=final_html, parse_mode=ParseMode.HTML)
-                except: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text=response_text[:4000])
-            else: await update.message.reply_text(text=response_text[:4000])
+            # 7. Render and Send (Smart Split)
+            final_html = smart_format_render(response_text) + footer
+            await send_smart_reply(update, context, final_html, status_msg)
             log_phase("Response sent")
             
             total_duration = datetime.datetime.now().timestamp() - session_start
