@@ -24,11 +24,23 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 from telegram.constants import ParseMode
 from telegram.error import TimedOut, NetworkError, TelegramError
 
+import logging.handlers
+
 # --- Global Config ---
 load_dotenv()
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", "0"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+# Global Main Logger
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+main_handler = logging.handlers.TimedRotatingFileHandler(
+    log_dir / "bridge.log", when="midnight", interval=1, encoding="utf-8"
+)
+main_handler.setFormatter(logging.Formatter('%(asctime)s | MAIN | %(levelname)-8s | %(message)s'))
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().addHandler(main_handler)
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
@@ -218,12 +230,21 @@ class GeminiBotInstance:
             # 终端 handler - 彩色输出
             sh = logging.StreamHandler()
             sh.setLevel(logging.DEBUG)
-            # 格式：时间 | Bot 名 | 级别 | 消息
             sh.setFormatter(logging.Formatter(
                 f'%(asctime)s | %(name)s | %(levelname)-8s | %(message)s',
                 datefmt='%H:%M:%S'
             ))
             self.logger.addHandler(sh)
+            
+            # 文件 handler - 每天归档一次
+            fh = logging.handlers.TimedRotatingFileHandler(
+                self.log_dir / f"{self.name}.log",
+                when="midnight",
+                interval=1,
+                encoding="utf-8"
+            )
+            fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)-8s | %(message)s'))
+            self.logger.addHandler(fh)
 
         self.sync_identity_files()
 
