@@ -150,24 +150,32 @@ async def send_smart_reply(update, context, text, query, status_msg=None, bot_in
             await bot_instance.save_to_outbox(update.effective_chat.id, text, query)
         raise e # Re-raise to let handle_message know it failed
 
-def find_usage_tokens(data, is_usage_block=False):
-    """Recursively scans for token counts, but only inside confirmed usage/token blocks."""
+def find_usage_tokens(data, is_trusted=False):
+    """Recursively scans for token counts with transitive trust for sub-blocks."""
     max_count = 0
     if isinstance(data, dict):
-        if is_usage_block:
-            for key in ["total_tokens", "totalTokens", "total", "input_tokens", "output_tokens"]:
-                if key in data and isinstance(data[key], (int, float)):
-                    max_count = max(max_count, int(data[key]))
-        for key in ["usage", "tokens", "stats"]:
-            if key in data and isinstance(data[key], (dict, list)):
-                max_count = max(max_count, find_usage_tokens(data[key], is_usage_block=True))
-        if not is_usage_block:
-            for val in data.values():
-                if isinstance(val, (dict, list)):
-                    max_count = max(max_count, find_usage_tokens(val, is_usage_block=False))
+        # 1. Capture highly specific keys even without trust
+        for key in ["total_tokens", "totalTokens", "input_tokens", "output_tokens"]:
+            if key in data and isinstance(data[key], (int, float)):
+                max_count = max(max_count, int(data[key]))
+        
+        # 2. Capture generic 'total' only if in a trusted usage/tokens block
+        if is_trusted and "total" in data and isinstance(data["total"], (int, float)):
+            max_count = max(max_count, int(data["total"]))
+        
+        # 3. Recurse with transitive trust
+        for key, val in data.items():
+            if isinstance(val, (dict, list)):
+                # If current key is a known usage indicator, or parent was trusted, child is trusted
+                child_trusted = is_trusted or key in ["usage", "tokens", "stats"]
+                res = find_usage_tokens(val, child_trusted)
+                max_count = max(max_count, res)
+                
     elif isinstance(data, list):
         for item in data:
-            max_count = max(max_count, find_usage_tokens(item, is_usage_block))
+            res = find_usage_tokens(item, is_trusted)
+            max_count = max(max_count, res)
+            
     return max_count
 
 def parse_cli_response(engine, raw_stdout, logger=None):
@@ -195,7 +203,12 @@ def parse_cli_response(engine, raw_stdout, logger=None):
                     qwen_usage = item.get("usage")
                     break
         
-        total_tokens = find_usage_tokens(qwen_usage if qwen_usage else data)
+        # If we have a specific Qwen usage dict, scan it with trust=True immediately
+        if qwen_usage:
+            total_tokens = find_usage_tokens(qwen_usage, is_trusted=True)
+        else:
+            total_tokens = find_usage_tokens(data)
+            
         if engine == "gemini" and text is None: text = data.get("response")
         if text is None and isinstance(data, dict): text = data.get("result") or data.get("response")
     except: pass
