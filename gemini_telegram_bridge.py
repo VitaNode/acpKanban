@@ -330,11 +330,11 @@ class GeminiBotInstance:
 
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.workspace_dir)
             try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600.0)
             except asyncio.TimeoutError:
                 proc.kill()
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
-                self.logger.warning("⏱️ CLI execution timeout (>180s)")
+                self.logger.warning("⏱️ CLI execution timeout (>600s)")
                 log_phase("CLI TIMEOUT")
                 return
 
