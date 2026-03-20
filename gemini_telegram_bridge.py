@@ -304,17 +304,12 @@ class GeminiBotInstance:
         with open(self.memory_file, "w") as f: json.dump(self.memory_data, f, indent=2)
 
     def sync_identity_files(self):
-        agent_content = self.agent_file.read_text(encoding="utf-8") if self.agent_file.exists() else ""
-        core_rules = (
-            f"\n\n# Mandatory System Rules\n"
-            f"- Your identity: '{self.name.capitalize()}', assistant for '老兵'.\n"
-            f"- Working Directory: Perform all file operations here in your workspace.\n"
-            f"- Vision: run `screencapture screenshot.png` to see screen.\n"
-            f"- Output: Always respond in standard Markdown.\n"
-        )
-        full_content = agent_content + core_rules
-        (self.workspace_dir / "GEMINI.md").write_text(full_content, encoding="utf-8")
-        (self.workspace_dir / "QWEN.md").write_text(full_content, encoding="utf-8")
+        # We no longer write the full identity to GEMINI.md/QWEN.md to avoid per-prompt redundancy.
+        # Instead, we only write a minimal header to ensure the CLI recognizes its agent capabilities.
+        # The full identity is now injected once at the start of each session in handle_message.
+        minimal_content = "# Assistant Mode\nYou are an AI agent with access to this workspace and tools. Follow the context provided in the conversation history."
+        (self.workspace_dir / "GEMINI.md").write_text(minimal_content, encoding="utf-8")
+        (self.workspace_dir / "QWEN.md").write_text(minimal_content, encoding="utf-8")
 
     async def get_vision_analysis(self, query, img_path):
         try:
@@ -404,13 +399,35 @@ class GeminiBotInstance:
                 await update.message.reply_text(f"✅ Summary saved."); play_notification_sound(); return
                 log_phase(f"/summary completed")
 
-            # Context Construction
-            facts_str = ""
-            if self.summary_file.exists():
-                with open(self.summary_file, "r") as f: facts_str = "".join(f.readlines()[-50:]).strip()
+            # Context Construction - Inject full identity and summary ONLY on new session start.
+            is_new_session = self.skip_session_once or not self.session_id_file.exists()
+            
+            if is_new_session:
+                # 1. Load Full Identity (Agent.md + Core Rules)
+                agent_content = self.agent_file.read_text(encoding="utf-8") if self.agent_file.exists() else ""
+                core_rules = (
+                    f"\n\n# Mandatory System Rules\n"
+                    f"- Your identity: '{self.name.capitalize()}', assistant for '老兵'.\n"
+                    f"- Working Directory: Perform all file operations here in your workspace.\n"
+                    f"- Vision: run `screencapture screenshot.png` to see screen.\n"
+                    f"- Output: Always respond in standard Markdown.\n"
+                )
+                identity_block = f"=== IDENTITY & RULES ===\n{agent_content}{core_rules}\n"
+                
+                # 2. Load Full Memory Summary
+                summary_content = ""
+                if self.summary_file.exists():
+                    summary_content = self.summary_file.read_text(encoding="utf-8").strip()
+                summary_block = f"=== HISTORICAL MEMORY (SUMMARY) ===\n{summary_content or 'No prior memory summary available.'}\n"
+                
+                full_prompt = f"{identity_block}\n{summary_block}\n=== START SESSION ===\n老兵: {user_text}"
+                self.logger.info("🆕 Starting new session with full identity and summary.")
+            else:
+                # Normal conversation turn, relying on native session memory.
+                full_prompt = f"老兵: {user_text}"
+            
             log_phase("Context built")
 
-            full_prompt = f"=== 已知事实: {facts_str or '暂无'} ===\n老兵: {user_text}"
             if user_text in ["/compact", "/compress"]: 
                 full_prompt = user_text
 

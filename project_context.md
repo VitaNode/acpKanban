@@ -73,14 +73,110 @@
 
 ---
 
-### **待解决与后续计划**
+### **待优化项及规划**
 
-#### **1. 待优化项**
-- **Context 水位统计准确性**：目前的统计偶尔会抓取到 latency 或累加错误，需实现专门的“最终 JSON 块”解析逻辑。
-- **摘要过期清理**：`memory_summary.md` 只增不减，需定期归档或滑动窗口清理。
-- **自动摘要**：`/summary` 提炼目前仍需手动指令，需改为定时或事件驱动（如凌晨自动执行）。
+#### 上下文优化——2026-03-17
 
-#### **2. 新功能规划**
-- **Google Tasks 深度集成**：进一步优化通过 `gws` 读写任务列表的 Prompt，实现手机端与 Bot 的无缝任务共享。
-- **数据库记忆化**：将日志存入 SQLite，支持秒级全局搜索及未来的 Web 看板展示。
-- **自主视觉增强**：不仅能看截图，还能通过 `cliclick` 结合视觉反馈实现更复杂的 GUI 自动化操作。
+通过将“身份指令”和“历史记忆”从每一轮对话中移除，改为仅在会话开始时进行一次性注入，减少 Token 噪音并提高对话一致性。
+
+**实施详情：**
+- [x] **精简系统提示词**：修改 `sync_identity_files`，不再在 `GEMINI.md/QWEN.md` 中写入全量身份，仅保留最小化的 Agent 标识。
+- [x] **一次性初始化**：重构 `handle_message`，检测到新会话（`/new` 或首次启动）时，一次性注入全量 `memory_summary.md` 和 `agent.md`。
+- [x] **消除冗余**：后续对话中不再重复发送身份规则和历史摘要，仅发送用户当前问题，依靠 native session 维持上下文。
+
+**验证标准：**
+- [ ] `/new` 后的首条消息包含完整背景。
+- [ ] 后续消息仅包含用户文本。
+- [ ] 长期对话下身份不发生偏移。
+
+上下文优化方案 - 2026-03-17                                                                
+                                                                                            
+此方案旨在通过将“身份指令”和“历史记忆”从每一轮对话中移除，改为仅在会话开始时进行一次性注入，从而减少 Token 噪音并提高对话的一致性。                                                  
+                                                                                            
+目标                                                                                       
+  1. 消除冗余：停止在每一轮 prompt 中重复发送“身份指令”和“已知事实”。                       
+  2. 一次性初始化：仅在新建会话（由 /new 指令触发或机器人首次启动）时，加载全量 memory_summary.md 和 agent.md 身份信息。                                               
+  3. 精简系统提示词：将 GEMINI.md / QWEN.md 缩减为最小化的功能性 Header。                   
+                                                                                            
+关键文件与上下文                                                                           
+  - gemini_telegram_bridge.py: 核心逻辑文件，负责 prompt 构建。                             
+  - project_context.md: 项目进度与规划文档。                                                
+  - bots/{name}/workspace/GEMINI.md: 当前每轮调用的系统提示词文件。                         
+  - bots/{name}/gemini_memory/memory_summary.md: 历史事实库。                               
+                                                                                            
+实施步骤                                                                                   
+                                                                                            
+ 1. 更新项目文档 (Updating project_context.md)                                              
+ 将此详细方案记录到 project_context.md 的最新进展或待优化项中。                             
+                                                                                            
+ 2. 精简 GEMINI.md/QWEN.md                                                                  
+ 修改 GeminiBotInstance.sync_identity_files 方法。                                          
+  - 改动：不再将 agent.md 的全量内容写入这些文件，仅保留最小化的 Agent 标识（例如 # Assistant Mode\nUse tools as needed.）。这样可以确保 CLI 仍然能够识别自身为 Agent，但不会在每一轮对话中产生巨大的上下文开销。                                       
+                                                                                            
+ 3. 重构 handle_message 中的 Prompt 构建逻辑                                                
+ 更新 prompt 生成逻辑以支持会话初始化检测。                                                 
+  - 逻辑：                                                                                  
+      - 检测当前是否为新会话（判断 self.skip_session_once 是否为 True，或 current_session.id 文件是否存在）。                                                 
+      - 如果是新会话：                                                                      
+          - 加载全量 memory_summary.md。                                                    
+          - 加载 agent.md 的内容并附加核心身份规则。                                        
+          - 构建 full_prompt，包含“系统初始化 + 身份信息 + 历史摘要 + 用户当前问题”。       
+          - 发送后将 self.skip_session_once 重置为 False。                                  
+      - 如果不是新会话：                                                                    
+          - full_prompt 仅包含“用户当前问题”。                                              
+  - 移除：原有的每轮读取最后 50 行 facts_str 的逻辑。                                       
+                                                                                            
+ 4. 验证 /new 指令的兼容性                                                                  
+ 确保 /new 指令能够正确重置会话状态，使得下一条消息能够触发“新会话”初始化逻辑。             
+                                                                                            
+验证与测试                                                                                 
+  1. 会话重置测试：执行 /new 后发送消息，通过终端日志确认第一条消息包含了全量身份和摘要。   
+  2. 持续对话测试：发送第二条消息，确认其 full_prompt 仅包含当前问题，不再重复冗余信息。    
+  3. 身份持久性测试：确认机器人在第二轮对话中仍能记住自己的身份和核心规则（验证原生会话持久化有效）。                                                                             
+  4. 日志审计：检查 bridge.log 确认 Token 占用显著下降。 
+
+
+
+
+#### 将 Agent Client Protocol (ACP) 带入 Telegram 的桥接机器人
+
+* **相关文档**
+  - https://agentclientprotocol.com/get-started/introduction
+
+* **Gemini CLI 和 Qwen Code 都支持 ACP，而且还有很多：**
+  - AgentPool
+  - Augment Code
+  - Blackbox AI
+  - Claude Code（通过 Zed 适配器）
+  - Codex CLI（通过 Zed 适配器）
+  - Code Assistant
+  - Docker's cagent
+  - fast-agent
+  - Gemini CLI
+  - Goose
+  - JetBrains Junie（即将推出）
+  - Kimi CLI
+  - Minion Code
+  - Mistral Vibe
+  - OpenCode
+  - OpenHands
+  - Pi（通过 pi-acp 适配器）
+  - Qoder CLI
+  - Qwen Code
+  - Stakpak
+  - VT Code
+
+* **ACP 协议原生支持的功能**
+
+| 功能 | ACP 协议支持 | 说明 |
+|------|------------|------|
+| **会话创建** | ✅ `session/new` | 创建新会话 |
+| **会话恢复** | ✅ `session/load` | 加载历史会话 |
+| **消息发送** | ✅ `session/prompt` | 发送用户消息 |
+| **流式响应** | ✅ `agent_message_chunk` | 实时 token 输出 |
+| **工具调用** | ✅ `tool_call` | 标准化工具调用格式 |
+| **权限审批** | ✅ `session/request_permission` | 请求用户批准 |
+| **会话取消** | ✅ `session/cancel` | 中止当前操作 |
+| **模式切换** | ✅ `session/set_mode` | 切换 agent 模式 |
+| **上下文窗口状态** | ✅ `session/update` | agent 主动推送使用情况 |
+| **Token 使用统计** | ✅ `PromptResponse.usage` | 详细的 token 分类统计 |
