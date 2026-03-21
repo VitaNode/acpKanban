@@ -19,8 +19,8 @@ try:
 except ImportError:
     USE_NEW_SDK = False
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CallbackQueryHandler, filters
 from telegram.constants import ParseMode
 from telegram.error import TimedOut, NetworkError, TelegramError
 
@@ -298,6 +298,7 @@ class GeminiBotInstance:
         # ACP Client Management
         self.acp_client = None
         self.acp_session_id = None
+        self.permission_futures = {} # {request_id: Future}
         
         # 统一日志：终端全量输出（DEBUG 级别），带颜色区分
         self.logger = logging.getLogger(f"bot_{self.name}")
@@ -404,7 +405,7 @@ class GeminiBotInstance:
         
         # Start new client
         abs_workspace = str(self.workspace_dir.resolve())
-        cmd = [self.engine, "--acp", "--approval-mode", "yolo"]
+        cmd = [self.engine, "--acp", "--approval-mode", "default"]
         
         self.acp_client = ACPClient(cmd, cwd=abs_workspace, name=f"{self.name}-{self.engine}")
         await self.acp_client.start()
@@ -460,6 +461,27 @@ class GeminiBotInstance:
                 raise e
 
         return self.acp_client
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data # "perm:[approve|deny]:[request_id]"
+        if not data.startswith("perm:"):
+            return
+            
+        parts = data.split(":")
+        action = parts[1]
+        req_id = parts[2]
+        
+        if req_id in self.permission_futures:
+            future = self.permission_futures.pop(req_id)
+            if action == "approve":
+                future.set_result(True)
+                await query.edit_message_text(text=f"{query.message.text}\n\n✅ <b>已批准</b>", parse_mode=ParseMode.HTML)
+            else:
+                future.set_result(False)
+                await query.edit_message_text(text=f"{query.message.text}\n\n❌ <b>已拒绝</b>", parse_mode=ParseMode.HTML)
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
@@ -603,6 +625,45 @@ class GeminiBotInstance:
                                         last_edit_time = now
                                     except Exception as e:
                                         self.logger.debug(f"Streaming edit failed: {e}")
+                        
+                        elif msg.get("method") == "session/request_permission":
+                            # 🛡️ ACP Permission Interception
+                            req_id = msg.get("id")
+                            params = msg.get("params", {})
+                            permission = params.get("permission", {})
+                            
+                            p_type = permission.get("type", "unknown")
+                            p_desc = "AI 请求权限执行操作"
+                            if p_type == "tool_call":
+                                tool = permission.get("tool_call", {})
+                                p_desc = f"🛠️ <b>工具调用申请</b>\n工具: <code>{tool.get('name')}</code>\n参数: <code>{json.dumps(tool.get('arguments'))}</code>"
+                            
+                            # Create buttons
+                            keyboard = [
+                                [
+                                    InlineKeyboardButton("✅ 批准", callback_data=f"perm:approve:{req_id}"),
+                                    InlineKeyboardButton("❌ 拒绝", callback_data=f"perm:deny:{req_id}")
+                                ]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            
+                            # Send permission request
+                            perm_msg = await update.message.reply_text(
+                                f"🛡️ <b>权限审批请求</b>\n\n{p_desc}",
+                                reply_markup=reply_markup,
+                                parse_mode=ParseMode.HTML
+                            )
+                            
+                            # Wait for user response
+                            future = asyncio.get_running_loop().create_future()
+                            self.permission_futures[req_id] = future
+                            
+                            self.logger.info(f"Waiting for permission decision on {req_id}...")
+                            approved = await future
+                            
+                            # Send result back to ACP
+                            await client.respond(req_id, result={"approved": approved})
+                            self.logger.info(f"Permission {req_id} decision: {approved}")
                     except asyncio.TimeoutError:
                         continue
                 
@@ -700,6 +761,7 @@ async def main():
         instance = GeminiBotInstance(name, token)
         app = ApplicationBuilder().token(token).request(t_request).build()
         app.add_handler(MessageHandler(filters.TEXT, instance.handle_message))
+        app.add_handler(CallbackQueryHandler(instance.handle_callback))
         app.add_error_handler(error_handler)
         
         # Start background tasks
