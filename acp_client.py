@@ -67,15 +67,35 @@ class ACPClient:
         msg_id = data.get("id")
         method = data.get("method")
         
-        if msg_id is not None and msg_id in self.pending_requests:
-            future = self.pending_requests.pop(msg_id)
-            future.set_result(data)
+        if msg_id is not None and "method" not in data:
+            # This is a response to a client request
+            future = self.pending_requests.pop(msg_id, None)
+            if future:
+                future.set_result(data)
         elif method:
-            # Notification
+            # This is either a notification or a server-initiated request
             for queue in self.notification_queues.values():
                 await queue.put(data)
         else:
             self.logger.warning(f"Unrecognized message: {data}")
+
+    async def respond(self, request_id: Union[str, int], result: Any = None, error: Any = None):
+        """Respond to a server-initiated request."""
+        if not self.process or self.process.returncode is not None:
+            raise RuntimeError("ACP Process is not running")
+
+        response_obj = {
+            "jsonrpc": "2.0",
+            "id": request_id
+        }
+        if error:
+            response_obj["error"] = error
+        else:
+            response_obj["result"] = result or {}
+        
+        self.logger.debug(f"SEND RESP: {response_obj}")
+        self.process.stdin.write((json.dumps(response_obj) + "\n").encode())
+        await self.process.stdin.drain()
 
     async def request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         if not self.process or self.process.returncode is not None:
