@@ -13,6 +13,7 @@ class ACPServer:
     def __init__(self):
         self.running = True
         self.db = KanbanDB()
+        self.lock = asyncio.Lock() # Added for concurrency safety
         
         self.api_key = os.getenv("KANBAN_API_KEY")
         if not self.api_key or self.api_key == "your_new_key_here":
@@ -54,7 +55,7 @@ class ACPServer:
         sys.stdout.write(json.dumps(response) + "\n")
         sys.stdout.flush()
 
-    def handle_request(self, request):
+    async def handle_request(self, request):
         method = request.get("method")
         params = request.get("params", {})
         request_id = request.get("id")
@@ -62,7 +63,7 @@ class ACPServer:
         if method == "initialize":
             return self.on_initialize(request_id, params)
         elif method == "chat/message":
-            return self.on_chat_message(request_id, params)
+            return await self.on_chat_message(request_id, params)
         elif method == "health":
             return self.send_response(request_id, result=self.health_check())
         elif method == "shutdown":
@@ -125,9 +126,10 @@ class ACPServer:
             "so it can be logged to the timeline."
         )
 
-    def on_chat_message(self, request_id, params):
-        user_text = params.get("message", "")
-        self.log(f"Processing chat: {user_text}")
+    async def on_chat_message(self, request_id, params):
+        async with self.lock:
+            user_text = params.get("message", "")
+            self.log(f"Processing chat: {user_text}")
 
         system_content = self._get_system_prompt()
         if not self.history or self.history[0]["role"] != "system":
@@ -237,15 +239,16 @@ class ACPServer:
                 "data": user_friendly_msg
             })
 
-    def run(self):
+    async def run(self):
         self.log("ACP Server (Brain) started.")
+        loop = asyncio.get_running_loop()
         try:
             while self.running:
-                line = sys.stdin.readline()
+                line = await loop.run_in_executor(None, sys.stdin.readline)
                 if not line: break
                 try:
                     request = json.loads(line)
-                    self.handle_request(request)
+                    await self.handle_request(request)
                 except Exception as e:
                     self.log(f"JSON-RPC Error: {e}")
                     continue
@@ -253,5 +256,6 @@ class ACPServer:
             self.log(f"Critical Error: {e}")
 
 if __name__ == "__main__":
+    import asyncio
     server = ACPServer()
-    server.run()
+    asyncio.run(server.run())

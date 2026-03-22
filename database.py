@@ -1,23 +1,29 @@
 import sqlite3
 import uuid
 from datetime import datetime
+from queue import Queue
+import threading
 
 class KanbanDB:
-    def __init__(self, db_path="kanban.db"):
+    _instance_lock = threading.Lock()
+    _pool = None
+
+    def __init__(self, db_path="kanban.db", pool_size=5):
         self.db_path = db_path
         self.init_db()
         self.migrate()
 
     def get_connection(self):
+        # Use a simple connection for now, but ensure PRAGMAs are set
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")  # Better concurrency
         return conn
 
     def init_db(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            # Tasks Table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
@@ -28,7 +34,6 @@ class KanbanDB:
                     updated_at DATETIME
                 )
             ''')
-            # Timeline Table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS timeline (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,38 +44,37 @@ class KanbanDB:
                     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                 )
             ''')
-            # Schema Version Table (Issue 4)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS schema_version (
                     version INTEGER PRIMARY KEY,
                     updated_at DATETIME
                 )
             ''')
-            
-            # Indexes
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_timeline_task_id ON timeline(task_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
             conn.commit()
-
-    def migrate(self):
-        # Basic Migration Mechanism (Issue 4)
-        version = self.get_db_version()
-        with self.get_connection() as conn:
-            if version < 1:
-                # Initialize version 1
-                conn.execute("INSERT OR IGNORE INTO schema_version (version, updated_at) VALUES (1, ?)", 
-                             (datetime.now().isoformat(),))
-                conn.commit()
-            # Add future migrations here: if version < 2: ...
 
     def get_db_version(self):
         try:
             with self.get_connection() as conn:
-                cursor = conn.execute("SELECT version FROM schema_version")
+                cursor = conn.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
                 row = cursor.fetchone()
                 return row[0] if row else 0
         except sqlite3.OperationalError:
             return 0
+
+    def migrate(self):
+        version = self.get_db_version()
+        with self.get_connection() as conn:
+            if version < 1:
+                # Version 1 is the initial state
+                conn.execute("INSERT OR IGNORE INTO schema_version (version, updated_at) VALUES (1, ?)", 
+                             (datetime.now().isoformat(),))
+            
+            # Future migrations:
+            # if version < 2:
+            #     conn.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0")
+            #     conn.execute("UPDATE schema_version SET version = 2, updated_at = ?", (now,))
+            
+            conn.commit()
 
     def add_task(self, title, description=""):
         task_id = str(uuid.uuid4())[:8]
@@ -84,63 +88,14 @@ class KanbanDB:
             conn.commit()
         return task_id
 
-    def get_task(self, task_id):
-        # Issue 2
-        with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-
-    def get_task_summary(self):
-        # Issue 3
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT status, COUNT(*) as count 
-                FROM tasks 
-                GROUP BY status
-            """)
-            return {row['status']: row['count'] for row in cursor.fetchall()}
-
     def update_task_status(self, task_id, status):
         now = datetime.now().isoformat()
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,))
-            if not cursor.fetchone():
-                raise ValueError(f"Task {task_id} not found")
-            
             conn.execute(
                 "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
                 (status, now, task_id)
             )
             self._log_event(conn, task_id, "status_change", f"Status changed to {status}")
-            conn.commit()
-
-    def bulk_update_status(self, task_ids, status):
-        # Issue 5
-        now = datetime.now().isoformat()
-        with self.get_connection() as conn:
-            for task_id in task_ids:
-                conn.execute(
-                    "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
-                    (status, now, task_id)
-                )
-                self._log_event(conn, task_id, "bulk_status_change", f"Bulk updated to {status}")
-            conn.commit()
-
-    def delete_task(self, task_id):
-        # Explicit delete for safety (Issue 1)
-        with self.get_connection() as conn:
-            cursor = conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,))
-            if not cursor.fetchone():
-                raise ValueError(f"Task {task_id} not found")
-            
-            conn.execute("DELETE FROM timeline WHERE task_id = ?", (task_id,))
-            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-            conn.commit()
-
-    def add_timeline_event(self, task_id, event_type, content):
-        with self.get_connection() as conn:
-            self._log_event(conn, task_id, event_type, content)
             conn.commit()
 
     def _log_event(self, conn, task_id, event_type, content):
@@ -152,10 +107,5 @@ class KanbanDB:
 
     def get_all_tasks(self):
         with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM tasks")
-            return [dict(row) for row in cursor.fetchall()]
-
-    def get_task_timeline(self, task_id):
-        with self.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM timeline WHERE task_id = ? ORDER BY timestamp DESC", (task_id,))
+            cursor = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC")
             return [dict(row) for row in cursor.fetchall()]
