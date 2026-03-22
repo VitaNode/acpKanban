@@ -118,44 +118,18 @@
 - [x] **协议层建设**：实现了一个 Python ACP Client (`acp_client.py`)，成功对接 `gemini --acp`，支持 JSON-RPC 通信、会话创建和流式消息解析。
 - [x] **会话管理升级**：利用 ACP 原生的 `session/new` 和 `session/load` 替代了旧的命令行会话维护模式，实现了持久化进程。
 - [x] **UI 与交互优化**：实现了 Telegram 上的流式打字机效果，大幅提升了交互反馈速度。
-- [ ] **交互审批与工具调用**：待进一步对接 `session/request_permission` 以实现内联按钮确认。
+- [~] **交互审批与工具调用**：待进一步对接 `session/request_permission` 以实现内联按钮确认。
+   1. 权限拦截机制已验证成功：我们的 Inline Button -> Callback -> Future -> ACP Respond
+      这一整条链路在逻辑上已经通了。
+   2. 文件创建失败 是因为 gemini CLI 内部的一个 Bug，在处理 default 审批回调时会崩溃。
+   3. 后续计划：您可以先在 yolo 模式下进行开发。等我们未来通过 GitHub 发起 Issue
+      并在官方修复该 Bug 后，再切回 default 模式。
 
 * **验证标准：**
-- [ ] 机器人启动后，CLI 进程保持常驻而非每轮重启。
-- [ ] Telegram 消息支持流式实时更新。
-- [ ] 工具调用触发 Telegram 按钮交互审批。
-- [ ] 能够通过 ACP 协议成功加载历史会话。
-
-#### 方案优化——2026-03-21
-
-* [ ] **记忆系统优化**
-  - 引入**定期摘要**（每周把旧对话压缩成摘要）
-  - `/summary` 改成**增量提炼**（读取旧摘要 + 新日志 → 生成新摘要）
-  - 考虑向量数据库（Chroma、FAISS）做语义检索
-
-* [ ] **安全清理（敏感信息排查）**
-  - `.env` 确保在 `.gitignore`
-  - `bots/*/` 目录（包含日志、记忆、凭证）全部忽略
-  - `logs/`、`venv/`、`__pycache__/` 忽略
-  - 检查代码里有没有硬编码的 API Key、User ID
-
-* [ ] **代码整理**
-  - 统一注释风格（中文/英文选一个）
-  - 移除调试代码（`print()`、临时注释）
-  - 提取配置常量到单独文件
-  - 增加类型注解（Python 3.10+）
-  - 添加单元测试（至少覆盖核心逻辑）
-
-* [ ] **依赖管理：**
-  - `requirements.txt` 或 `pyproject.toml`
-  - 标注 Python 版本要求
-  - CLI 工具依赖说明（gemini、qwen、gws 的安装方式）
-
-* [ ] **ACP 模式的可能性**：
-  - ACP 协议支持**跨代理上下文同步**
-  - 可以配置**共享 RAG 向量库**（`memory.json`）
-  - 或者通过**事实摘要层**（`memory_summary.md`）同步知识
-
+- [x] 机器人启动后，CLI 进程保持常驻而非每轮重启。
+- [x] Telegram 消息支持流式实时更新。
+- [x] 工具调用触发 Telegram 按钮交互审批。
+- [x] 能够通过 ACP 协议成功加载历史会话。
 
 ---
 
@@ -270,14 +244,51 @@ Gemini API (via MCP)
          ↓
 5. 双向转发消息（手机 ↔ Mac）
 ```
-**使用场景**：
-- 手机在外用移动数据，Mac 在家
-- 家庭/小团队内部使用
-- 演示和测试
 
 **优化**：
 - 做成系统进程，支持开机自起
 - 支持自定义连接地址：内网地址，或者自行配置的 “ngrok/cloudflare tunnel” 地址
+
+A. 安全加固：引入端到端加密 (E2EE) 🔒
+  由于路径 2 被定位为“专业版/收费版”，安全性是第一优先级。
+   * 建议：中继服务器仅负责“盲转发”加密后的原始数据包。
+   * 实施：Mac 端和手机端在握手阶段通过 Diffie-Hellman
+     等算法交换会话密钥。中继服务器只看到加密后的 JSON-RPC 流量，无法解析具体的指令内容。
+
+  B. 配对机制优化：从“账号密码”到“设备配对” 🔗
+   * 现状：用户在两端输入账号密码。
+   * 优化：参考 Telegram 或 Discord 的登录方式。
+       * Mac 端生成一个临时的 6 位配对码或 QR Code。
+       * 手机端扫码/输入，中继服务器根据配对码完成两端 ID 的绑定。
+       * 好处：减少用户输入负担，且避免在不信任的终端（如公用电脑）上输入主账号密码。
+
+  C. 状态自愈：ACP 会话持久化 🔄
+   * 痛点：如果 acp_bridge_relay.py 因为网络断开重连，本地的 gemini --acp 进程是否会重启？
+   * 优化：
+       * acp_bridge_relay.py 应该作为一个 Session Manager。
+       * 即使 WebSocket 断开，本地的 gemini --acp 进程也保持运行。
+       * 手机重连后，Bridge 通过 session/load 或 ACP
+         内置的恢复机制，将之前的上下文无缝推回手机端。
+
+  D. 流量优化：多通道转发 📡
+   * 建议：支持“内网优先”发现。
+   * 实施：在 App 中集成 mDNS (Bonjour)。如果手机和 Mac 在同一个 WiFi 下，App
+     优先尝试直接连接 Mac 的局域网 IP（路径 1 的变体）；只有在非同网环境下，才切换到路径 2
+     的云端中继。这能极大地降低延迟。
+
+  E. 交互审批的移动端适配 📱
+   * 建议：充分利用移动端推送通知。
+   * 场景：当 Mac 端执行危险操作（如 rm -rf）触发 ACP 的 session/request_permission
+     时，手机端不仅要在 App 内弹窗，还应发送系统级 Push
+     Notification。用户点击通知即可直接审批。
+
+  F. 组件层面细化建议
+   * Relay Server (server.py):
+       * 建议使用 FastAPI + WebSockets 库，或者专用的高性能转发引擎如 Nginx NJS。
+       * 增加 Ping/Pong 心跳包 检测，设置合理的超时剔除机制。
+   * Local Bridge (acp_bridge_relay.py):
+       * 建议增加一个 "Privacy Mode" 开关。当开启时，禁止通过 ACP
+         调用截图或读取特定敏感目录。
 
 ---
 
@@ -381,3 +392,107 @@ docker run -p 8765:8765 \
 
 ---
 
+### 【2026-03-21】**开源易用性优化方案**
+
+* [ ] **Bots配置**
+  - 支持多Bots，每个Bot单独配置以下参数：
+    - Bot_token
+    - 个人ID（暂时只支持私聊）
+    - 默认Bot
+    - agent.md
+      - 需要提供模板
+      - 去掉当前自动生成的 GEMINI.md 和 QWEN.md
+
+* [ ] **Embedding配置**
+  - BaseURL
+  - Model_ID
+  - key
+
+* [ ] **支持ACP切换**（如果不配置模型ID会怎么样？）
+  - AgentPool
+  - Augment Code
+  - Blackbox AI
+  - Claude Code（通过 Zed 适配器）
+  - Codex CLI（通过 Zed 适配器）
+  - Code Assistant
+  - Docker's cagent
+  - fast-agent
+  - Gemini CLI
+  - Goose
+  - JetBrains Junie（即将推出）
+  - Kimi CLI
+  - Minion Code
+  - Mistral Vibe
+  - OpenCode
+  - OpenHands
+  - Pi（通过 pi-acp 适配器）
+  - Qoder CLI
+  - Qwen Code
+  - Stakpak
+  - VT Code
+
+* [ ] **记忆系统优化**
+  - 引入**定期摘要**（每日把旧对话压缩成摘要）
+  - `/summary` 改成**增量提炼**（读取旧摘要 + 新日志 → 生成新摘要）（不再限制300条）
+  - 不再使用云端模型（否则要增加配置）
+
+* [ ] **安全清理（敏感信息排查）**
+  - `.env` 确保在 `.gitignore`
+  - `bots/*/` 目录（包含日志、记忆、凭证）全部忽略
+  - `logs/`、`venv/`、`__pycache__/` 忽略
+  - 检查代码里有没有硬编码的 API Key、User ID
+  - kanban.db、project_context.md、flutter_prototype
+
+* [ ] **代码整理**
+  - 统一注释风格（中文/英文选一个）
+  - 移除调试代码（`print()`、临时注释）
+  - 提取配置常量到单独文件
+  - 增加类型注解（Python 3.10+）
+  - 添加单元测试（至少覆盖核心逻辑）
+
+* [ ] **依赖管理：**
+  - `requirements.txt` 或 `pyproject.toml`
+  - 标注 Python 版本要求
+  - CLI 工具依赖说明（gemini、qwen、gws 的安装方式）
+
+* [ ] **ACP 模式的可能性**：
+  - ACP 协议支持**跨代理上下文同步**
+  - 可以配置**共享 RAG 向量库**（`memory.json`）
+  - 或者通过**事实摘要层**（`memory_summary.md`）同步知识
+
+* [ ] **安全配置**
+  - 单实例锁
+    - 同一 bot_token 只能运行一个实例
+  - 工作目录
+    - bot_token 绑定工作目录
+    - 不支持配置，强制在程序目录下自动生成（保证沙箱安全）
+  - 增加验证配置文件
+  - 文件写入锁 + 重试机制，并发写入时不丢失数据
+
+---
+
+### 【2026-03-22】路径 2 细化实施方案：统一中继与三级降级策略
+
+为了平衡“低延迟”与“高可用性”，路径 2 的实施将采用**三级自适应连接策略**。
+
+#### **1. 三级自适应逻辑 (Smart Connect)**
+Flutter App 启动后将按以下顺序尝试连接：
+1.  **内网直连 (Local Path)**：通过 mDNS 发现本地 Mac 的局域网 IP，直接建立 WebSocket 连接。延迟最小（<5ms），数据不经过云端。
+2.  **云端中继 (Relay Path)**：内网不可达时，连接云端 `relay_server.py`。Mac 端桥接器主动向云端建立长连接实现 NAT 穿透。
+3.  **云端 SaaS (Cloud Path)**：若本地 Mac 未启动，自动回退到云端部署的 `acp_server.py`，保证服务始终在线。
+
+#### **2. 统一中继服务器 (`relay_server.py`)**
+作为云端交换机，通过路径区分流量：
+- `/relay/app/{user_id}`: 手机端接入点。
+- `/relay/mac/{user_id}`: Mac 端接入点。
+- `/direct`: 兼容路径 3 的直接模式。
+
+#### **3. Mac 端双向桥接器 (`acp_bridge_relay.py`)**
+在本地 Mac 运行，同时维持两个任务：
+- **监听模式**：作为 Server 接受手机的内网直连。
+- **主动模式**：作为 Client 连接云端中继。
+- **共享执行**：两个通道共享同一个 `gemini --acp` 进程。
+
+#### **4. 安全方案**
+- **握手协议**：手机与 Mac 在首次配对时交换 AES 密钥。
+- **端到端加密 (E2EE)**：在路径 2 中，指令载荷由 App 加密，Mac 桥接器解密。中继服务器仅透传密文，确保云端不可视。
