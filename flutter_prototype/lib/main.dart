@@ -46,11 +46,12 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _initApp() async {
     setState(() => _isLoading = true);
     try {
-      // Configure Smart Connect (Replace with actual values or use a config screen later)
+      // Configure Smart Connect with Security
       final config = ACPConfig(
-        localIp: 'localhost', // or actual Mac IP
-        relayHost: 'localhost', // or actual Relay server
         userId: 'test_user',
+        relayHost: 'localhost', // or your server IP
+        relayToken: 'default_secret', // Matches Python RELAY_TOKEN
+        e2eeKeyHex: '6d795f626f745f64656661756c745f33325f627974655f7365637265745f6b6579', // Hex for 'my_bot_default_32_byte_secret_key'
       );
 
       await _acpClient.smartConnect(config);
