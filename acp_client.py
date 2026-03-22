@@ -12,8 +12,13 @@ class ACPClient:
         self.process: Optional[asyncio.subprocess.Process] = None
         self.pending_requests: Dict[Union[str, int], asyncio.Future] = {}
         self.notification_queues: Dict[str, asyncio.Queue] = {}
+        self.message_handlers = [] # New: list of callbacks for all messages
         self.logger = logging.getLogger(f"ACPClient[{name}]")
         self._running = False
+
+    def add_handler(self, handler):
+        """Add a callback for all incoming messages."""
+        self.message_handlers.append(handler)
 
     async def start(self):
         self.logger.info(f"Starting CLI: {' '.join(self.command)}")
@@ -64,6 +69,17 @@ class ACPClient:
 
     async def _handle_message(self, data: Dict[str, Any]):
         self.logger.debug(f"RECV: {data}")
+        
+        # Call all raw message handlers
+        for handler in self.message_handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(data)
+                else:
+                    handler(data)
+            except Exception as e:
+                self.logger.error(f"Error in message handler: {e}")
+
         msg_id = data.get("id")
         method = data.get("method")
         
