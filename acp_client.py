@@ -32,6 +32,17 @@ class ACPClient:
         self._running = True
         asyncio.create_task(self._read_stdout())
         asyncio.create_task(self._read_stderr())
+        asyncio.create_task(self._cleanup_pending_requests())
+
+    async def _cleanup_pending_requests(self):
+        """Periodically clean up stale futures."""
+        while self._running:
+            await asyncio.sleep(60)
+            # This is a basic cleanup. In a real system, we'd check timestamps.
+            # Here we just check if the future is done.
+            stale_ids = [k for k, v in self.pending_requests.items() if v.done()]
+            for k in stale_ids:
+                del self.pending_requests[k]
 
     async def _read_stdout(self):
         while self._running and self.process and not self.process.stdout.at_eof():
