@@ -3,41 +3,80 @@ import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
 
+enum ConnectionMode { local, relay, cloud, none }
+
+class ACPConfig {
+  final String? localIp;
+  final String? relayHost;
+  final String? userId;
+  final String? cloudDirectUrl;
+
+  ACPConfig({
+    this.localIp,
+    this.relayHost = "relay.example.com",
+    this.userId,
+    this.cloudDirectUrl,
+  });
+
+  String? get localUrl => localIp != null ? "ws://$localIp:8766" : null;
+  String? get relayUrl => (relayHost != null && userId != null) 
+      ? "ws://$relayHost:8766/relay/app/$userId" : null;
+  String? get cloudUrl => cloudDirectUrl ?? (relayHost != null ? "ws://$relayHost:8766/direct" : null);
+}
+
 class ACPClient {
-  final String url;
   WebSocketChannel? _channel;
   final _uuid = Uuid();
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
-  bool _isReconnecting = false;
   
+  ConnectionMode activeMode = ConnectionMode.none;
+  String? activeUrl;
+
   final _messageController = StreamController<String>.broadcast();
   Stream<String> get messages => _messageController.stream;
 
-  ACPClient(this.url);
+  ACPClient();
 
-  Future<void> connect() async {
-    await _connectWithRetry();
+  /// The entry point for the three-level fallback connection strategy.
+  Future<void> smartConnect(ACPConfig config) async {
+    // 1. Try Local Path
+    if (config.localUrl != null) {
+      print('[ACP] Attempting Local Path: ${config.localUrl}');
+      if (await _tryConnect(config.localUrl!, ConnectionMode.local, timeout: 2)) return;
+    }
+
+    // 2. Try Relay Path
+    if (config.relayUrl != null) {
+      print('[ACP] Attempting Relay Path: ${config.relayUrl}');
+      if (await _tryConnect(config.relayUrl!, ConnectionMode.relay, timeout: 5)) return;
+    }
+
+    // 3. Try Cloud Direct Path
+    if (config.cloudUrl != null) {
+      print('[ACP] Attempting Cloud Direct Path: ${config.cloudUrl}');
+      if (await _tryConnect(config.cloudUrl!, ConnectionMode.cloud, timeout: 10)) return;
+    }
+
+    throw Exception('All connection paths failed.');
   }
 
-  // Issue 3: Reconnection with exponential backoff
-  Future<void> _connectWithRetry() async {
-    int retries = 3;
-    for (int i = 0; i < retries; i++) {
-      try {
-        print('[ACP] Attempting connection to $url (Try ${i + 1})');
-        _channel = WebSocketChannel.connect(Uri.parse(url));
-        await _channel!.ready;
-        _setupStream();
-        _isReconnecting = false;
-        print('[ACP] Connected successfully.');
-        return;
-      } catch (e) {
-        if (i == retries - 1) {
-          print('[ACP] Failed to connect after $retries retries.');
-          rethrow;
-        }
-        await Future.delayed(Duration(seconds: 2 * (i + 1)));
-      }
+  Future<bool> _tryConnect(String url, ConnectionMode mode, {int timeout = 5}) async {
+    try {
+      final uri = Uri.parse(url);
+      _channel = WebSocketChannel.connect(uri);
+      
+      // Wait for the connection to be ready with a timeout
+      await _channel!.ready.timeout(Duration(seconds: timeout));
+      
+      activeMode = mode;
+      activeUrl = url;
+      _setupStream();
+      print('[ACP] Connected via $mode to $url');
+      return true;
+    } catch (e) {
+      print('[ACP] Connection to $url failed: $e');
+      _channel = null;
+      return false;
     }
   }
 
@@ -53,33 +92,21 @@ class ACPClient {
             _pendingRequests.remove(id);
           }
         }
+        _messageController.add(message);
       },
-      onError: (error) async {
+      onError: (error) {
         print('[ACP] WebSocket Error: $error');
-        await _handleReconnect();
+        activeMode = ConnectionMode.none;
       },
-      onDone: () async {
-        print('[ACP] WebSocket Done (Disconnected)');
-        await _handleReconnect();
+      onDone: () {
+        print('[ACP] WebSocket Disconnected');
+        activeMode = ConnectionMode.none;
       },
     );
   }
 
-  Future<void> _handleReconnect() async {
-    if (!_isReconnecting) {
-      _isReconnecting = true;
-      await Future.delayed(Duration(seconds: 5));
-      try {
-        await _connectWithRetry();
-      } catch (e) {
-        _isReconnecting = false;
-      }
-    }
-  }
-
-  // Issue 1, 2, 5: State check, timeout, logging
   Future<Map<String, dynamic>> sendRequest(String method, [Map<String, dynamic>? params]) async {
-    if (_channel == null || _channel!.closeCode != null) {
+    if (_channel == null) {
       throw Exception('[ACP] Not connected. Cannot send $method.');
     }
 
@@ -94,8 +121,6 @@ class ACPClient {
       "params": params ?? {}
     };
 
-    print('[ACP] --> Request: $method (id: $id)');
-    
     try {
       _channel!.sink.add(jsonEncode(request));
     } catch (e) {
@@ -104,12 +129,10 @@ class ACPClient {
       rethrow;
     }
 
-    // Issue 2: 30-second timeout
     return completer.future.timeout(
       const Duration(seconds: 30),
       onTimeout: () {
         _pendingRequests.remove(id);
-        print('[ACP] Request $id timed out.');
         throw TimeoutException('[ACP] Request $id timed out after 30s');
       },
     );
@@ -124,19 +147,20 @@ class ACPClient {
   Future<String> sendMessage(String message) async {
     final response = await sendRequest('chat/message', {'message': message});
     if (response.containsKey('result')) {
-      return response['result']['message'];
-    } else {
+      final result = response['result'];
+      if (result is Map && result.containsKey('message')) {
+        return result['message'];
+      }
+      return result.toString();
+    } else if (response.containsKey('error')) {
       throw Exception(response['error']['message'] ?? 'Unknown Error');
     }
+    throw Exception('Unexpected response format');
   }
 
-  // Issue 4: Cleanup resources
   void disconnect() {
-    for (final completer in _pendingRequests.values) {
-      completer.completeError(Exception('Connection manually closed.'));
-    }
-    _pendingRequests.clear();
-    _messageController.close();
     _channel?.sink.close();
+    _channel = null;
+    activeMode = ConnectionMode.none;
   }
 }

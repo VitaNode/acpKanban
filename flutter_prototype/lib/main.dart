@@ -31,7 +31,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  final _acpClient = ACPClient('ws://localhost:8766');
+  final _acpClient = ACPClient();
   List<KanbanTask> _tasks = [];
   final List<Map<String, String>> _chatHistory = [];
   final _textController = TextEditingController();
@@ -46,11 +46,19 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _initApp() async {
     setState(() => _isLoading = true);
     try {
-      await _acpClient.connect();
+      // Configure Smart Connect (Replace with actual values or use a config screen later)
+      final config = ACPConfig(
+        localIp: 'localhost', // or actual Mac IP
+        relayHost: 'localhost', // or actual Relay server
+        userId: 'test_user',
+      );
+
+      await _acpClient.smartConnect(config);
       await _acpClient.initialize();
-      await _loadTasks(); // Issue 1: Initial load
+      await _loadTasks();
     } catch (e) {
       debugPrint('Init Error: $e');
+      _chatHistory.add({'role': 'error', 'message': 'Connection failed: $e'});
     } finally {
       setState(() => _isLoading = false);
     }
@@ -105,13 +113,38 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Widget _getStatusDot() {
+    Color color;
+    switch (_acpClient.activeMode) {
+      case ConnectionMode.local: color = Colors.green; break;
+      case ConnectionMode.relay: color = Colors.orange; break;
+      case ConnectionMode.cloud: color = Colors.blue; break;
+      default: color = Colors.red;
+    }
+    return Container(
+      width: 10, height: 10,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('AI Kanban Assistant'),
+          title: Row(
+            children: [
+              const Text('AI Kanban'),
+              const SizedBox(width: 10),
+              _getStatusDot(),
+              const SizedBox(width: 5),
+              Text(
+                _acpClient.activeMode.name.toUpperCase(),
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
           actions: [
             IconButton(icon: const Icon(Icons.refresh), onPressed: _loadTasks),
           ],
