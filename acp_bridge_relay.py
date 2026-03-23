@@ -26,7 +26,10 @@ class UnifiedBridge:
         self.acp = ACPClient(command=acp_command, name="LocalGemini")
         self.local_discovery = LocalDiscovery(user_id)
         
+        # ECDH pair for initial handshake
         self.private_key, self.public_key_hex = E2EEManager.generate_key_pair()
+        
+        # Session key manager (Starts NOT ready)
         self.e2ee = E2EEManager(session_key_hex=session_key)
         
         self.local_clients = set()
@@ -41,11 +44,14 @@ class UnifiedBridge:
         self.acp.add_handler(self.on_acp_message)
         await self.acp.start()
         
-        local_port = 8766
-        local_server = websockets.serve(self.handle_local_client, "0.0.0.0", local_port)
-        logger.info(f"Local Server listening on ws://0.0.0.0:{local_port}")
+        local_server = websockets.serve(self.handle_local_client, "0.0.0.0", 8766)
+        logger.info("Local Server listening on ws://0.0.0.0:8766")
 
-        await asyncio.gather(local_server, self.maintain_relay_connection(), self.health_check_loop())
+        await asyncio.gather(
+            local_server,
+            self.maintain_relay_connection(),
+            self.health_check_loop()
+        )
 
     async def handle_local_client(self, websocket, path=None):
         addr = websocket.remote_address
@@ -63,7 +69,10 @@ class UnifiedBridge:
         headers = {"Authorization": f"Bearer {self.token}"}
         while self.running:
             try:
-                async with websockets.connect(self.relay_url, extra_headers=headers) as ws:
+                async with websockets.connect(
+                    self.relay_url, ping_interval=30, ping_timeout=10, extra_headers=headers
+                ) as ws:
+                    logger.info("Connected to Cloud Relay.")
                     self.relay_ws = ws
                     try:
                         async for message in ws:
@@ -74,25 +83,44 @@ class UnifiedBridge:
                 await asyncio.sleep(5)
 
     async def on_acp_message(self, data):
-        encrypted_env = self.e2ee.wrap_json_rpc(data)
+        """Broadcast output from ACP process."""
         plaintext_str = json.dumps(data)
+        
+        # 1. Local clients receive plaintext (Performance/Simplicity)
         for client in list(self.local_clients):
             try: await client.send(plaintext_str)
             except Exception: self.local_clients.discard(client)
+
+        # 2. Cloud Relay ONLY receives E2EE messages
         if self.relay_ws and not self.relay_ws.closed:
-            try: await self.relay_ws.send(encrypted_env)
-            except Exception: pass
+            if self.e2ee.is_ready:
+                try:
+                    encrypted_env = self.e2ee.wrap_json_rpc(data)
+                    await self.relay_ws.send(encrypted_env)
+                except Exception as e:
+                    logger.error(f"E2EE Wrap error: {e}")
+            else:
+                # Security boundary: Drop messages if session key not yet negotiated
+                logger.warning("Relay connected but E2EE not paired. Dropping ACP output for privacy.")
 
     async def handle_pairing(self, data):
         peer_public = data.get("params", {}).get("publicKey")
         if not peer_public: return {"error": "Missing publicKey"}
-        shared_secret = E2EEManager.derive_shared_secret(self.private_key, peer_public)
-        self.e2ee = E2EEManager(session_key_hex=shared_secret)
-        return {"result": {"publicKey": self.public_key_hex, "status": "paired"}}
+        
+        try:
+            shared_secret = E2EEManager.derive_shared_secret(self.private_key, peer_public)
+            self.e2ee.setup_session(shared_secret) # Securely transition to paired state
+            logger.info("ECDH Pairing Successful. Session key derived.")
+            return {"result": {"publicKey": self.public_key_hex, "status": "paired"}}
+        except Exception as e:
+            logger.error(f"Pairing failed: {e}")
+            return {"error": "Pairing calculation error"}
 
     async def forward_to_acp(self, message, source_ws):
         try:
             data = json.loads(message)
+            
+            # Handle Pairing (Plaintext)
             if data.get("method") == "pairing/exchange":
                 response = await self.handle_pairing(data)
                 response["id"] = data.get("id")
@@ -100,19 +128,28 @@ class UnifiedBridge:
                 await source_ws.send(json.dumps(response))
                 return
 
+            # Handle E2EE Envelope
             if data.get("method") == "e2ee/envelope":
+                if not self.e2ee.is_ready:
+                    logger.warning("Received E2EE envelope but session not ready.")
+                    return
                 try:
                     data = self.e2ee.unwrap_json_rpc(message)
                 except Exception as e:
+                    logger.error(f"Failed to decrypt message: {e}")
                     return
 
-            self.acp.process.stdin.write((json.dumps(data) + "\n").encode())
-            await self.acp.process.stdin.drain()
+            # Final forward to ACP engine
+            if self.acp.process and self.acp.process.returncode is None:
+                self.acp.process.stdin.write((json.dumps(data) + "\n").encode())
+                await self.acp.process.stdin.drain()
         except Exception as e:
-            pass
+            logger.error(f"Forwarding error: {e}")
 
     async def health_check_loop(self):
         while self.running:
+            if self.acp.process and self.acp.process.returncode is not None:
+                logger.critical("ACP Process died!")
             await asyncio.sleep(10)
 
 if __name__ == "__main__":
@@ -121,5 +158,7 @@ if __name__ == "__main__":
     parser.add_argument("--relay-url", default="ws://localhost:8766")
     parser.add_argument("--command", default="gemini --acp")
     args = parser.parse_args()
+    
     bridge = UnifiedBridge(args.user_id, args.relay_url, args.command.split())
-    asyncio.run(bridge.start())
+    try: asyncio.run(bridge.start())
+    except KeyboardInterrupt: pass
