@@ -136,7 +136,9 @@ class ACPClient {
   }
 
   Future<Map<String, dynamic>> sendRequest(String method, Map<String, dynamic> params, {bool forcePlaintext = false}) async {
-    if (_channel == null) throw Exception('Not connected');
+    if (_channel == null || activeMode == ConnectionPath.none) {
+      throw Exception('Not connected. Call smartConnect() before sending requests.');
+    }
 
     final id = _uuid.v4();
     final completer = Completer<Map<String, dynamic>>();

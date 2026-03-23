@@ -13,6 +13,9 @@ class E2EEManager:
         self.aesgcm = None
         if session_key_hex:
             self.setup_session(session_key_hex)
+        else:
+            import warnings
+            warnings.warn("E2EE initialized without a session key. Encryption will fail until setup_session is called.")
 
     def setup_session(self, session_key_hex):
         """Initializes the AES-GCM engine with a real session key."""

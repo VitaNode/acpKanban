@@ -117,6 +117,7 @@ class UnifiedBridge:
             return {"error": "Pairing calculation error"}
 
     async def forward_to_acp(self, message, source_ws):
+        addr = source_ws.remote_address if hasattr(source_ws, 'remote_address') else "relay"
         try:
             data = json.loads(message)
             
@@ -131,20 +132,24 @@ class UnifiedBridge:
             # Handle E2EE Envelope
             if data.get("method") == "e2ee/envelope":
                 if not self.e2ee.is_ready:
-                    logger.warning("Received E2EE envelope but session not ready.")
+                    logger.warning(f"Received E2EE envelope from {addr} but session not ready. Dropping.")
                     return
                 try:
                     data = self.e2ee.unwrap_json_rpc(message)
                 except Exception as e:
-                    logger.error(f"Failed to decrypt message: {e}")
+                    logger.error(f"Failed to decrypt E2EE message from {addr}: {e}")
                     return
 
             # Final forward to ACP engine
             if self.acp.process and self.acp.process.returncode is None:
                 self.acp.process.stdin.write((json.dumps(data) + "\n").encode())
                 await self.acp.process.stdin.drain()
+            else:
+                logger.error(f"ACP Process not running. Cannot forward message from {addr}.")
+        except json.JSONDecodeError:
+            logger.warning(f"Received non-JSON message from {addr}: {message[:50]}...")
         except Exception as e:
-            logger.error(f"Forwarding error: {e}")
+            logger.error(f"Unexpected error in forward_to_acp from {addr}: {e}")
 
     async def health_check_loop(self):
         while self.running:
