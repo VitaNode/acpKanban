@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
+import 'services/smart_connect.dart';
 import 'models/task.dart';
 
 void main() {
@@ -46,12 +47,12 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _initApp() async {
     setState(() => _isLoading = true);
     try {
-      // Configure Smart Connect with Security
       final config = ACPConfig(
         userId: 'test_user',
-        relayHost: 'localhost', // or your server IP
-        relayToken: 'default_secret', // Matches Python RELAY_TOKEN
-        e2eeKeyHex: '6d795f626f745f64656661756c745f33325f627974655f7365637265745f6b6579', // Hex for 'my_bot_default_32_byte_secret_key'
+        relayHost: '35.211.219.123',
+        relayToken: '8c939a7d-e31b-4e1d-b26c-57b4589519e1',
+        // Optional: Pre-shared key (if you have one)
+        // sessionKeyHex: '6d795f626f745f64656661756c745f33325f627974655f7365637265745f6b65',
       );
 
       await _acpClient.smartConnect(config);
@@ -61,27 +62,19 @@ class _MainScreenState extends State<MainScreen> {
       debugPrint('Init Error: $e');
       _chatHistory.add({'role': 'error', 'message': 'Connection failed: $e'});
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // Issue 1: Fetch and sync tasks from AI context
   Future<void> _loadTasks() async {
     try {
-      // We ask the AI to provide the current tasks in a JSON format we can parse.
-      // This leverages the "Living Timeline" and current DB state.
       final response = await _acpClient.sendMessage(
-        "Please provide the current list of all kanban tasks in a valid JSON array format. "
-        "Only return the JSON, nothing else."
+        "Please provide the current list of all kanban tasks in a valid JSON array format. Only return the JSON."
       );
-      
-      // Basic JSON extraction (looking for [...])
       final match = RegExp(r'\[.*\]', dotAll: true).stringMatch(response);
       if (match != null) {
         final List<dynamic> data = jsonDecode(match);
-        setState(() {
-          _tasks = data.map((t) => KanbanTask.fromJson(t)).toList();
-        });
+        setState(() => _tasks = data.map((t) => KanbanTask.fromJson(t)).toList());
       }
     } catch (e) {
       debugPrint('Load Tasks Error: $e');
@@ -91,35 +84,28 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _handleSendMessage() async {
     final text = _textController.text;
     if (text.isEmpty) return;
-
     setState(() {
       _chatHistory.add({'role': 'user', 'message': text});
       _textController.clear();
       _isLoading = true;
     });
-
     try {
       final response = await _acpClient.sendMessage(text);
-      setState(() {
-        _chatHistory.add({'role': 'ai', 'message': response});
-      });
-      // Issue 2: Sync tasks after every message in case AI modified the board
+      setState(() => _chatHistory.add({'role': 'ai', 'message': response}));
       await _loadTasks();
     } catch (e) {
-      setState(() {
-        _chatHistory.add({'role': 'error', 'message': 'Failed: $e'});
-      });
+      setState(() => _chatHistory.add({'role': 'error', 'message': 'Failed: $e'}));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Widget _getStatusDot() {
     Color color;
     switch (_acpClient.activeMode) {
-      case ConnectionMode.local: color = Colors.green; break;
-      case ConnectionMode.relay: color = Colors.orange; break;
-      case ConnectionMode.cloud: color = Colors.blue; break;
+      case ConnectionPath.local: color = Colors.green; break;
+      case ConnectionPath.relay: color = Colors.orange; break;
+      case ConnectionPath.cloud: color = Colors.blue; break;
       default: color = Colors.red;
     }
     return Container(
@@ -166,7 +152,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // Issue 3: Added RefreshIndicator
   Widget _buildBoardView() {
     return RefreshIndicator(
       onRefresh: _loadTasks,
@@ -180,28 +165,18 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // Issue 4 & 5: Improved Empty State and Card Info
   Widget _buildColumn(String title, List<KanbanTask> tasks) {
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(8),
-        ),
+        decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            ),
+            Padding(padding: const EdgeInsets.all(12.0), child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
             Expanded(
               child: tasks.isEmpty
                   ? Center(child: Text('Empty', style: TextStyle(color: Colors.grey[400])))
-                  : ListView.builder(
-                      itemCount: tasks.length,
-                      itemBuilder: (context, index) => _buildTaskCard(tasks[index]),
-                    ),
+                  : ListView.builder(itemCount: tasks.length, itemBuilder: (context, index) => _buildTaskCard(tasks[index])),
             ),
           ],
         ),
@@ -247,14 +222,8 @@ class _MainScreenState extends State<MainScreen> {
                       bottomLeft: Radius.circular(isUser ? 16 : 0),
                       bottomRight: Radius.circular(isUser ? 0 : 16),
                     ),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))
-                    ]
                   ),
-                  child: Text(
-                    item['message']!,
-                    style: TextStyle(color: isUser ? Colors.white : Colors.black87),
-                  ),
+                  child: Text(item['message']!, style: TextStyle(color: isUser ? Colors.white : Colors.black87)),
                 ),
               );
             },
@@ -269,10 +238,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget _buildInputArea() {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -2))],
-      ),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -2))]),
       child: SafeArea(
         child: Row(
           children: [
@@ -290,10 +256,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            FloatingActionButton.small(
-              onPressed: _handleSendMessage,
-              child: const Icon(Icons.send),
-            ),
+            FloatingActionButton.small(onPressed: _handleSendMessage, child: const Icon(Icons.send)),
           ],
         ),
       ),

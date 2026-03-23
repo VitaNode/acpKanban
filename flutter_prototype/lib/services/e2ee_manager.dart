@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:encrypt/encrypt.dart' as enc;
 import 'package:cryptography/cryptography.dart';
 
 class E2EEManager {
-  enc.Key? _key;
+  List<int>? _secretKeyBytes;
   bool _isReady = false;
   
+  // Use cryptography's AES-GCM implementation
+  final _algorithm = AesGcm.with256bits(nonceLength: 12);
+
   E2EEManager(String? keyHex) {
     if (keyHex != null) {
       setupSession(keyHex);
@@ -14,7 +16,7 @@ class E2EEManager {
   }
 
   void setupSession(String keyHex) {
-    _key = enc.Key.fromBase16(keyHex);
+    _secretKeyBytes = _hexToBytes(keyHex);
     _isReady = true;
   }
 
@@ -54,51 +56,72 @@ class E2EEManager {
     return _bytesToHex(Uint8List.fromList(keyBytes));
   }
 
-  /// Encrypts plaintext using AES-GCM. 
-  /// Result: [Nonce (12 bytes)] + [Ciphertext] + [Tag (16 bytes)]
-  String encrypt(String plaintext) {
+  /// Encrypts plaintext using AES-GCM (cryptography package).
+  /// Output Format: [Nonce (12 bytes)] + [Ciphertext] + [Tag (16 bytes)]
+  Future<String> encrypt(String plaintext) async {
     if (!_isReady) throw Exception('E2EE session not ready');
     
-    final iv = enc.IV.fromSecureRandom(12);
-    final encrypter = enc.Encrypter(enc.AES(_key!, mode: enc.AESMode.gcm, padding: null));
+    final secretKey = await _algorithm.newSecretKeyFromBytes(_secretKeyBytes!);
+    final nonce = _algorithm.newNonce(); // 12 bytes random
     
-    // In 'encrypt' package with PointyCastle, the result of GCM encryption 
-    // already appends the authentication tag to the ciphertext bytes.
-    final encrypted = encrypter.encrypt(plaintext, iv: iv);
+    final secretBox = await _algorithm.encrypt(
+      utf8.encode(plaintext),
+      secretKey: secretKey,
+      nonce: nonce,
+    );
     
-    final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
+    // Concatenate: Nonce + Ciphertext + Mac (Tag)
+    final combined = Uint8List.fromList(
+      secretBox.nonce + secretBox.cipherText + secretBox.mac.bytes
+    );
+    
     return base64.encode(combined);
   }
 
   /// Decrypts AES-GCM payload.
-  /// Payload must contain: Nonce (12) + Data + Tag (16)
-  String decrypt(String b64Payload) {
+  Future<String> decrypt(String b64Payload) async {
     if (!_isReady) throw Exception('E2EE session not ready');
     
     final payload = base64.decode(b64Payload);
     if (payload.length < 12 + 16) {
-      throw Exception('Invalid E2EE payload: Too short to contain Nonce and Tag');
+      throw Exception('Invalid E2EE payload: Too short');
     }
     
-    final iv = enc.IV(payload.sublist(0, 12));
-    final encryptedDataWithTag = payload.sublist(12);
+    final nonce = payload.sublist(0, 12);
+    final tagStart = payload.length - 16;
+    final cipherText = payload.sublist(12, tagStart);
+    final macBytes = payload.sublist(tagStart);
     
-    final encrypter = enc.Encrypter(enc.AES(_key!, mode: enc.AESMode.gcm, padding: null));
-    return encrypter.decrypt(enc.Encrypted(encryptedDataWithTag), iv: iv);
+    final secretBox = SecretBox(
+      cipherText,
+      nonce: nonce,
+      mac: Mac(macBytes),
+    );
+    
+    final secretKey = await _algorithm.newSecretKeyFromBytes(_secretKeyBytes!);
+    
+    final decryptedBytes = await _algorithm.decrypt(
+      secretBox,
+      secretKey: secretKey,
+    );
+    
+    return utf8.decode(decryptedBytes);
   }
 
-  Map<String, dynamic> wrap(Map<String, dynamic> data) {
+  Future<Map<String, dynamic>> wrap(Map<String, dynamic> data) async {
+    final plaintext = jsonEncode(data);
     return {
       "jsonrpc": "2.0",
       "method": "e2ee/envelope",
-      "params": {"payload": encrypt(jsonEncode(data))}
+      "params": {"payload": await encrypt(plaintext)}
     };
   }
 
-  Map<String, dynamic> unwrap(Map<String, dynamic> data) {
+  Future<Map<String, dynamic>> unwrap(Map<String, dynamic> data) async {
     if (data.containsKey('method') && data['method'] == 'e2ee/envelope') {
       final payload = data['params']['payload'];
-      return jsonDecode(decrypt(payload));
+      final decryptedStr = await decrypt(payload);
+      return jsonDecode(decryptedStr);
     }
     return data;
   }
