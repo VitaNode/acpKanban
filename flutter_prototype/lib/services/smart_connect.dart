@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -17,7 +16,6 @@ class SmartConnectResult {
 class SmartConnect {
   static const String _serviceType = '_acp._tcp.local';
 
-  /// Orchestrates the 3-level connection strategy.
   static Future<SmartConnectResult> connect({
     String? preferredLocalIp,
     String? relayUrl,
@@ -25,9 +23,13 @@ class SmartConnect {
     String? token,
     String? userId,
   }) async {
-    // 1. Try mDNS Discovery
+    // 1. Try mDNS Discovery with Timeout
     print('[SmartConnect] Starting mDNS scan...');
-    final discoveredIp = await discoverLocalMac();
+    final discoveredIp = await discoverLocalMac().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => null,
+    );
+    
     final targetLocalIp = discoveredIp ?? preferredLocalIp;
 
     if (targetLocalIp != null) {
@@ -58,23 +60,28 @@ class SmartConnect {
     final MDnsClient client = MDnsClient();
     await client.start();
     try {
-      await for (final PtrResourceRecord ptr in client.lookup<PtrResourceRecord>(
-          ResourceRecordQuery.serverPointer(_serviceType))) {
-        await for (final SrvResourceRecord srv in client.lookup<SrvResourceRecord>(
-            ResourceRecordQuery.service(ptr.domainName))) {
-          await for (final IPAddressResourceRecord ip in client.lookup<IPAddressResourceRecord>(
-              ResourceRecordQuery.addressIPv4(srv.target))) {
-            client.stop();
-            return ip.address.address;
+      // Internal scanner with internal loop
+      final String? ip = await (() async {
+        await for (final PtrResourceRecord ptr in client.lookup<PtrResourceRecord>(
+            ResourceRecordQuery.serverPointer(_serviceType))) {
+          await for (final SrvResourceRecord srv in client.lookup<SrvResourceRecord>(
+              ResourceRecordQuery.service(ptr.domainName))) {
+            await for (final IPAddressResourceRecord ipRecord in client.lookup<IPAddressResourceRecord>(
+                ResourceRecordQuery.addressIPv4(srv.target))) {
+              return ipRecord.address.address;
+            }
           }
         }
-      }
+        return null;
+      })().timeout(const Duration(seconds: 2), onTimeout: () => null);
+      
+      return ip;
     } catch (e) {
-      print("[SmartConnect] Discovery error: $e");
+      print("[SmartConnect] mDNS error: $e");
+      return null;
     } finally {
       client.stop();
     }
-    return null;
   }
 
   static Future<WebSocketChannel?> _tryConnect(String url, String? token) async {
