@@ -20,16 +20,23 @@ RELAY_TOKEN = os.getenv("RELAY_TOKEN", "default_secret")
 # Map to store active relay pairs: { user_id: {"mac": websocket, "app": websocket} }
 relays = {}
 
+async def process_request(path, request_headers):
+    """Intercept unauthorized requests during handshake."""
+    auth_header = request_headers.get("Authorization")
+    expected = f"Bearer {RELAY_TOKEN}"
+    if auth_header != expected:
+        logger.warning(f"Handshake Auth failed for path: {path}")
+        # Return a 401 Unauthorized response
+        return (401, [], b"Unauthorized\n")
+    return None
+
 async def handle_relay_logic(websocket, role, user_id):
-    """Handle core forwarding for Path 2."""
     if user_id not in relays:
         relays[user_id] = {"mac": None, "app": None}
     
-    # Pre-empt existing connections of the same role
     old_ws = relays[user_id].get(role)
     if old_ws and not old_ws.closed:
-        logger.warning(f"Closing existing connection for {user_id}/{role}")
-        await old_ws.close(1001, "Replaced by newer connection")
+        await old_ws.close(1001, "Replaced")
 
     relays[user_id][role] = websocket
     logger.info(f"User {user_id}: {role} connected.")
@@ -38,43 +45,25 @@ async def handle_relay_logic(websocket, role, user_id):
         async for message in websocket:
             other_role = "app" if role == "mac" else "mac"
             other_ws = relays[user_id].get(other_role)
-            
             if other_ws and not other_ws.closed:
                 try:
-                    await other_ws.send(message)
+                    await asyncio.wait_for(other_ws.send(message), timeout=5.0)
                 except Exception as e:
-                    logger.error(f"Forward error from {role} to {other_role}: {e}")
-            else:
-                logger.debug(f"User {user_id}: {role} message dropped ({other_role} offline)")
-                
+                    logger.error(f"Forward error: {e}")
     except websockets.exceptions.ConnectionClosed:
-        logger.info(f"User {user_id}: {role} disconnected.")
+        pass
     finally:
         if relays.get(user_id) and relays[user_id].get(role) == websocket:
             relays[user_id][role] = None
-        if relays.get(user_id) and not relays[user_id]["mac"] and not relays[user_id]["app"]:
-            del relays[user_id]
 
 async def handler(websocket, path):
-    """Unified entry point with Authentication."""
+    """Main handler, authentication already checked by process_request."""
     client_addr = websocket.remote_address
     
-    # 1. Basic Token Authentication
-    # Note: websockets doesn't expose headers directly in the handler's args, 
-    # but we can access them via websocket.request_headers
-    auth_header = websocket.request_headers.get("Authorization")
-    expected = f"Bearer {RELAY_TOKEN}"
-    
-    if auth_header != expected:
-        logger.warning(f"Auth failed for {client_addr} on {path}")
-        await websocket.close(1008, "Invalid Token")
-        return
-
-    # 2. Path routing
     if path == "/direct" or path == "/":
-        logger.info(f"Routing {client_addr} to Direct Mode (Path 3)")
-        from acp_bridge_ws import handler as direct_handler
-        await direct_handler(websocket)
+        logger.info(f"Routing {client_addr} to Direct Mode")
+        import acp_bridge_ws
+        await acp_bridge_ws.handler(websocket)
         return
 
     parts = path.strip("/").split("/")
@@ -95,10 +84,11 @@ async def main():
         handler, 
         host, 
         port,
+        process_request=process_request, # Add handshake auth
         ping_interval=30,
         ping_timeout=10
     ):
-        logger.info(f"Relay Server (Authenticated) started on ws://{host}:{port}")
+        logger.info(f"Relay Server (Secure Handshake) started on ws://{host}:{port}")
         await asyncio.Future()
 
 if __name__ == "__main__":

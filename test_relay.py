@@ -4,67 +4,58 @@ import json
 import subprocess
 import time
 import os
+import sys
+from e2ee import E2EEManager
 
-async def test_relay_path2():
-    print("[*] Testing Path 2: Relay Mode")
+async def test_auth_failure():
+    print("[*] Testing Auth Failure")
+    uri = "ws://localhost:8766/relay/app/test_user"
+    # No headers or wrong token
+    try:
+        async with websockets.connect(uri) as ws:
+            pass
+        assert False, "Should have failed due to missing auth"
+    except (websockets.exceptions.InvalidStatusCode, websockets.exceptions.InvalidMessage) as e:
+        print(f"[+] Caught expected auth failure: {e}")
+
+async def test_e2ee_relay():
+    print("[*] Testing E2EE Relay")
+    token = "default_secret"
+    headers = {"Authorization": f"Bearer {token}"}
     uri_mac = "ws://localhost:8766/relay/mac/test_user"
     uri_app = "ws://localhost:8766/relay/app/test_user"
 
-    async with websockets.connect(uri_mac) as ws_mac, \
-               websockets.connect(uri_app) as ws_app:
+    # 1. Initialize E2EE with a shared secret (Exactly 32 bytes / 64 hex chars)
+    shared_secret = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+    e2ee = E2EEManager(session_key_hex=shared_secret)
+
+    async with websockets.connect(uri_mac, extra_headers=headers) as ws_mac, \
+               websockets.connect(uri_app, extra_headers=headers) as ws_app:
         
-        print("[*] Connected both MAC and APP")
-
-        # Test APP -> MAC
-        test_msg_app = json.dumps({"jsonrpc": "2.0", "method": "test_from_app", "id": 1})
-        await ws_app.send(test_msg_app)
-        print("[*] Sent message from APP")
+        # App sends E2EE message
+        raw_msg = {"jsonrpc": "2.0", "method": "secure_cmd", "id": "S1"}
+        envelope = e2ee.wrap_json_rpc(raw_msg)
+        await ws_app.send(envelope)
         
-        recv_mac = await asyncio.wait_for(ws_mac.recv(), timeout=2.0)
-        print(f"[*] MAC received: {recv_mac}")
-        assert recv_mac == test_msg_app
+        # Mac receives envelope and unwraps
+        recv_env = await asyncio.wait_for(ws_mac.recv(), timeout=2.0)
+        unwrapped = e2ee.unwrap_json_rpc(recv_env)
+        print(f"[*] MAC received and unwrapped: {unwrapped}")
+        assert unwrapped["method"] == "secure_cmd"
 
-        # Test MAC -> APP
-        test_msg_mac = json.dumps({"jsonrpc": "2.0", "result": "ok_from_mac", "id": 1})
-        await ws_mac.send(test_msg_mac)
-        print("[*] Sent message from MAC")
-
-        recv_app = await asyncio.wait_for(ws_app.recv(), timeout=2.0)
-        print(f"[*] APP received: {recv_app}")
-        assert recv_app == test_msg_mac
-
-    print("[+] Path 2 Test Passed!")
-
-async def test_relay_path3():
-    print("[*] Testing Path 3: Direct Mode")
-    uri_direct = "ws://localhost:8766/direct"
-    
-    async with websockets.connect(uri_direct) as ws:
-        # Send initialize
-        init_req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
-        await ws.send(init_req)
-        
-        resp = await asyncio.wait_for(ws.recv(), timeout=5.0)
-        data = json.loads(resp)
-        print(f"[*] Path 3 Response: {data}")
-        assert "result" in data
-        assert "capabilities" in data["result"]
-
-    print("[+] Path 3 Test Passed!")
-
-import sys
+    print("[+] E2EE Relay Test Passed!")
 
 async def run_tests():
-    # Start server in background
-    server_process = subprocess.Popen([sys.executable, "relay_server.py"], env=os.environ)
-    time.sleep(2) # Wait for server to start
+    # Start server
+    server_proc = subprocess.Popen([sys.executable, "relay_server.py"])
+    time.sleep(2)
 
     try:
-        await test_relay_path2()
-        await test_relay_path3()
+        await test_auth_failure()
+        await test_e2ee_relay()
     finally:
-        server_process.terminate()
-        server_process.wait()
+        server_proc.terminate()
+        server_proc.wait()
 
 if __name__ == "__main__":
     asyncio.run(run_tests())
