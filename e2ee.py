@@ -70,13 +70,22 @@ class E2EEManager:
         return plaintext.decode('utf-8')
 
     def wrap_json_rpc(self, data):
+        """
+        Wrap data in E2EE envelope.
+        
+        Args:
+            data: Dictionary to encrypt
+            
+        Returns:
+            Dictionary (not JSON string) for consistent API
+        """
         plaintext = json.dumps(data)
         encrypted_payload = self.encrypt(plaintext)
-        return json.dumps({
+        return {
             "jsonrpc": "2.0",
             "method": "e2ee/envelope",
             "params": {"payload": encrypted_payload}
-        })
+        }
 
     def unwrap_json_rpc(self, envelope_str):
         data = json.loads(envelope_str)
