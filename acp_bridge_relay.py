@@ -8,6 +8,7 @@ import argparse
 from acp_client import ACPClient
 from mdns_discovery import LocalDiscovery
 from e2ee import E2EEManager
+from acp_adapter import ACPProtocolAdapter
 
 # Set up logging
 logging.basicConfig(
@@ -18,20 +19,23 @@ logging.basicConfig(
 logger = logging.getLogger("BridgeRelay")
 
 class UnifiedBridge:
-    def __init__(self, user_id, relay_url, acp_command, token=None, session_key=None):
+    def __init__(self, user_id, relay_url, acp_command, token=None, session_key=None, workspace_cwd=None):
         self.user_id = user_id
         self.relay_url = f"{relay_url.rstrip('/')}/relay/mac/{user_id}"
         self.token = token or os.getenv("RELAY_TOKEN", "default_secret")
-        
+
         self.acp = ACPClient(command=acp_command, name="LocalGemini")
         self.local_discovery = LocalDiscovery(user_id)
         
+        # Protocol adapter for Flutter App compatibility
+        self.adapter = ACPProtocolAdapter(self.acp, workspace_cwd=workspace_cwd)
+
         # ECDH pair for initial handshake
         self.private_key, self.public_key_hex = E2EEManager.generate_key_pair()
-        
+
         # Session key manager (Starts NOT ready)
         self.e2ee = E2EEManager(session_key_hex=session_key)
-        
+
         self.local_clients = set()
         self.relay_ws = None
         self.running = True
@@ -120,7 +124,7 @@ class UnifiedBridge:
         addr = source_ws.remote_address if hasattr(source_ws, 'remote_address') else "relay"
         try:
             data = json.loads(message)
-            
+
             # Handle Pairing (Plaintext)
             if data.get("method") == "pairing/exchange":
                 response = await self.handle_pairing(data)
@@ -140,12 +144,46 @@ class UnifiedBridge:
                     logger.error(f"Failed to decrypt E2EE message from {addr}: {e}")
                     return
 
-            # Final forward to ACP engine
+            # Use protocol adapter for Flutter App methods
+            method = data.get("method")
+            params = data.get("params", {})
+            request_id = data.get("id")
+            
+            if method in ["chat/message", "initialize", "health"]:
+                # Use adapter to convert and forward
+                try:
+                    result = await self.adapter.handle_request(method, params)
+                    
+                    # Send response
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": result
+                    }
+                    
+                    # E2EE encrypt response for relay
+                    if self.e2ee.is_ready and isinstance(source_ws, websockets.WebSocketClientProtocol):
+                        response = self.e2ee.wrap_json_rpc(response)
+                    
+                    await source_ws.send(json.dumps(response))
+                    logger.info(f"-> Adapter handled {method}: {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Adapter error for {method}: {e}")
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32603, "message": str(e)}
+                    }
+                    await source_ws.send(json.dumps(error_response))
+                return
+
+            # Final forward to ACP engine for standard ACP methods
             if self.acp.process and self.acp.process.returncode is None:
                 payload = (json.dumps(data) + "\n").encode()
                 self.acp.process.stdin.write(payload)
                 await self.acp.process.stdin.drain()
-                logger.info(f"-> Forwarded to ACP: {data.get('method') or 'response'}")
+                logger.info(f"-> Forwarded to ACP: {method or 'response'}")
             else:
                 logger.error(f"ACP Process not running. Cannot forward.")
         except json.JSONDecodeError:
