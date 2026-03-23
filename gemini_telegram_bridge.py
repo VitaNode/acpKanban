@@ -405,7 +405,7 @@ class GeminiBotInstance:
         
         # Start new client
         abs_workspace = str(self.workspace_dir.resolve())
-        cmd = [self.engine, "--acp", "--approval-mode", "default"]
+        cmd = [self.engine, "--acp", "--approval-mode", "yolo"]
         
         self.acp_client = ACPClient(cmd, cwd=abs_workspace, name=f"{self.name}-{self.engine}")
         await self.acp_client.start()
@@ -463,10 +463,14 @@ class GeminiBotInstance:
         return self.acp_client
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # AT THE VERY TOP:
+        print(f"DEBUG: GLOBAL CALLBACK TRIGGERED for {self.name}") 
+        
         query = update.callback_query
         await query.answer()
         
         data = query.data # "perm:[approve|deny]:[request_id]"
+        self.logger.info(f"Callback data received: {data}")
         if not data.startswith("perm:"):
             return
             
@@ -474,14 +478,19 @@ class GeminiBotInstance:
         action = parts[1]
         req_id = parts[2]
         
-        if req_id in self.permission_futures:
-            future = self.permission_futures.pop(req_id)
+        # Try to find with bot prefix or directly
+        target_id = f"{self.name}:{req_id}"
+        if target_id in self.permission_futures:
+            self.logger.info(f"User clicked {action} for permission {target_id}")
+            future = self.permission_futures.pop(target_id)
             if action == "approve":
                 future.set_result(True)
                 await query.edit_message_text(text=f"{query.message.text}\n\n✅ <b>已批准</b>", parse_mode=ParseMode.HTML)
             else:
                 future.set_result(False)
                 await query.edit_message_text(text=f"{query.message.text}\n\n❌ <b>已拒绝</b>", parse_mode=ParseMode.HTML)
+        else:
+            self.logger.warning(f"Permission future not found for ID: {target_id}. Active: {list(self.permission_futures.keys())}")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
@@ -628,7 +637,10 @@ class GeminiBotInstance:
                         
                         elif msg.get("method") == "session/request_permission":
                             # 🛡️ ACP Permission Interception
-                            req_id = msg.get("id")
+                            req_id = str(msg.get("id"))
+                            # Use bot-prefixed ID to avoid cross-bot interference and global ID collisions
+                            target_id = f"{self.name}:{req_id}" 
+                            
                             params = msg.get("params", {})
                             permission = params.get("permission", {})
                             
@@ -656,14 +668,15 @@ class GeminiBotInstance:
                             
                             # Wait for user response
                             future = asyncio.get_running_loop().create_future()
-                            self.permission_futures[req_id] = future
+                            self.permission_futures[target_id] = future
                             
-                            self.logger.info(f"Waiting for permission decision on {req_id}...")
+                            self.logger.info(f"Waiting for permission decision on {target_id}...")
                             approved = await future
                             
-                            # Send result back to ACP
-                            await client.respond(req_id, result={"approved": approved})
-                            self.logger.info(f"Permission {req_id} decision: {approved}")
+                            # Send result back to ACP (Original ID type)
+                            orig_id = msg.get("id")
+                            await client.respond(orig_id, result={"approved": approved})
+                            self.logger.info(f"Permission {orig_id} decision: {approved}")
                     except asyncio.TimeoutError:
                         continue
                 
@@ -759,7 +772,8 @@ async def main():
     apps = []
     for name, token in bot_configs.items():
         instance = GeminiBotInstance(name, token)
-        app = ApplicationBuilder().token(token).request(t_request).build()
+        # Enable concurrent_updates=True to allow callbacks to run while a message handler is awaiting permission
+        app = ApplicationBuilder().token(token).request(t_request).concurrent_updates(True).build()
         app.add_handler(MessageHandler(filters.TEXT, instance.handle_message))
         app.add_handler(CallbackQueryHandler(instance.handle_callback))
         app.add_error_handler(error_handler)

@@ -11,7 +11,7 @@ from e2ee import E2EEManager
 
 # Set up logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s [%(levelname)s] %(message)s',
     stream=sys.stdout
 )
@@ -142,10 +142,12 @@ class UnifiedBridge:
 
             # Final forward to ACP engine
             if self.acp.process and self.acp.process.returncode is None:
-                self.acp.process.stdin.write((json.dumps(data) + "\n").encode())
+                payload = (json.dumps(data) + "\n").encode()
+                self.acp.process.stdin.write(payload)
                 await self.acp.process.stdin.drain()
+                logger.info(f"-> Forwarded to ACP: {data.get('method') or 'response'}")
             else:
-                logger.error(f"ACP Process not running. Cannot forward message from {addr}.")
+                logger.error(f"ACP Process not running. Cannot forward.")
         except json.JSONDecodeError:
             logger.warning(f"Received non-JSON message from {addr}: {message[:50]}...")
         except Exception as e:
@@ -160,10 +162,19 @@ class UnifiedBridge:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--user-id", default="test_user")
-    parser.add_argument("--relay-url", default="ws://localhost:8766")
+    parser.add_argument("--relay-url", default="wss://mybot.siliconpulse.cc")
     parser.add_argument("--command", default="gemini --acp")
+    parser.add_argument("--token", help="Relay Auth Token")
+    parser.add_argument("--e2ee-key", help="32-byte Hex Key for E2EE Session (Optional, for pre-paired)")
     args = parser.parse_args()
-    
-    bridge = UnifiedBridge(args.user_id, args.relay_url, args.command.split())
+
+    # Initialize with token and session_key if provided
+    bridge = UnifiedBridge(
+        args.user_id, 
+        args.relay_url, 
+        args.command.split(), 
+        token=args.token, 
+        session_key=args.e2ee_key
+    )
     try: asyncio.run(bridge.start())
     except KeyboardInterrupt: pass

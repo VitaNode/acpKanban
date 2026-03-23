@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/html.dart'; // For Web support
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum ConnectionPath { local, relay, cloud, none }
@@ -23,20 +25,27 @@ class SmartConnect {
     String? token,
     String? userId,
   }) async {
-    // 1. Try mDNS Discovery with Timeout
-    print('[SmartConnect] Starting mDNS scan...');
-    final discoveredIp = await discoverLocalMac().timeout(
-      const Duration(seconds: 3),
-      onTimeout: () => null,
-    );
-    
-    final targetLocalIp = discoveredIp ?? preferredLocalIp;
-
-    if (targetLocalIp != null) {
-      final localUrl = "ws://$targetLocalIp:8766";
-      print('[SmartConnect] Attempting Local Path: $localUrl');
-      final channel = await _tryConnect(localUrl, token);
-      if (channel != null) return SmartConnectResult(channel, ConnectionPath.local, localUrl);
+    // 1. Try mDNS Discovery (Skip on Web)
+    if (!kIsWeb) {
+      print('[SmartConnect] Starting mDNS scan...');
+      try {
+        final discoveredIp = await discoverLocalMac().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => null,
+        );
+        
+        final targetLocalIp = discoveredIp ?? preferredLocalIp;
+        if (targetLocalIp != null) {
+          final localUrl = "ws://$targetLocalIp:8766";
+          print('[SmartConnect] Attempting Local Path: $localUrl');
+          final channel = await _tryConnect(localUrl, token);
+          if (channel != null) return SmartConnectResult(channel, ConnectionPath.local, localUrl);
+        }
+      } catch (e) {
+        print('[SmartConnect] mDNS not supported or failed: $e');
+      }
+    } else {
+      print('[SmartConnect] Running on Web: Skipping mDNS local discovery.');
     }
 
     // 2. Try Relay Path
@@ -57,10 +66,10 @@ class SmartConnect {
   }
 
   static Future<String?> discoverLocalMac() async {
+    // This part is only called if !kIsWeb
     final MDnsClient client = MDnsClient();
-    await client.start();
     try {
-      // Internal scanner with internal loop
+      await client.start();
       final String? ip = await (() async {
         await for (final PtrResourceRecord ptr in client.lookup<PtrResourceRecord>(
             ResourceRecordQuery.serverPointer(_serviceType))) {
@@ -77,7 +86,6 @@ class SmartConnect {
       
       return ip;
     } catch (e) {
-      print("[SmartConnect] mDNS error: $e");
       return null;
     } finally {
       client.stop();
@@ -86,9 +94,22 @@ class SmartConnect {
 
   static Future<WebSocketChannel?> _tryConnect(String url, String? token) async {
     try {
-      final uri = Uri.parse(url);
-      final headers = token != null ? {'Authorization': 'Bearer $token'} : <String, String>{};
-      final channel = IOWebSocketChannel.connect(uri, headers: headers);
+      WebSocketChannel channel;
+      
+      if (kIsWeb) {
+        // Web context: Append token to URL because headers are not supported
+        String webUrl = url;
+        if (token != null) {
+          final uri = Uri.parse(url);
+          webUrl = uri.replace(queryParameters: {'token': token}).toString();
+        }
+        channel = HtmlWebSocketChannel.connect(Uri.parse(webUrl));
+      } else {
+        final uri = Uri.parse(url);
+        final headers = token != null ? {'Authorization': 'Bearer $token'} : <String, String>{};
+        channel = IOWebSocketChannel.connect(uri, headers: headers);
+      }
+
       await channel.ready.timeout(const Duration(seconds: 3));
       return channel;
     } catch (e) {

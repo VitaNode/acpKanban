@@ -186,6 +186,35 @@ class ACPServer:
             
             message = response.choices[0].message
             
+            # Adapter for XML-style tool calls (e.g. MiniMax/Gemini via specific endpoints)
+            if not message.tool_calls and message.content and "<invoke" in message.content:
+                import re
+                invoke_pattern = re.compile(r'<invoke name="([^"]+)">\s*(.*?)\s*</invoke>', re.DOTALL)
+                matches = invoke_pattern.findall(message.content)
+                
+                if matches:
+                    self.log(f"Detected XML tool calls: {len(matches)}")
+                    # Fabricate tool_calls object
+                    class ToolCall:
+                        def __init__(self, id, name, args):
+                            self.id = id
+                            self.type = 'function'
+                            self.function = type('Function', (), {'name': name, 'arguments': args})()
+
+                    message.tool_calls = []
+                    for i, (name, args_str) in enumerate(matches):
+                        # MiniMax args might be XML-like or JSON. Try to parse if it looks like JSON, 
+                        # otherwise wrap parameters.
+                        # Simple case: if args is empty string, use {}
+                        args = args_str.strip() or "{}"
+                        # If args are in <arg> tags, we might need more complex parsing.
+                        # Assuming JSON for now based on your log (empty args).
+                        
+                        message.tool_calls.append(ToolCall(f"call_{uuid.uuid4().hex[:8]}", name, args))
+                    
+                    # Clear content so we don't display the raw XML to user
+                    message.content = None
+
             if message.tool_calls:
                 self.history.append(message)
                 for tool_call in message.tool_calls:

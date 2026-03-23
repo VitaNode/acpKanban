@@ -12,11 +12,11 @@ class ACPConfig {
   final String? userId;
   final String? relayToken;
   final String? cloudDirectUrl;
-  String? sessionKeyHex; // Key derived from pairing
+  final String? sessionKeyHex; 
 
   ACPConfig({
     this.localIp,
-    this.relayHost = "relay.example.com",
+    this.relayHost = "mybot.siliconpulse.cc",
     this.userId,
     this.relayToken,
     this.cloudDirectUrl,
@@ -42,9 +42,11 @@ class ACPClient {
 
   ACPClient();
 
-  /// Orchestrates connection and performs ECDH pairing if needed.
   Future<void> smartConnect(ACPConfig config) async {
-    // 1. Establish connection
+    if (config.sessionKeyHex != null) {
+      _e2ee = E2EEManager(config.sessionKeyHex!);
+    }
+
     final result = await SmartConnect.connect(
       preferredLocalIp: config.localIp,
       relayUrl: config.relayUrl,
@@ -58,131 +60,133 @@ class ACPClient {
     activeUrl = result.url;
     _setupStream();
 
-    // 2. Perform ECDH Pairing if no session key exists
-    if (config.sessionKeyHex == null) {
-      print('[ACP] No session key found. Initiating ECDH Pairing...');
+    if (_e2ee == null) {
+      print('[ACP] Initiating ECDH Pairing...');
       await _performPairing();
-    } else {
-      _e2ee = E2EEManager(config.sessionKeyHex!);
-      print('[ACP] Using existing session key for E2EE.');
     }
-    
-    print('[ACP] SmartConnect Complete. Mode: $activeMode');
   }
 
   Future<void> _performPairing() async {
-    // 1. Generate own key pair
     final keyPairData = await E2EEManager.generateKeyPair();
     final ownPublicKeyHex = keyPairData['publicKeyHex'] as String;
     final ownKeyPair = keyPairData['privateKey'];
 
-    // 2. Exchange public keys with Mac
-    // We send this as a raw JSON-RPC because we don't have a shared key yet
     final response = await sendRequest('pairing/exchange', {
       'publicKey': ownPublicKeyHex,
     }, forcePlaintext: true);
 
     if (response.containsKey('result')) {
       final peerPublicKeyHex = response['result']['publicKey'] as String;
-      
-      // 3. Derive Shared Secret
-      final sharedSecretHex = await E2EEManager.deriveSharedSecret(
-        ownKeyPair, peerPublicKeyHex
-      );
-      
-      // 4. Initialize E2EE
+      final sharedSecretHex = await E2EEManager.deriveSharedSecret(ownKeyPair, peerPublicKeyHex);
       _e2ee = E2EEManager(sharedSecretHex);
-      print('[ACP] Pairing Successful! Shared Secret Derived.');
-      
-      // Note: In a real app, we would save sharedSecretHex to secure storage here
+      print('[ACP] Pairing Successful!');
     } else {
-      throw Exception('Pairing failed: ${response['error']}');
+      throw Exception('Pairing failed');
     }
   }
 
   void _setupStream() {
     _channel!.stream.listen(
-      (message) {
-        Map<String, dynamic> data = jsonDecode(message);
-        
-        // Try to unwrap if it looks like an envelope
-        if (data.containsKey('method') && data['method'] == 'e2ee/envelope') {
-          if (_e2ee != null) {
+      (message) async {
+        try {
+          Map<String, dynamic> data = jsonDecode(message);
+          
+          if (_e2ee != null && data.containsKey('method') && data['method'] == 'e2ee/envelope') {
             try {
-              data = _e2ee!.unwrap(data);
+              data = await _e2ee!.unwrap(data);
             } catch (e) {
               print('[ACP] Decryption error: $e');
               return;
             }
           }
-        }
 
-        if (data.containsKey('id')) {
-          final id = data['id'].toString();
-          if (_pendingRequests.containsKey(id)) {
-            _pendingRequests[id]!.complete(data);
-            _pendingRequests.remove(id);
+          if (data.containsKey('id')) {
+            final id = data['id'].toString();
+            if (_pendingRequests.containsKey(id)) {
+              _pendingRequests[id]!.complete(data);
+              _pendingRequests.remove(id);
+            }
           }
+          _messageController.add(jsonEncode(data));
+        } catch (e) {
+          print('[ACP] Message processing error: $e');
         }
-        _messageController.add(jsonEncode(data));
       },
-      onError: (error) {
-        activeMode = ConnectionPath.none;
-      },
-      onDone: () {
-        activeMode = ConnectionPath.none;
-      },
+      onError: (error) => activeMode = ConnectionPath.none,
+      onDone: () => activeMode = ConnectionPath.none,
     );
   }
 
   Future<Map<String, dynamic>> sendRequest(String method, Map<String, dynamic> params, {bool forcePlaintext = false}) async {
-    if (_channel == null || activeMode == ConnectionPath.none) {
-      throw Exception('Not connected. Call smartConnect() before sending requests.');
-    }
+    if (_channel == null || activeMode == ConnectionPath.none) throw Exception('Not connected');
 
     final id = _uuid.v4();
     final completer = Completer<Map<String, dynamic>>();
     _pendingRequests[id] = completer;
 
-    final requestObj = {
-      "jsonrpc": "2.0",
-      "id": id,
-      "method": method,
-      "params": params
-    };
-
+    final requestObj = {"jsonrpc": "2.0", "id": id, "method": method, "params": params};
+    
     dynamic payload;
     if (_e2ee != null && !forcePlaintext) {
-      payload = jsonEncode(_e2ee!.wrap(requestObj));
+      payload = jsonEncode(await _e2ee!.wrap(requestObj));
     } else {
       payload = jsonEncode(requestObj);
     }
 
     _channel!.sink.add(payload);
-
-    return completer.future.timeout(
-      const Duration(seconds: 30),
-      onTimeout: () {
-        _pendingRequests.remove(id);
-        throw TimeoutException('Request $method timed out');
-      },
-    );
+    return completer.future.timeout(const Duration(seconds: 30));
   }
 
   Future<void> initialize() async {
-    await sendRequest('initialize', {
-      'clientInfo': {'name': 'KanbanMobile', 'version': '1.4.0'}
-    });
+    try {
+      print('[ACP] Sending initialize...');
+      // Short timeout for initialize, proceed even if it fails/times out
+      await sendRequest('initialize', {
+        'clientInfo': {'name': 'KanbanMobile', 'version': '1.5.0'}
+      }).timeout(const Duration(seconds: 5));
+      print('[ACP] Initialize success');
+    } catch (e) {
+      print('[ACP] Initialize warning (proceeding anyway): $e');
+    }
   }
 
   Future<String> sendMessage(String message) async {
-    final response = await sendRequest('chat/message', {'message': message});
-    if (response.containsKey('result')) {
-      final result = response['result'];
-      if (result is Map && result.containsKey('message')) return result['message'];
-      return result.toString();
+    // Gemini CLI uses 'session/prompt'
+    try {
+      final response = await sendRequest('session/prompt', {'message': message});
+      if (response.containsKey('result')) {
+        final result = response['result'];
+        // Standard ACP often returns { "text": "response..." }
+        if (result is Map && result.containsKey('text')) {
+          return result['text'].toString();
+        }
+        // Fallback: check for 'message' key (legacy/custom)
+        if (result is Map && result.containsKey('message')) {
+          return result['message'].toString();
+        }
+        return result.toString();
+      } else if (response.containsKey('error')) {
+        final error = response['error'];
+        if (error is Map) {
+          final msg = error['message'] ?? 'Unknown AI Error';
+          final detail = error['data'] ?? '';
+          throw Exception('$msg: $detail');
+        }
+        throw Exception(error.toString());
+      }
+    } catch (e) {
+      // If session/prompt fails, try legacy chat/message (for acp_server.py compat)
+      try {
+        final legacyResponse = await sendRequest('chat/message', {'message': message});
+        final result = legacyResponse['result'];
+        if (result is Map && result.containsKey('message')) return result['message'].toString();
+        return result.toString();
+      } catch (_) {
+        // Throw original error if legacy also fails
+        rethrow;
+      }
     }
-    throw Exception('Failed to send message');
+    throw Exception('Unknown response format');
   }
 
   void disconnect() {
