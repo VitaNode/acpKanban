@@ -40,7 +40,13 @@ class LocalDiscovery:
         self.zeroconf.register_service(self.service_info)
 
     def stop_broadcast(self):
-        if self.service_info:
-            logger.info("Stopping mDNS broadcast")
-            self.zeroconf.unregister_service(self.service_info)
-            self.zeroconf.close()
+        try:
+            if self.service_info:
+                logger.info("Stopping mDNS broadcast")
+                self.zeroconf.unregister_service(self.service_info)
+                self.service_info = None
+            if self.zeroconf:
+                self.zeroconf.close()
+                self.zeroconf = None
+        except Exception as e:
+            logger.error(f"Error during mDNS shutdown: {e}")

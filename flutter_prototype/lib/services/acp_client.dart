@@ -6,26 +6,23 @@ import 'package:uuid/uuid.dart';
 import 'smart_connect.dart';
 import 'e2ee_manager.dart';
 
-enum ConnectionMode { local, relay, cloud, none }
-
 class ACPConfig {
   final String? localIp;
   final String? relayHost;
   final String? userId;
   final String? relayToken;
-  final String? e2eeKeyHex;
   final String? cloudDirectUrl;
+  String? sessionKeyHex; // Key derived from pairing
 
   ACPConfig({
     this.localIp,
     this.relayHost = "relay.example.com",
     this.userId,
     this.relayToken,
-    this.e2eeKeyHex,
     this.cloudDirectUrl,
+    this.sessionKeyHex,
   });
 
-  String? get localUrl => localIp != null ? "ws://$localIp:8766" : null;
   String? get relayUrl => (relayHost != null && userId != null) 
       ? "ws://$relayHost:8766/relay/app/$userId" : null;
   String? get cloudUrl => cloudDirectUrl ?? (relayHost != null ? "ws://$relayHost:8766/direct" : null);
@@ -36,7 +33,7 @@ class ACPClient {
   final _uuid = const Uuid();
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
   
-  ConnectionMode activeMode = ConnectionMode.none;
+  ConnectionPath activeMode = ConnectionPath.none;
   String? activeUrl;
   E2EEManager? _e2ee;
 
@@ -45,52 +42,61 @@ class ACPClient {
 
   ACPClient();
 
+  /// Orchestrates connection and performs ECDH pairing if needed.
   Future<void> smartConnect(ACPConfig config) async {
-    if (config.e2eeKeyHex != null) {
-      _e2ee = E2EEManager(config.e2eeKeyHex!);
-    }
+    // 1. Establish connection
+    final result = await SmartConnect.connect(
+      preferredLocalIp: config.localIp,
+      relayUrl: config.relayUrl,
+      cloudUrl: config.cloudUrl,
+      token: config.relayToken,
+      userId: config.userId,
+    );
 
-    print('[ACP] Scanning local network via mDNS...');
-    final discoveredIp = await SmartConnect.discoverLocalMac(config.userId ?? "default");
-    final targetLocalIp = discoveredIp ?? config.localIp;
+    _channel = result.channel;
+    activeMode = result.path;
+    activeUrl = result.url;
+    _setupStream();
+
+    // 2. Perform ECDH Pairing if no session key exists
+    if (config.sessionKeyHex == null) {
+      print('[ACP] No session key found. Initiating ECDH Pairing...');
+      await _performPairing();
+    } else {
+      _e2ee = E2EEManager(config.sessionKeyHex!);
+      print('[ACP] Using existing session key for E2EE.');
+    }
     
-    if (targetLocalIp != null) {
-      final url = "ws://$targetLocalIp:8766";
-      if (await _tryConnect(url, ConnectionMode.local, timeout: 2)) return;
-    }
-
-    if (config.relayUrl != null) {
-      if (await _tryConnect(config.relayUrl!, ConnectionMode.relay, 
-          timeout: 5, token: config.relayToken)) return;
-    }
-
-    if (config.cloudUrl != null) {
-      if (await _tryConnect(config.cloudUrl!, ConnectionMode.cloud, 
-          timeout: 10, token: config.relayToken)) return;
-    }
-
-    throw Exception('All connection paths failed.');
+    print('[ACP] SmartConnect Complete. Mode: $activeMode');
   }
 
-  Future<bool> _tryConnect(String url, ConnectionMode mode, {int timeout = 5, String? token}) async {
-    try {
-      final uri = Uri.parse(url);
-      final headers = token != null ? {'Authorization': 'Bearer $token'} : <String, String>{};
+  Future<void> _performPairing() async {
+    // 1. Generate own key pair
+    final keyPairData = await E2EEManager.generateKeyPair();
+    final ownPublicKeyHex = keyPairData['publicKeyHex'] as String;
+    final ownKeyPair = keyPairData['privateKey'];
 
-      // IOWebSocketChannel supports headers
-      _channel = IOWebSocketChannel.connect(uri, headers: headers);
+    // 2. Exchange public keys with Mac
+    // We send this as a raw JSON-RPC because we don't have a shared key yet
+    final response = await sendRequest('pairing/exchange', {
+      'publicKey': ownPublicKeyHex,
+    }, forcePlaintext: true);
+
+    if (response.containsKey('result')) {
+      final peerPublicKeyHex = response['result']['publicKey'] as String;
       
-      await _channel!.ready.timeout(Duration(seconds: timeout));
+      // 3. Derive Shared Secret
+      final sharedSecretHex = await E2EEManager.deriveSharedSecret(
+        ownKeyPair, peerPublicKeyHex
+      );
       
-      activeMode = mode;
-      activeUrl = url;
-      _setupStream();
-      print('[ACP] Connected via $mode to $url');
-      return true;
-    } catch (e) {
-      print('[ACP] Connection to $url failed: $e');
-      _channel = null;
-      return false;
+      // 4. Initialize E2EE
+      _e2ee = E2EEManager(sharedSecretHex);
+      print('[ACP] Pairing Successful! Shared Secret Derived.');
+      
+      // Note: In a real app, we would save sharedSecretHex to secure storage here
+    } else {
+      throw Exception('Pairing failed: ${response['error']}');
     }
   }
 
@@ -98,8 +104,17 @@ class ACPClient {
     _channel!.stream.listen(
       (message) {
         Map<String, dynamic> data = jsonDecode(message);
-        if (_e2ee != null) {
-          data = _e2ee!.unwrap(data);
+        
+        // Try to unwrap if it looks like an envelope
+        if (data.containsKey('method') && data['method'] == 'e2ee/envelope') {
+          if (_e2ee != null) {
+            try {
+              data = _e2ee!.unwrap(data);
+            } catch (e) {
+              print('[ACP] Decryption error: $e');
+              return;
+            }
+          }
         }
 
         if (data.containsKey('id')) {
@@ -112,43 +127,36 @@ class ACPClient {
         _messageController.add(jsonEncode(data));
       },
       onError: (error) {
-        print('[ACP] WebSocket Error: $error');
-        activeMode = ConnectionMode.none;
+        activeMode = ConnectionPath.none;
       },
       onDone: () {
-        activeMode = ConnectionMode.none;
+        activeMode = ConnectionPath.none;
       },
     );
   }
 
-  Future<Map<String, dynamic>> sendRequest(String method, [Map<String, dynamic>? params]) async {
+  Future<Map<String, dynamic>> sendRequest(String method, Map<String, dynamic> params, {bool forcePlaintext = false}) async {
     if (_channel == null) throw Exception('Not connected');
 
     final id = _uuid.v4();
     final completer = Completer<Map<String, dynamic>>();
     _pendingRequests[id] = completer;
 
-    Map<String, dynamic> requestObj = {
+    final requestObj = {
       "jsonrpc": "2.0",
       "id": id,
       "method": method,
-      "params": params ?? {}
+      "params": params
     };
 
     dynamic payload;
-    if (_e2ee != null) {
+    if (_e2ee != null && !forcePlaintext) {
       payload = jsonEncode(_e2ee!.wrap(requestObj));
     } else {
       payload = jsonEncode(requestObj);
     }
 
-    try {
-      _channel!.sink.add(payload);
-    } catch (e) {
-      _pendingRequests.remove(id);
-      completer.completeError(e);
-      rethrow;
-    }
+    _channel!.sink.add(payload);
 
     return completer.future.timeout(
       const Duration(seconds: 30),
@@ -161,7 +169,7 @@ class ACPClient {
 
   Future<void> initialize() async {
     await sendRequest('initialize', {
-      'clientInfo': {'name': 'KanbanMobile', 'version': '1.3.0'}
+      'clientInfo': {'name': 'KanbanMobile', 'version': '1.4.0'}
     });
   }
 
@@ -171,16 +179,14 @@ class ACPClient {
       final result = response['result'];
       if (result is Map && result.containsKey('message')) return result['message'];
       return result.toString();
-    } else if (response.containsKey('error')) {
-      throw Exception(response['error']['message'] ?? 'Unknown AI Error');
     }
-    throw Exception('Unknown response format');
+    throw Exception('Failed to send message');
   }
 
   void disconnect() {
     _channel?.sink.close();
     _channel = null;
-    activeMode = ConnectionMode.none;
+    activeMode = ConnectionPath.none;
     _e2ee = null;
   }
 }
