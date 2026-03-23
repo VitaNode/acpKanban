@@ -95,25 +95,38 @@ class UnifiedBridge:
                 await asyncio.sleep(5)
 
     async def on_acp_message(self, data):
-        """Broadcast output from ACP process."""
-        plaintext_str = json.dumps(data)
+        """
+        Broadcast output from ACP process.
         
+        Only forwards notifications (messages with 'method' field).
+        Responses (with 'id' but no 'method') are handled by forward_to_acp.
+        """
+        # Filter: Only forward notifications, not responses
+        # Responses have 'id' but no 'method'
+        # Notifications have 'method'
+        if "method" not in data:
+            return  # This is a response, not a notification
+        
+        plaintext_str = json.dumps(data)
+
         # 1. Local clients receive plaintext (Performance/Simplicity)
         for client in list(self.local_clients):
             try: await client.send(plaintext_str)
             except Exception: self.local_clients.discard(client)
 
-        # 2. Cloud Relay ONLY receives E2EE messages
+        # 2. Cloud Relay receives E2EE encrypted messages
         if self.relay_ws and not self.relay_ws.closed:
             if self.e2ee.is_ready:
                 try:
-                    encrypted_env = self.e2ee.wrap_json_rpc(data)
+                    # wrap_json_rpc now returns dict, so json.dumps here
+                    encrypted_env = json.dumps(self.e2ee.wrap_json_rpc(data))
                     await self.relay_ws.send(encrypted_env)
+                    logger.debug(f"-> Sent E2EE notification to relay: {data.get('method')}")
                 except Exception as e:
-                    logger.error(f"E2EE Wrap error: {e}")
+                    logger.error(f"E2EE Wrap error for notification: {e}")
             else:
                 # Security boundary: Drop messages if session key not yet negotiated
-                logger.warning("Relay connected but E2EE not paired. Dropping ACP output for privacy.")
+                logger.debug("Relay connected but E2EE not paired. Dropping ACP notification.")
 
     async def handle_pairing(self, data):
         peer_public = data.get("params", {}).get("publicKey")
@@ -129,9 +142,15 @@ class UnifiedBridge:
             return {"error": "Pairing calculation error"}
 
     async def forward_to_acp(self, message, source_ws):
+        """
+        Forward message to ACP CLI or handle via adapter.
+        
+        Smart encryption: if request was E2EE encrypted, response is also encrypted.
+        """
         addr = source_ws.remote_address if hasattr(source_ws, 'remote_address') else "relay"
         try:
             data = json.loads(message)
+            original_was_e2ee = data.get("method") == "e2ee/envelope"
 
             # Handle Pairing (Plaintext)
             if data.get("method") == "pairing/exchange":
@@ -141,8 +160,8 @@ class UnifiedBridge:
                 await source_ws.send(json.dumps(response))
                 return
 
-            # Handle E2EE Envelope
-            if data.get("method") == "e2ee/envelope":
+            # Handle E2EE Envelope - decrypt and continue processing
+            if original_was_e2ee:
                 if not self.e2ee.is_ready:
                     logger.warning(f"Received E2EE envelope from {addr} but session not ready. Dropping.")
                     return
@@ -156,26 +175,28 @@ class UnifiedBridge:
             method = data.get("method")
             params = data.get("params", {})
             request_id = data.get("id")
-            
+
             if method in ["chat/message", "initialize", "health"]:
                 # Use adapter to convert and forward
                 try:
                     result = await self.adapter.handle_request(method, params)
-                    
-                    # Send response
+
+                    # Build response
                     response = {
                         "jsonrpc": "2.0",
                         "id": request_id,
                         "result": result
                     }
-                    
-                    # E2EE encrypt response for relay
-                    if self.e2ee.is_ready and isinstance(source_ws, websockets.WebSocketClientProtocol):
+
+                    # Smart encryption: if request was E2EE, encrypt response
+                    if original_was_e2ee and self.e2ee.is_ready:
                         response = self.e2ee.wrap_json_rpc(response)
+                        await source_ws.send(json.dumps(response))
+                    else:
+                        await source_ws.send(json.dumps(response))
                     
-                    await source_ws.send(json.dumps(response))
                     logger.info(f"-> Adapter handled {method}: {request_id}")
-                    
+
                 except Exception as e:
                     logger.error(f"Adapter error for {method}: {e}")
                     error_response = {
@@ -183,7 +204,11 @@ class UnifiedBridge:
                         "id": request_id,
                         "error": {"code": -32603, "message": str(e)}
                     }
-                    await source_ws.send(json.dumps(error_response))
+                    if original_was_e2ee and self.e2ee.is_ready:
+                        error_response = self.e2ee.wrap_json_rpc(error_response)
+                        await source_ws.send(json.dumps(error_response))
+                    else:
+                        await source_ws.send(json.dumps(error_response))
                 return
 
             # Final forward to ACP engine for standard ACP methods

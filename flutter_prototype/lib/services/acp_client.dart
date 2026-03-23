@@ -93,7 +93,25 @@ class ACPClient {
       (message) async {
         try {
           print('[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
-          Map<String, dynamic> data = jsonDecode(message);
+          
+          // Defensive decoding: handle both String and direct JSON
+          dynamic decoded = message;
+          if (message is String) {
+            try {
+              decoded = jsonDecode(message);
+            } catch (e) {
+              print('[ACP] Failed to decode JSON: $e');
+              return;
+            }
+          }
+          
+          // Ensure we have a Map
+          if (decoded is! Map<String, dynamic>) {
+            print('[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
+            return;
+          }
+          
+          Map<String, dynamic> data = decoded;
           print('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
 
           if (_e2ee != null && data.containsKey('method') && data['method'] == 'e2ee/envelope') {
