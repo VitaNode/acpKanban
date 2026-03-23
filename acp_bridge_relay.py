@@ -27,8 +27,16 @@ class UnifiedBridge:
         self.acp = ACPClient(command=acp_command, name="LocalGemini")
         self.local_discovery = LocalDiscovery(user_id)
         
+        # Detect CLI type from command
+        cli_type = "qwen" if "qwen" in " ".join(acp_command) else "gemini"
+        logger.info(f"Detected CLI type: {cli_type}")
+        
         # Protocol adapter for Flutter App compatibility
-        self.adapter = ACPProtocolAdapter(self.acp, workspace_cwd=workspace_cwd)
+        self.adapter = ACPProtocolAdapter(
+            self.acp, 
+            workspace_cwd=workspace_cwd,
+            cli_type=cli_type  # Pass CLI type for prompt formatting
+        )
 
         # ECDH pair for initial handshake
         self.private_key, self.public_key_hex = E2EEManager.generate_key_pair()

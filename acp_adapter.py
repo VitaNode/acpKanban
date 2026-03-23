@@ -21,22 +21,39 @@ from typing import Optional, Dict, Any
 class ACPProtocolAdapter:
     """
     Protocol adapter that converts custom chat/message format to standard ACP session/prompt.
-    
-    This enables Flutter App to work with both Path 2 (gemini --acp) and Path 3 (acp_server.py)
+
+    This enables Flutter App to work with both Path 2 (gemini --acp / qwen --acp) and Path 3 (acp_server.py)
     without any code changes on the Flutter side.
     """
-    
-    def __init__(self, acp_client, workspace_cwd: Optional[str] = None):
+
+    def __init__(self, acp_client, workspace_cwd: Optional[str] = None, cli_type: str = "gemini"):
         """
         Initialize the adapter.
-        
+
         Args:
-            acp_client: ACPClient instance for communicating with gemini --acp
+            acp_client: ACPClient instance for communicating with ACP CLI
             workspace_cwd: Working directory for the ACP session (optional)
+            cli_type: "gemini" or "qwen" - determines prompt format
         """
         self.acp = acp_client
         self._workspace_cwd = workspace_cwd or str(Path.home())
         self._session_id: Optional[str] = None
+        self.cli_type = cli_type  # "gemini" or "qwen"
+    
+    def _build_prompt_item(self, content: str) -> Dict[str, Any]:
+        """
+        Build prompt item based on CLI type.
+        
+        Args:
+            content: User's message content
+            
+        Returns:
+            Prompt item in the format expected by the CLI
+        """
+        if self.cli_type == "qwen":
+            return {"type": "text", "text": content}
+        else:  # gemini (default)
+            return {"role": "user", "content": content}
     
     async def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -63,33 +80,29 @@ class ACPProtocolAdapter:
     
     async def chat_message(self, message: str) -> Dict[str, Any]:
         """
-        Convert chat/message to session/prompt and forward to gemini --acp.
+        Convert chat/message to session/prompt and forward to ACP CLI.
         
         Input format (from Flutter):
             {"message": "新建卡片"}
         
-        Output format (to gemini --acp):
-            {
-                "sessionId": "xxx",
-                "prompt": [{"role": "user", "content": "新建卡片"}]
-            }
+        Output format (to ACP CLI):
+            - gemini: {"sessionId": "xxx", "prompt": [{"role": "user", "content": "新建卡片"}]}
+            - qwen:   {"sessionId": "xxx", "prompt": [{"type": "text", "text": "新建卡片"}]}
         
         Args:
             message: User's message text
             
         Returns:
-            Response from gemini --acp with 'message' key
+            Response from ACP CLI with 'message' key
         """
         # Ensure session exists
         if not self._session_id:
             await self._create_session()
         
-        # Send standard ACP request
+        # Build prompt based on CLI type
         response = await self.acp.request("session/prompt", {
             "sessionId": self._session_id,
-            "prompt": [
-                {"role": "user", "content": message}
-            ]
+            "prompt": [self._build_prompt_item(message)]
         })
         
         # Handle errors
@@ -101,7 +114,7 @@ class ACPProtocolAdapter:
         
         # Handle different response formats
         if isinstance(result, dict):
-            # Gemini --acp returns {text: "..."}
+            # ACP CLI returns {text: "..."}
             return {"message": result.get("text", str(result))}
         else:
             return {"message": str(result)}
