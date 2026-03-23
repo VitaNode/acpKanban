@@ -45,6 +45,7 @@ class ACPClient {
   Future<void> smartConnect(ACPConfig config) async {
     if (config.sessionKeyHex != null) {
       _e2ee = E2EEManager(config.sessionKeyHex!);
+      print('[ACP] E2EE initialized with pre-shared key');
     }
 
     final result = await SmartConnect.connect(
@@ -58,6 +59,7 @@ class ACPClient {
     _channel = result.channel;
     activeMode = result.path;
     activeUrl = result.url;
+    print('[ACP] Connected, E2EE ready: ${_e2ee?.isReady ?? false}');
     _setupStream();
 
     if (_e2ee == null) {
@@ -86,14 +88,19 @@ class ACPClient {
   }
 
   void _setupStream() {
+    print('[ACP] Setting up stream, E2EE ready: ${_e2ee?.isReady ?? false}');
     _channel!.stream.listen(
       (message) async {
         try {
+          print('[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
           Map<String, dynamic> data = jsonDecode(message);
-          
+          print('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
+
           if (_e2ee != null && data.containsKey('method') && data['method'] == 'e2ee/envelope') {
+            print('[ACP] Attempting to decrypt E2EE message...');
             try {
               data = await _e2ee!.unwrap(data);
+              print('[ACP] Decryption successful');
             } catch (e) {
               print('[ACP] Decryption error: $e');
               return;
@@ -110,10 +117,17 @@ class ACPClient {
           _messageController.add(jsonEncode(data));
         } catch (e) {
           print('[ACP] Message processing error: $e');
+          print('[ACP] Error stack: ${StackTrace.current}');
         }
       },
-      onError: (error) => activeMode = ConnectionPath.none,
-      onDone: () => activeMode = ConnectionPath.none,
+      onError: (error) {
+        print('[ACP] Stream error: $error');
+        activeMode = ConnectionPath.none;
+      },
+      onDone: () {
+        print('[ACP] Stream done');
+        activeMode = ConnectionPath.none;
+      },
     );
   }
 
