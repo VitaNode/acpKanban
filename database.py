@@ -21,11 +21,9 @@ class KanbanDB:
         self._pool = Queue(maxsize=pool_size)
         self._initialized = True
         
-        # Initialize schema once
         self.init_db()
         self.migrate()
         
-        # Fill pool
         for _ in range(pool_size):
             self._pool.put(self._create_new_connection())
 
@@ -37,18 +35,26 @@ class KanbanDB:
         return conn
 
     def get_connection(self):
-        """Gets a connection from the pool, creating a new one if necessary."""
         try:
             return self._pool.get(timeout=2)
         except Empty:
             return self._create_new_connection()
 
     def return_connection(self, conn):
-        """Returns a connection to the pool."""
         if self._pool.full():
             conn.close()
         else:
             self._pool.put(conn)
+
+    def close_all(self):
+        """Shutdown the pool and close all connections."""
+        print(f"[*] Closing {self._pool.qsize()} database connections...")
+        while not self._pool.empty():
+            try:
+                conn = self._pool.get_nowait()
+                conn.close()
+            except Empty:
+                break
 
     def init_db(self):
         conn = self._create_new_connection()
@@ -62,22 +68,14 @@ class KanbanDB:
             conn.close()
 
     def migrate(self):
-        # Implementation of multi-version migration
         conn = self._create_new_connection()
         try:
             cursor = conn.execute("SELECT MAX(version) FROM schema_version")
             row = cursor.fetchone()
             current_version = row[0] if row and row[0] else 0
-            
             if current_version < 1:
                 conn.execute("INSERT INTO schema_version (version, updated_at) VALUES (1, ?)", (datetime.now().isoformat(),))
                 conn.commit()
-            
-            # Placeholder for version 2:
-            # if current_version < 2:
-            #     conn.execute("ALTER TABLE tasks ADD COLUMN color TEXT")
-            #     conn.execute("INSERT INTO schema_version (version, updated_at) VALUES (2, ?)", (datetime.now().isoformat(),))
-            #     conn.commit()
         finally:
             conn.close()
 
