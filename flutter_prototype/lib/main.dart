@@ -51,7 +51,7 @@ class _MainScreenState extends State<MainScreen> {
         userId: 'test_user',
         relayHost: '35.211.219.123',
         relayToken: '8c939a7d-e31b-4e1d-b26c-57b4589519e1',
-        sessionKeyHex: '48a7aea95d3ba93ce6632f824561782c6e01a0f78eef44ad30df445a1fc20d54', // New 32-byte key
+        // Removed sessionKeyHex - use ECDH pairing or plaintext
       );
 
       await _acpClient.smartConnect(config);
