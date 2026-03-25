@@ -26,16 +26,11 @@ class UnifiedBridge:
 
         self.acp = ACPClient(command=acp_command, name="LocalGemini")
         self.local_discovery = LocalDiscovery(user_id)
-        
-        # Detect CLI type from command
-        cli_type = "qwen" if "qwen" in " ".join(acp_command) else "gemini"
-        logger.info(f"Detected CLI type: {cli_type}")
-        
+
         # Protocol adapter for Flutter App compatibility
         self.adapter = ACPProtocolAdapter(
             self.acp, 
-            workspace_cwd=workspace_cwd,
-            cli_type=cli_type  # Pass CLI type for prompt formatting
+            workspace_cwd=workspace_cwd
         )
 
         # ECDH pair for initial handshake
@@ -98,14 +93,20 @@ class UnifiedBridge:
         """
         Broadcast output from ACP process.
         
-        Only forwards notifications (messages with 'method' field).
-        Responses (with 'id' but no 'method') are handled by forward_to_acp.
+        Only forwards important notifications, filters out verbose thought chunks.
         """
         # Filter: Only forward notifications, not responses
         # Responses have 'id' but no 'method'
         # Notifications have 'method'
         if "method" not in data:
             return  # This is a response, not a notification
+        
+        # Filter verbose notifications
+        if data.get("method") == "session/update":
+            update_type = data.get("params", {}).get("update", {}).get("sessionUpdate")
+            # Skip thought chunks - they're too verbose for mobile
+            if update_type in ["agent_thought_chunk"]:
+                return  # Skip
         
         plaintext_str = json.dumps(data)
 
