@@ -166,7 +166,7 @@ class ACPClient {
     }
 
     _channel!.sink.add(payload);
-    return completer.future.timeout(const Duration(seconds: 30));
+    return completer.future.timeout(const Duration(seconds: 300));
   }
 
   Future<void> initialize() async {
@@ -175,7 +175,7 @@ class ACPClient {
       // Short timeout for initialize, proceed even if it fails/times out
       await sendRequest('initialize', {
         'clientInfo': {'name': 'KanbanMobile', 'version': '1.5.0'}
-      }).timeout(const Duration(seconds: 5));
+      }).timeout(const Duration(seconds: 60));
       print('[ACP] Initialize success');
     } catch (e) {
       print('[ACP] Initialize warning (proceeding anyway): $e');

@@ -94,15 +94,24 @@ class ACPClient:
         msg_id = data.get("id")
         method = data.get("method")
         
-        if msg_id is not None and "method" not in data:
+        # JSON-RPC 2.0 Logic:
+        # 1. Has 'id' but NO 'method' -> It's a Response to our request
+        # 2. Has 'id' AND 'method' -> It's a Request from the server
+        # 3. Has NO 'id' AND 'method' -> It's a Notification
+        
+        if msg_id is not None and method is None:
             # This is a response to a client request
             future = self.pending_requests.pop(msg_id, None)
             if future:
                 future.set_result(data)
         elif method:
             # This is either a notification or a server-initiated request
+            # We put both in notification queues for now
             for queue in self.notification_queues.values():
                 await queue.put(data)
+            
+            # If it has an ID, it's a request we might need to respond to (like approval/request)
+            # (Handling of server-initiated requests would go here)
         else:
             self.logger.warning(f"Unrecognized message: {data}")
 

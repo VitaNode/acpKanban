@@ -14,6 +14,7 @@ Usage:
 
 import json
 import uuid
+import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -80,51 +81,88 @@ class ACPProtocolAdapter:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
         
-        Input format (from Flutter):
-            {"message": "新建卡片"}
-        
-        Output format (to ACP CLI):
-            {
-                "sessionId": "xxx",
-                "prompt": [{"type": "text", "text": "新建卡片"}]
-            }
-        
-        Args:
-            message: User's message text
-            
-        Returns:
-            Response from ACP CLI with 'message' key
+        Optimized with specific context to prevent excessive file searching.
         """
         # Ensure session exists
         if not self._session_id:
             await self._create_session()
         
-        # Send request with unified format
-        response = await self.acp.request("session/prompt", {
-            "sessionId": self._session_id,
-            "prompt": [self._build_prompt_item(message)]
-        })
+        # Optimize prompt: provide direct path to database to stop AI from searching everything
+        optimized_prompt = f"""
+用户消息: {message}
+
+请优先从以下位置获取数据:
+- 数据库: ./Project/mybot/kanban.db (tasks 表)
+- 当前目录: {self._workspace_cwd}
+
+注意: 
+1. 如果用户要求列出任务，请直接查询上述 SQLite 数据库。
+2. 除非绝对必要，否则不要进行全盘文件搜索。
+3. 请以简洁的 JSON 数组格式返回任务数据。
+"""
         
-        # Handle errors
+        # 1. Setup notification listener
+        listener_id = str(uuid.uuid4())
+        queue = self.acp.listen(listener_id)
+        collected_text = []
+
+        async def collect_notifications():
+            while True:
+                try:
+                    # Non-blocking check for notifications
+                    data = await asyncio.wait_for(queue.get(), timeout=0.1)
+                    if data.get("method") == "session/update":
+                        update = data.get("params", {}).get("update", {})
+                        
+                        # Capture text content from updates
+                        content = update.get("content", {})
+                        if isinstance(content, dict) and "text" in content:
+                            collected_text.append(content["text"])
+                        elif isinstance(content, list):
+                            for item in content:
+                                if isinstance(item, dict) and item.get("type") == "text":
+                                    collected_text.append(item.get("text", ""))
+                                elif isinstance(item, dict) and item.get("type") == "content":
+                                    c = item.get("content", {})
+                                    if isinstance(c, dict) and c.get("type") == "text":
+                                        collected_text.append(c.get("text", ""))
+
+                except asyncio.TimeoutError:
+                    if prompt_task.done():
+                        break
+                except Exception:
+                    break
+
+        # 2. Send request with optimized prompt and wait
+        prompt_task = asyncio.create_task(self.acp.request("session/prompt", {
+            "sessionId": self._session_id,
+            "prompt": [self._build_prompt_item(optimized_prompt)]
+        }))
+        
+        # 3. Run notification collection while waiting
+        await collect_notifications()
+        
+        # 4. Cleanup listener
+        self.acp.stop_listening(listener_id)
+        
+        try:
+            response = await prompt_task
+        except Exception as e:
+            return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
+        
+        # Handle errors from ACP
         if "error" in response:
             return {"error": response["error"]}
         
         # Extract result
         result = response.get("result", {})
+        final_message = "".join(collected_text).strip()
         
-        # Handle different response formats
-        if isinstance(result, dict):
-            # ACP CLI may return {text: "..."} or {stopReason: "..."}
-            if "text" in result:
-                return {"message": result["text"]}
-            elif "stopReason" in result:
-                # Response came through notifications, not direct result
-                # Return empty and let notifications handle the content
-                return {"message": ""}
-            else:
-                return {"message": str(result)}
-        else:
-            return {"message": str(result)}
+        # If the result itself contains text (rare in standard ACP), prioritize or append it
+        if isinstance(result, dict) and "text" in result:
+            final_message = result["text"] or final_message
+            
+        return {"message": final_message}
     
     async def health(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -143,11 +181,13 @@ class ACPProtocolAdapter:
         """
         Create a new ACP session with gemini --acp.
         
-        Returns:
-            Session ID string
+        Constrained to project directory to prevent excessive searching.
         """
+        project_cwd = "/Users/nnt/Project/mybot"
+        self._workspace_cwd = project_cwd
+        
         response = await self.acp.request("session/new", {
-            "cwd": self._workspace_cwd,
+            "cwd": project_cwd,
             "mcpServers": []
         })
         
@@ -166,17 +206,21 @@ class ACPProtocolAdapter:
             params: Method parameters
             
         Returns:
-            Response from the appropriate handler
+            Response result dictionary
         """
         if method == "initialize":
             return await self.initialize(params)
-        elif method == "chat/message":
+        elif method == "chat/message" or (method == "session/prompt" and "message" in params):
+            # Handle both custom chat/message and simplified session/prompt
             return await self.chat_message(params.get("message", ""))
         elif method == "health":
             return await self.health(params)
         else:
-            # Unknown method - forward directly to ACP (for future extensibility)
+            # Standard ACP method or unknown - forward directly and wait for response
             response = await self.acp.request(method, params)
+            if "error" in response:
+                # Return error dict, caller should check for this
+                return {"error": response["error"]}
             return response.get("result", {})
     
     def get_session_id(self) -> Optional[str]:

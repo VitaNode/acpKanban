@@ -172,22 +172,30 @@ class UnifiedBridge:
                     logger.error(f"Failed to decrypt E2EE message from {addr}: {e}")
                     return
 
-            # Use protocol adapter for Flutter App methods
+            # Extract fields from (potentially decrypted) data
             method = data.get("method")
             params = data.get("params", {})
             request_id = data.get("id")
 
-            if method in ["chat/message", "initialize", "health"]:
-                # Use adapter to convert and forward
-                try:
-                    result = await self.adapter.handle_request(method, params)
+            # 3. Route to Protocol Adapter
+            # The adapter handles conversion for simple clients (Flutter)
+            # AND it maintains the request-response cycle via acp.request()
+            try:
+                # Handle everything that has an 'id' as a request through the adapter
+                if request_id is not None:
+                    response_result = await self.adapter.handle_request(method, params)
 
-                    # Build response
+                    # Build response envelope
                     response = {
                         "jsonrpc": "2.0",
-                        "id": request_id,
-                        "result": result
+                        "id": request_id
                     }
+                    
+                    # If adapter returned an error dict, use it
+                    if isinstance(response_result, dict) and "error" in response_result:
+                        response["error"] = response_result["error"]
+                    else:
+                        response["result"] = response_result
 
                     # Smart encryption: if request was E2EE, encrypt response
                     if original_was_e2ee and self.e2ee.is_ready:
@@ -196,10 +204,12 @@ class UnifiedBridge:
                     else:
                         await source_ws.send(json.dumps(response))
                     
-                    logger.info(f"-> Adapter handled {method}: {request_id}")
+                    logger.info(f"-> Handled {method}: {request_id}")
+                    return
 
-                except Exception as e:
-                    logger.error(f"Adapter error for {method}: {e}")
+            except Exception as e:
+                logger.error(f"Adapter error for {method}: {e}")
+                if request_id is not None:
                     error_response = {
                         "jsonrpc": "2.0",
                         "id": request_id,
@@ -212,12 +222,12 @@ class UnifiedBridge:
                         await source_ws.send(json.dumps(error_response))
                 return
 
-            # Final forward to ACP engine for standard ACP methods
+            # Handle notifications (no ID) - forward raw to stdin
             if self.acp.process and self.acp.process.returncode is None:
                 payload = (json.dumps(data) + "\n").encode()
                 self.acp.process.stdin.write(payload)
                 await self.acp.process.stdin.drain()
-                logger.info(f"-> Forwarded to ACP: {method or 'response'}")
+                logger.info(f"-> Forwarded notification to ACP: {method}")
             else:
                 logger.error(f"ACP Process not running. Cannot forward.")
         except json.JSONDecodeError:
