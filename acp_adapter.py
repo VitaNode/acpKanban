@@ -26,34 +26,32 @@ class ACPProtocolAdapter:
     without any code changes on the Flutter side.
     """
 
-    def __init__(self, acp_client, workspace_cwd: Optional[str] = None, cli_type: str = "gemini"):
+    def __init__(self, acp_client, workspace_cwd: Optional[str] = None):
         """
         Initialize the adapter.
 
         Args:
             acp_client: ACPClient instance for communicating with ACP CLI
             workspace_cwd: Working directory for the ACP session (optional)
-            cli_type: "gemini" or "qwen" - determines prompt format
         """
         self.acp = acp_client
         self._workspace_cwd = workspace_cwd or str(Path.home())
         self._session_id: Optional[str] = None
-        self.cli_type = cli_type  # "gemini" or "qwen"
     
     def _build_prompt_item(self, content: str) -> Dict[str, Any]:
         """
-        Build prompt item based on CLI type.
+        Build prompt item - same format for both gemini and qwen.
+        
+        Both gemini --acp and qwen --acp expect:
+            {"type": "text", "text": "content"}
         
         Args:
             content: User's message content
             
         Returns:
-            Prompt item in the format expected by the CLI
+            Prompt item in standard ACP format
         """
-        if self.cli_type == "qwen":
-            return {"type": "text", "text": content}
-        else:  # gemini (default)
-            return {"role": "user", "content": content}
+        return {"type": "text", "text": content}
     
     async def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -86,8 +84,10 @@ class ACPProtocolAdapter:
             {"message": "新建卡片"}
         
         Output format (to ACP CLI):
-            - gemini: {"sessionId": "xxx", "prompt": [{"role": "user", "content": "新建卡片"}]}
-            - qwen:   {"sessionId": "xxx", "prompt": [{"type": "text", "text": "新建卡片"}]}
+            {
+                "sessionId": "xxx",
+                "prompt": [{"type": "text", "text": "新建卡片"}]
+            }
         
         Args:
             message: User's message text
@@ -99,7 +99,7 @@ class ACPProtocolAdapter:
         if not self._session_id:
             await self._create_session()
         
-        # Build prompt based on CLI type
+        # Send request with unified format
         response = await self.acp.request("session/prompt", {
             "sessionId": self._session_id,
             "prompt": [self._build_prompt_item(message)]
@@ -114,8 +114,15 @@ class ACPProtocolAdapter:
         
         # Handle different response formats
         if isinstance(result, dict):
-            # ACP CLI returns {text: "..."}
-            return {"message": result.get("text", str(result))}
+            # ACP CLI may return {text: "..."} or {stopReason: "..."}
+            if "text" in result:
+                return {"message": result["text"]}
+            elif "stopReason" in result:
+                # Response came through notifications, not direct result
+                # Return empty and let notifications handle the content
+                return {"message": ""}
+            else:
+                return {"message": str(result)}
         else:
             return {"message": str(result)}
     
