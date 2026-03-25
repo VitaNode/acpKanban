@@ -19,10 +19,12 @@ try:
 except ImportError:
     USE_NEW_SDK = False
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CallbackQueryHandler, filters
 from telegram.constants import ParseMode
 from telegram.error import TimedOut, NetworkError, TelegramError
+
+from acp_client import ACPClient
 
 import logging.handlers
 
@@ -38,16 +40,34 @@ log_dir.mkdir(exist_ok=True)
 main_handler = logging.handlers.TimedRotatingFileHandler(
     log_dir / "bridge.log", when="midnight", interval=1, encoding="utf-8"
 )
-main_handler.setFormatter(logging.Formatter('%(asctime)s | MAIN | %(levelname)-8s | %(message)s'))
-logging.getLogger().setLevel(logging.INFO)
-logging.getLogger().addHandler(main_handler)
+main_handler.setFormatter(logging.Formatter('%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s'))
 
+# Configure root logger to capture EVERYTHING
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s',
+    handlers=[main_handler, logging.StreamHandler()]
+)
+
+# Silence noisy libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 def play_notification_sound():
     try: subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"], check=False)
     except: pass
+
+def extract_usage(data):
+    """Robust usage extraction supporting both camelCase and snake_case."""
+    if not data: return None
+    usage = data.get("usage") or data.get("_meta", {}).get("usage")
+    if not usage: return None
+    
+    i = usage.get("inputTokens") or usage.get("input_tokens") or 0
+    o = usage.get("outputTokens") or usage.get("output_tokens") or 0
+    t = usage.get("totalTokens") or usage.get("total_tokens") or (i + o)
+    return {"in": i, "out": o, "total": t}
 
 # --- Robust Multi-Format Renderer ---
 def smart_format_render(text):
@@ -70,7 +90,7 @@ def smart_format_render(text):
     for i, ph in enumerate(placeholders): text = text.replace(f"XYZPH{i}XYZ", ph)
     return text
 
-def split_html_message(text, limit=4000):
+def split_html_message(text, limit=2000):
     """Splits an HTML message into chunks, ensuring tags are closed and reopened."""
     if len(text) <= limit:
         return [text]
@@ -119,36 +139,47 @@ def split_html_message(text, limit=4000):
     return chunks
 
 async def send_smart_reply(update, context, text, query, status_msg=None, bot_instance=None):
-    """Sends long messages in chunks to Telegram. If fails, saves to outbox with original query."""
+    """Sends long messages in chunks to Telegram with retry logic for unstable networks."""
     chunks = split_html_message(text)
     
-    try:
-        # Send first chunk (edit status_msg or reply)
-        if status_msg:
+    for i, chunk in enumerate(chunks):
+        max_retries = 3
+        retry_count = 0
+        while retry_count < max_retries:
             try:
-                await context.bot.edit_message_text(
-                    chat_id=update.effective_chat.id,
-                    message_id=status_msg.message_id,
-                    text=chunks[0],
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                await context.bot.edit_message_text(
-                    chat_id=update.effective_chat.id,
-                    message_id=status_msg.message_id,
-                    text=re.sub('<[^<]+?>', '', chunks[0])[:4000] # Strip HTML if it fails
-                )
-        else:
-            await update.message.reply_text(chunks[0], parse_mode=ParseMode.HTML)
-        
-        # Send remaining chunks
-        for chunk in chunks[1:]:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
-            
-    except (TimedOut, NetworkError) as e:
-        if bot_instance:
-            await bot_instance.save_to_outbox(update.effective_chat.id, text, query)
-        raise e # Re-raise to let handle_message know it failed
+                if i == 0 and status_msg:
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=update.effective_chat.id,
+                            message_id=status_msg.message_id,
+                            text=chunk,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        # Fallback: simple text if HTML fails
+                        await context.bot.edit_message_text(
+                            chat_id=update.effective_chat.id,
+                            message_id=status_msg.message_id,
+                            text=re.sub('<[^<]+?>', '', chunk)[:2000]
+                        )
+                else:
+                    await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+                
+                break # Success!
+            except (TimedOut, NetworkError) as e:
+                retry_count += 1
+                if bot_instance:
+                    bot_instance.logger.warning(f"⚠️ Telegram send failed (Attempt {retry_count}/{max_retries}): {e}")
+                if retry_count < max_retries:
+                    await asyncio.sleep(2) # Wait before retry
+                else:
+                    if bot_instance:
+                        await bot_instance.save_to_outbox(update.effective_chat.id, text, query)
+                    raise e
+            except Exception as e:
+                if bot_instance:
+                    bot_instance.logger.error(f"❌ Critical send error: {e}")
+                raise e
 
 def find_usage_tokens(data, is_trusted=False):
     """Recursively scans for token counts with transitive trust for sub-blocks."""
@@ -264,10 +295,15 @@ class GeminiBotInstance:
         self.session_id_file = self.base_dir / "current_session.id" # Persistent session locking
         self.memory_data = self._load_memory()
         
+        # ACP Client Management
+        self.acp_client = None
+        self.acp_session_id = None
+        self.permission_futures = {} # {request_id: Future}
+        
         # 统一日志：终端全量输出（DEBUG 级别），带颜色区分
         self.logger = logging.getLogger(f"bot_{self.name}")
         self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False
+        self.logger.propagate = True
         
         # 清除已有 handler（避免重复）
         if not self.logger.handlers:
@@ -287,7 +323,7 @@ class GeminiBotInstance:
                 interval=1,
                 encoding="utf-8"
             )
-            fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)-8s | %(message)s'))
+            fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s'))
             self.logger.addHandler(fh)
 
         self.sync_identity_files()
@@ -356,6 +392,106 @@ class GeminiBotInstance:
                     self.logger.warning(f"❌ Failed to send outbox message {f.name}: {e}")
                     break
 
+    async def _stop_acp_client(self):
+        if self.acp_client:
+            self.logger.info(f"Stopping ACP Client for {self.engine}")
+            await self.acp_client.stop()
+            self.acp_client = None
+            self.acp_session_id = None
+
+    async def _get_acp_client(self):
+        if self.acp_client and self.acp_client._running:
+            return self.acp_client
+        
+        # Start new client
+        abs_workspace = str(self.workspace_dir.resolve())
+        cmd = [self.engine, "--acp", "--approval-mode", "yolo"]
+        
+        self.acp_client = ACPClient(cmd, cwd=abs_workspace, name=f"{self.name}-{self.engine}")
+        await self.acp_client.start()
+        
+        # Load or Create Session
+        if self.session_id_file.exists() and not self.skip_session_once:
+            saved_id = self.session_id_file.read_text().strip()
+            if saved_id:
+                try:
+                    self.logger.info(f"Attempting to load ACP Session: {saved_id}")
+                    # Try with standard sessionId first
+                    load_params = {
+                        "sessionId": saved_id,
+                        "cwd": abs_workspace,
+                        "mcpServers": []
+                    }
+                    resp = await self.acp_client.request("session/load", load_params)
+                    
+                    if "error" in resp:
+                        # Fallback: try with snake_case session_id just in case
+                        self.logger.debug(f"Retrying session/load with session_id fallback...")
+                        load_params_fallback = load_params.copy()
+                        load_params_fallback["session_id"] = saved_id
+                        resp = await self.acp_client.request("session/load", load_params_fallback)
+
+                    if "error" not in resp:
+                        self.acp_session_id = saved_id
+                        self.logger.info(f"✅ Successfully loaded ACP Session: {saved_id}")
+                    else:
+                        self.logger.warning(f"❌ Failed to load ACP Session {saved_id}: {resp['error']}")
+                except Exception as e:
+                    self.logger.error(f"Failed to load ACP session: {e}")
+
+        if not self.acp_session_id:
+            # Create new session
+            try:
+                self.logger.info("Creating new ACP Session...")
+                resp = await self.acp_client.request("session/new", {
+                    "cwd": abs_workspace,
+                    "mcpServers": []
+                })
+                
+                if "error" in resp:
+                    self.logger.error(f"ACP session/new failed: {resp['error']}")
+                    raise Exception(f"ACP Session Init Failed: {resp['error'].get('message')}")
+
+                self.acp_session_id = resp.get("result", {}).get("sessionId")
+                if self.acp_session_id:
+                    self.session_id_file.write_text(self.acp_session_id)
+                    self.logger.info(f"✅ Created new ACP Session: {self.acp_session_id}")
+            except Exception as e:
+                self.logger.error(f"Failed to create new ACP session: {e}")
+                raise e
+
+        return self.acp_client
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # AT THE VERY TOP:
+        print(f"DEBUG: GLOBAL CALLBACK TRIGGERED for {self.name}") 
+        
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data # "perm:[approve|deny]:[request_id]"
+        self.logger.info(f"Callback data received: {data}")
+        if not data.startswith("perm:"):
+            return
+            
+        parts = data.split(":")
+        action = parts[1]
+        req_id = parts[2]
+        
+        # Try to find with bot prefix or directly
+        target_id = f"{self.name}:{req_id}"
+        if target_id in self.permission_futures:
+            self.logger.info(f"User clicked {action} for permission {target_id}")
+            future = self.permission_futures.pop(target_id)
+            if action == "approve":
+                future.set_result(True)
+                await query.edit_message_text(text=f"{query.message.text}\n\n✅ <b>已批准</b>", parse_mode=ParseMode.HTML)
+            else:
+                future.set_result(False)
+                await query.edit_message_text(text=f"{query.message.text}\n\n❌ <b>已拒绝</b>", parse_mode=ParseMode.HTML)
+        else:
+            self.logger.warning(f"Permission future not found for ID: {target_id}. Active: {list(self.permission_futures.keys())}")
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_user or update.effective_user.id != ALLOWED_USER_ID: return
         user_text = update.message.text
@@ -375,15 +511,22 @@ class GeminiBotInstance:
             # Command Handling
             if user_text.startswith("/engine"):
                 parts = user_text.split()
+                new_engine = None
                 if len(parts) > 1 and parts[1].lower() in ["gemini", "qwen"]:
-                    self.engine = parts[1].lower()
+                    new_engine = parts[1].lower()
+                
+                if new_engine and new_engine != self.engine:
+                    await self._stop_acp_client()
+                    self.engine = new_engine
                     await update.message.reply_text(f"🚀 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
-                else: await update.message.reply_text(f"🤖 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
+                else: 
+                    await update.message.reply_text(f"🤖 Engine: <b>{self.engine.upper()}</b>", parse_mode=ParseMode.HTML)
                 log_phase(f"Command /engine ({self.engine})")
                 return
 
             if user_text == "/new":
                 self.skip_session_once = True
+                await self._stop_acp_client()
                 if self.session_id_file.exists(): self.session_id_file.unlink()
                 await update.message.reply_text(f"🧹 <b>{self.engine.upper()}</b> Session Reset.", parse_mode=ParseMode.HTML)
                 log_phase("Command /new (session reset)")
@@ -437,83 +580,162 @@ class GeminiBotInstance:
                 log_phase("Status message sent")
             except: pass
 
-            # 🛠️ CLI Execution Logic - Robust Session Locking
-            cmd = [self.engine, full_prompt, "--approval-mode", "yolo", "--output-format", "json"]
+            # 🛠️ ACP Execution Logic
+            client = await self._get_acp_client()
+            queue = client.listen(f"msg_{update.effective_message.id}")
             
-            if not self.skip_session_once:
-                if self.session_id_file.exists():
-                    saved_id = self.session_id_file.read_text().strip()
-                    if saved_id: cmd.append(f"--resume={saved_id}")
-                else:
-                    if self.engine == "gemini": cmd.append("--resume=latest")
-                    elif self.engine == "qwen": cmd.append("--continue")
-            else:
-                self.skip_session_once = False # Force new session
-
-            self.logger.debug(f"CMD: {' '.join(cmd)}")
-            log_phase("CLI start")
-
-            proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.workspace_dir)
+            prompt_params = {
+                "prompt": [{"type": "text", "text": full_prompt}],
+                "sessionId": self.acp_session_id
+            }
+            
+            prompt_task = asyncio.create_task(client.request("session/prompt", prompt_params))
+            
+            response_text = ""
+            usage_data = None # Initialize to prevent UnboundLocalError
+            usage_footer = "" 
+            last_edit_time = 0
+            edit_interval = 1.5 # seconds between Telegram edits to avoid rate limits
+            
             try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600.0)
-            except asyncio.TimeoutError:
-                proc.kill()
-                if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="⏱️ Timeout.")
-                self.logger.warning("⏱️ CLI execution timeout (>600s)")
-                log_phase("CLI TIMEOUT")
-                return
+                # 1. Main streaming loop
+                while not prompt_task.done() or not queue.empty():
+                    try:
+                        # If task is done, don't wait for timeout, just grab what's left
+                        timeout = 0.1 if prompt_task.done() else 0.5
+                        msg = await asyncio.wait_for(queue.get(), timeout=timeout)
+                        
+                        if msg.get("method") == "session/update":
+                            params = msg.get("params", {})
+                            update_data = params.get("update", {})
+                            u_type = update_data.get("sessionUpdate")
+                            
+                            # Real-time usage extraction from notifications
+                            notif_usage = extract_usage(update_data)
+                            if notif_usage:
+                                usage_data = notif_usage # Update the persistent usage_data
+                            
+                            if u_type == "agent_message_chunk":
+                                content = update_data.get("content", {})
+                                chunk = content.get("text", "")
+                                response_text += chunk
+                                
+                                # Periodically update Telegram message
+                                now = datetime.datetime.now().timestamp()
+                                if response_text.strip() and now - last_edit_time > edit_interval:
+                                    try:
+                                        rendered = smart_format_render(response_text) + "\n\n(typing...)"
+                                        await context.bot.edit_message_text(
+                                            chat_id=update.effective_chat.id,
+                                            message_id=status_msg.message_id,
+                                            text=rendered,
+                                            parse_mode=ParseMode.HTML
+                                        )
+                                        last_edit_time = now
+                                    except Exception as e:
+                                        self.logger.debug(f"Streaming edit failed: {e}")
+                        
+                        elif msg.get("method") == "session/request_permission":
+                            # 🛡️ ACP Permission Interception
+                            req_id = str(msg.get("id"))
+                            # Use bot-prefixed ID to avoid cross-bot interference and global ID collisions
+                            target_id = f"{self.name}:{req_id}" 
+                            
+                            params = msg.get("params", {})
+                            permission = params.get("permission", {})
+                            
+                            p_type = permission.get("type", "unknown")
+                            p_desc = "AI 请求权限执行操作"
+                            if p_type == "tool_call":
+                                tool = permission.get("tool_call", {})
+                                p_desc = f"🛠️ <b>工具调用申请</b>\n工具: <code>{tool.get('name')}</code>\n参数: <code>{json.dumps(tool.get('arguments'))}</code>"
+                            
+                            # Create buttons
+                            keyboard = [
+                                [
+                                    InlineKeyboardButton("✅ 批准", callback_data=f"perm:approve:{req_id}"),
+                                    InlineKeyboardButton("❌ 拒绝", callback_data=f"perm:deny:{req_id}")
+                                ]
+                            ]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            
+                            # Send permission request
+                            perm_msg = await update.message.reply_text(
+                                f"🛡️ <b>权限审批请求</b>\n\n{p_desc}",
+                                reply_markup=reply_markup,
+                                parse_mode=ParseMode.HTML
+                            )
+                            
+                            # Wait for user response
+                            future = asyncio.get_running_loop().create_future()
+                            self.permission_futures[target_id] = future
+                            
+                            self.logger.info(f"Waiting for permission decision on {target_id}...")
+                            approved = await future
+                            
+                            # Send result back to ACP (Original ID type)
+                            orig_id = msg.get("id")
+                            await client.respond(orig_id, result={"approved": approved})
+                            self.logger.info(f"Permission {orig_id} decision: {approved}")
+                    except asyncio.TimeoutError:
+                        continue
+                
+                # 2. Final wrap up and Usage Extraction
+                final_resp = await prompt_task
+                
+                # IMPORTANT: Only update usage_data if the final response actually contains it.
+                # Do not overwrite the usage we might have captured during streaming chunks!
+                final_usage = extract_usage(final_resp.get("result", {}))
+                if final_usage:
+                    usage_data = final_usage
 
-            cli_end = datetime.datetime.now().timestamp()
-            cli_duration = cli_end - session_start
-            raw_stdout = stdout.decode()
-            self.logger.debug(f"RAW STDOUT ({len(raw_stdout)} chars): {raw_stdout}")
-            if stderr:
-                stderr_text = stderr.decode()
-                self.logger.debug(f"RAW STDERR ({len(stderr_text)} chars): {stderr_text}")
-            log_phase(f"CLI completed ({cli_duration:.1f}s)")
+                # Ensure usage_footer is updated even if it was extracted earlier
+                if usage_data:
+                    usage_footer = f"\n\n<pre>📊 Tokens: {usage_data['total']/1000:.1f}k (In: {usage_data['in']/1000:.1f}k | Out: {usage_data['out']/1000:.1f}k)</pre>"
+                
+                if "error" in final_resp:
+                    error_obj = final_resp["error"]
+                    error_msg = error_obj.get("message", "Unknown error")
+                    error_data = error_obj.get("data", "")
+                    response_text = f"❌ <b>ACP Error:</b>\n<code>{html.escape(error_msg)}</code>"
+                    if error_data:
+                        response_text += f"\n\n<b>Detail:</b>\n<code>{html.escape(json.dumps(error_data, indent=2))}</code>"
+                
+                log_phase("ACP Prompt completed and usage extracted")
+            finally:
+                client.stop_listening(f"msg_{update.effective_message.id}")
+
+            # 🆔 Persistent Session Locking - already handled in _get_acp_client
             
-            response_text, occupancy, session_id = parse_cli_response(self.engine, raw_stdout, self.logger)
-            log_phase("Response parsed")
-
-            # 🆔 Persistent Session Locking
-            if session_id:
-                self.session_id_file.write_text(session_id)
-                self.logger.debug(f"🆔 Locked to session: {session_id}")
-
             shot = self.workspace_dir / "screenshot.png"
-            if shot.exists() and shot.stat().st_mtime > cli_end:
+            if shot.exists() and shot.stat().st_mtime > session_start:
                 if status_msg: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=status_msg.message_id, text="👀 Analyzing screen...")
                 log_phase("Vision analysis start")
                 response_text = await self.get_vision_analysis(user_text, shot)
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=open(shot, 'rb'))
                 log_phase("Vision completed")
 
-            if proc.returncode == 0:
-                # 1. Save to System Logs (for debugging)
-                today_str = datetime.date.today().isoformat()
-                system_log = self.log_dir / f"{today_str}.md"
-                with open(system_log, "a", encoding="utf-8") as f:
-                    f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
-                
-                # 2. Save to AI Workspace Memory (for AI retrieval)
-                workspace_memory_dir = self.workspace_dir / "memory"
-                workspace_memory_dir.mkdir(exist_ok=True)
-                workspace_log = workspace_memory_dir / f"{today_str}.md"
-                with open(workspace_log, "a", encoding="utf-8") as f:
-                    f.write(f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n")
+            # --- Unified Logging Strategy ---
+            today_str = datetime.date.today().isoformat()
+            log_content = f"### [{datetime.datetime.now().strftime('%H:%M:%S')}] 老兵: {user_text}\n{self.name.capitalize()}: {response_text}\n\n"
+            
+            # 1. System Raw Log (Audit)
+            system_log = self.log_dir / f"{today_str}.md"
+            with open(system_log, "a", encoding="utf-8") as f: f.write(log_content)
+            
+            # 2. AI Memory (Retrievable by AI in its workspace)
+            # We keep this as a dedicated folder for AI to "discover" its history
+            workspace_memory_dir = self.workspace_dir / "memory"
+            workspace_memory_dir.mkdir(exist_ok=True)
+            workspace_log = workspace_memory_dir / f"{today_str}.md"
+            with open(workspace_log, "a", encoding="utf-8") as f: f.write(log_content)
 
-                self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
-                self._save_memory()
-                log_phase("Logs & workspace memory saved")
-
-            footer = ""
-            if occupancy > 0:
-                kb = occupancy / 1000
-                percent = (occupancy / 1048576) * 100
-                footer = f"\n\n<pre>🗂️ Context: {kb:.1f}k / 1024k ({percent:.1f}%)</pre>"
+            self.memory_data.append({"text": f"老兵: {user_text}\n{self.name.capitalize()}: {response_text}", "timestamp": datetime.datetime.now().isoformat()})
+            self._save_memory()
+            log_phase("Logs and memory updated")
 
             # 7. Render and Send (Smart Split)
-            final_html = smart_format_render(response_text) + footer
+            final_html = smart_format_render(response_text) + usage_footer
             await send_smart_reply(update, context, final_html, user_text, status_msg, bot_instance=self)
             log_phase("Response sent")
             
@@ -534,14 +756,26 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logging.error("Exception:", exc_info=context.error)
 
 async def main():
+    from telegram.request import HTTPXRequest
+    
+    # Advanced network settings for unstable connections
+    t_request = HTTPXRequest(
+        connect_timeout=60.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=60.0,
+    )
+
     bot_configs = {k.replace("_BOT_TOKEN", "").lower(): v for k, v in os.environ.items() if k.endswith("_BOT_TOKEN")}
     if not bot_configs: return
     print(f"--- Starting Native Session Bridge (Bots: {len(bot_configs)}) ---")
     apps = []
     for name, token in bot_configs.items():
         instance = GeminiBotInstance(name, token)
-        app = ApplicationBuilder().token(token).connect_timeout(20).read_timeout(20).build()
+        # Enable concurrent_updates=True to allow callbacks to run while a message handler is awaiting permission
+        app = ApplicationBuilder().token(token).request(t_request).concurrent_updates(True).build()
         app.add_handler(MessageHandler(filters.TEXT, instance.handle_message))
+        app.add_handler(CallbackQueryHandler(instance.handle_callback))
         app.add_error_handler(error_handler)
         
         # Start background tasks
