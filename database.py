@@ -1,8 +1,11 @@
 import sqlite3
 import uuid
+import json
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 import threading
 from queue import Queue, Empty
+
 
 class KanbanDB:
     _instance_lock = threading.Lock()
@@ -15,17 +18,20 @@ class KanbanDB:
             return cls._instance
 
     def __init__(self, db_path="kanban.db", pool_size=5):
-        if hasattr(self, '_initialized'): return
+        if hasattr(self, "_initialized"):
+            return
         self.db_path = db_path
         self.pool_size = pool_size
         self._pool = Queue(maxsize=pool_size)
         self._initialized = True
-        
+
         self.init_db()
         self.migrate()
-        
+
         for _ in range(pool_size):
-            self._pool.put(self._create_new_connection())
+            conn = self._create_new_connection()
+            self._load_extensions(conn)
+            self._pool.put(conn)
 
     def _create_new_connection(self):
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -34,11 +40,38 @@ class KanbanDB:
         conn.execute("PRAGMA journal_mode = WAL")
         return conn
 
+    def _load_extensions(self, conn):
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            conn.enable_load_extension(True)
+            extension_paths = [
+                "vec0",
+                "/usr/local/lib/vec0.so",
+                "./lib/vec0.so",
+            ]
+            for path in extension_paths:
+                try:
+                    conn.execute(f"SELECT load_extension('{path}')")
+                    logger.info(f"Loaded sqlite-vec from {path}")
+                    return
+                except Exception:
+                    continue
+            logger.warning("sqlite-vec extension not found. Semantic search disabled.")
+        except Exception as e:
+            logger.warning(f"Failed to load sqlite-vec: {e}")
+
     def get_connection(self):
         try:
-            return self._pool.get(timeout=2)
+            conn = self._pool.get(timeout=2)
+            conn.execute("PRAGMA foreign_keys = ON")
+            return conn
         except Empty:
-            return self._create_new_connection()
+            conn = self._create_new_connection()
+            self._load_extensions(conn)
+            return conn
 
     def return_connection(self, conn):
         if self._pool.full():
@@ -47,7 +80,6 @@ class KanbanDB:
             self._pool.put(conn)
 
     def close_all(self):
-        """Shutdown the pool and close all connections."""
         print(f"[*] Closing {self._pool.qsize()} database connections...")
         while not self._pool.empty():
             try:
@@ -60,9 +92,87 @@ class KanbanDB:
         conn = self._create_new_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'todo', created_at DATETIME, updated_at DATETIME)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, event_type TEXT, content TEXT, timestamp DATETIME, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, updated_at DATETIME)''')
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                workspace_path TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS columns (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                color TEXT DEFAULT '#808080',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS cards (
+                id TEXT PRIMARY KEY,
+                column_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                position INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE
+            )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS card_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+                content TEXT,
+                metadata TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+            )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS project_timeline (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                card_id TEXT,
+                event_type TEXT NOT NULL,
+                content TEXT,
+                metadata TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id TEXT NOT NULL UNIQUE,
+                summary TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+            )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                updated_at DATETIME
+            )""")
+
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cards_column ON cards(column_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_columns_project ON columns(project_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_card ON card_sessions(card_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_timeline_project ON project_timeline(project_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_timeline_timestamp ON project_timeline(timestamp DESC)"
+            )
+
             conn.commit()
         finally:
             conn.close()
@@ -70,31 +180,666 @@ class KanbanDB:
     def migrate(self):
         conn = self._create_new_connection()
         try:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+            )
+            if not cursor.fetchone():
+                return
+
             cursor = conn.execute("SELECT MAX(version) FROM schema_version")
             row = cursor.fetchone()
             current_version = row[0] if row and row[0] else 0
-            if current_version < 1:
-                conn.execute("INSERT INTO schema_version (version, updated_at) VALUES (1, ?)", (datetime.now().isoformat(),))
+
+            if current_version < 2:
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.commit()
+
+                cursor.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+                    title,
+                    description,
+                    content='cards',
+                    content_rowid='rowid'
+                )""")
+
+                cursor.execute("""CREATE TRIGGER IF NOT EXISTS cards_ai AFTER INSERT ON cards BEGIN
+                    INSERT INTO cards_fts(title, description)
+                    VALUES (new.title, new.description);
+                END""")
+
+                cursor.execute("""CREATE TRIGGER IF NOT EXISTS cards_ad AFTER DELETE ON cards BEGIN
+                    INSERT INTO cards_fts(cards_fts, title, description)
+                    VALUES ('delete', old.title, old.description);
+                END""")
+
+                cursor.execute("""CREATE TRIGGER IF NOT EXISTS cards_au AFTER UPDATE ON cards BEGIN
+                    INSERT INTO cards_fts(cards_fts, title, description)
+                    VALUES ('delete', old.title, old.description);
+                    INSERT INTO cards_fts(title, description)
+                    VALUES (new.title, new.description);
+                END""")
+
+                cursor.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
+                    content,
+                    content='card_sessions',
+                    content_rowid='rowid'
+                )""")
+
+                try:
+                    cursor.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS card_vectors USING vec0(
+                        card_id TEXT PRIMARY KEY,
+                        embedding FLOAT[1536]
+                    )""")
+                    cursor.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS session_vectors USING vec0(
+                        session_id INTEGER PRIMARY KEY,
+                        embedding FLOAT[1536]
+                    )""")
+                except Exception:
+                    pass
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (2, ?)",
+                    (datetime.now().isoformat(),),
+                )
                 conn.commit()
         finally:
             conn.close()
 
-    def add_task(self, title, description=""):
-        task_id = str(uuid.uuid4())[:8]
+    def create_project(self, name: str, workspace_path: str = None) -> str:
+        project_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
         conn = self.get_connection()
         try:
-            conn.execute("INSERT INTO tasks (id, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (task_id, title, description, now, now))
-            conn.execute("INSERT INTO timeline (task_id, event_type, content, timestamp) VALUES (?, 'creation', ?, ?)", (task_id, f"Task created: {title}", now))
+            conn.execute(
+                "INSERT INTO projects (id, name, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (project_id, name, workspace_path, now, now),
+            )
+
+            default_columns = [
+                ("Todo", "#808080"),
+                ("In Progress", "#1890ff"),
+                ("Done", "#52c41a"),
+            ]
+            for i, (col_name, col_color) in enumerate(default_columns):
+                col_id = str(uuid.uuid4())[:8]
+                conn.execute(
+                    "INSERT INTO columns (id, project_id, name, position, color, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (col_id, project_id, col_name, i, col_color, now),
+                )
+
+            conn.execute(
+                "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
+                (project_id, "project_created", f"Project '{name}' created", now),
+            )
             conn.commit()
-            return task_id
+            return project_id
         finally:
             self.return_connection(conn)
 
-    def get_all_tasks(self):
+    def get_projects(self) -> List[Dict]:
         conn = self.get_connection()
         try:
-            cursor = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC")
+            cursor = conn.execute(
+                """SELECT p.*,
+                    (SELECT COUNT(*) FROM cards c 
+                     JOIN columns col ON col.id = c.column_id 
+                     WHERE col.project_id = p.id) as card_count
+                FROM projects p
+                ORDER BY p.updated_at DESC"""
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            self.return_connection(conn)
+
+    def get_project(self, project_id: str) -> Optional[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            self.return_connection(conn)
+
+    def update_project(
+        self, project_id: str, name: str = None, workspace_path: str = None
+    ):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            if name is not None:
+                conn.execute(
+                    "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
+                    (name, now, project_id),
+                )
+            if workspace_path is not None:
+                conn.execute(
+                    "UPDATE projects SET workspace_path = ?, updated_at = ? WHERE id = ?",
+                    (workspace_path, now, project_id),
+                )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def delete_project(self, project_id: str):
+        conn = self.get_connection()
+        try:
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_columns(self, project_id: str) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT c.*, COUNT(cards.id) as card_count FROM columns c LEFT JOIN cards ON cards.column_id = c.id WHERE c.project_id = ? GROUP BY c.id ORDER BY c.position",
+                (project_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            self.return_connection(conn)
+
+    def get_column(self, column_id: str) -> Optional[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute("SELECT * FROM columns WHERE id = ?", (column_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            self.return_connection(conn)
+
+    def create_column(
+        self, project_id: str, name: str, position: int = None, color: str = "#808080"
+    ) -> str:
+        column_id = str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            if position is None:
+                cursor = conn.execute(
+                    "SELECT MAX(position) FROM columns WHERE project_id = ?",
+                    (project_id,),
+                )
+                row = cursor.fetchone()
+                position = (row[0] + 1) if row[0] is not None else 0
+
+            conn.execute(
+                "INSERT INTO columns (id, project_id, name, position, color, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (column_id, project_id, name, position, color, now),
+            )
+
+            conn.execute(
+                "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
+                (project_id, "column_created", f"Column '{name}' created", now),
+            )
+            conn.commit()
+            return column_id
+        finally:
+            self.return_connection(conn)
+
+    def update_column(self, column_id: str, name: str = None, color: str = None):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            if name is not None:
+                conn.execute(
+                    "UPDATE columns SET name = ? WHERE id = ?", (name, column_id)
+                )
+            if color is not None:
+                conn.execute(
+                    "UPDATE columns SET color = ? WHERE id = ?", (color, column_id)
+                )
+
+            cursor = conn.execute(
+                "SELECT project_id FROM columns WHERE id = ?", (column_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
+                    (row[0], "column_updated", f"Column updated", now),
+                )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def delete_column(self, column_id: str, move_to_column_id: str = None):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT project_id, name FROM columns WHERE id = ?", (column_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            project_id, col_name = row[0], row[1]
+
+            if move_to_column_id:
+                conn.execute(
+                    "UPDATE cards SET column_id = ? WHERE column_id = ?",
+                    (move_to_column_id, column_id),
+                )
+
+            conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+
+            conn.execute(
+                "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
+                (project_id, "column_deleted", f"Column '{col_name}' deleted", now),
+            )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def reorder_columns(self, column_ids: List[str]):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            if column_ids:
+                cursor = conn.execute(
+                    "SELECT project_id FROM columns WHERE id = ?", (column_ids[0],)
+                )
+                row = cursor.fetchone()
+                if row:
+                    project_id = row[0]
+                    conn.execute(
+                        "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
+                        (project_id, "columns_reordered", "Column order updated", now),
+                    )
+
+            for position, col_id in enumerate(column_ids):
+                conn.execute(
+                    "UPDATE columns SET position = ? WHERE id = ?", (position, col_id)
+                )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_cards_by_column(self, column_id: str) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? ORDER BY c.position",
+                (column_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            self.return_connection(conn)
+
+    def get_card(self, card_id: str) -> Optional[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT c.*, col.name as column_name, col.project_id FROM cards c JOIN columns col ON col.id = c.column_id WHERE c.id = ?",
+                (card_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            self.return_connection(conn)
+
+    def create_card(
+        self, column_id: str, title: str, description: str = "", position: int = None
+    ) -> str:
+        card_id = str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            if position is None:
+                cursor = conn.execute(
+                    "SELECT MAX(position) FROM cards WHERE column_id = ?", (column_id,)
+                )
+                row = cursor.fetchone()
+                position = (row[0] + 1) if row[0] is not None else 0
+
+            conn.execute(
+                "INSERT INTO cards (id, column_id, title, description, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (card_id, column_id, title, description, position, now, now),
+            )
+
+            cursor = conn.execute(
+                "SELECT project_id FROM columns WHERE id = ?", (column_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                project_id = row[0]
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        project_id,
+                        card_id,
+                        "card_created",
+                        f"Card '{title}' created",
+                        now,
+                    ),
+                )
+
+            conn.commit()
+            return card_id
+        finally:
+            self.return_connection(conn)
+
+    def update_card(self, card_id: str, title: str = None, description: str = None):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT column_id FROM cards WHERE id = ?", (card_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            if title is not None:
+                conn.execute(
+                    "UPDATE cards SET title = ?, updated_at = ? WHERE id = ?",
+                    (title, now, card_id),
+                )
+            if description is not None:
+                conn.execute(
+                    "UPDATE cards SET description = ?, updated_at = ? WHERE id = ?",
+                    (description, now, card_id),
+                )
+
+            cursor = conn.execute(
+                "SELECT project_id FROM columns WHERE id = ?", (row[0],)
+            )
+            proj_row = cursor.fetchone()
+            if proj_row:
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (proj_row[0], card_id, "card_updated", "Card updated", now),
+                )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def delete_card(self, card_id: str):
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            column_id, title = row[0], row[1]
+
+            conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+
+            cursor = conn.execute(
+                "SELECT project_id FROM columns WHERE id = ?", (column_id,)
+            )
+            proj_row = cursor.fetchone()
+            if proj_row:
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        proj_row[0],
+                        card_id,
+                        "card_deleted",
+                        f"Card '{title}' deleted",
+                        datetime.now().isoformat(),
+                    ),
+                )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def move_card(
+        self, card_id: str, target_column_id: str, target_position: int = None
+    ):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            source_column_id, title = row[0], row[1]
+
+            if target_position is None:
+                cursor = conn.execute(
+                    "SELECT MAX(position) FROM cards WHERE column_id = ?",
+                    (target_column_id,),
+                )
+                row = cursor.fetchone()
+                target_position = (row[0] + 1) if row[0] is not None else 0
+
+            conn.execute(
+                "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
+                (target_column_id, target_position, now, card_id),
+            )
+
+            cursor = conn.execute(
+                "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
+                (source_column_id, target_column_id),
+            )
+            row = cursor.fetchone()
+            if row:
+                source_name, target_name, project_id = row[0], row[1], row[2]
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        project_id,
+                        card_id,
+                        "card_moved",
+                        f"Card moved from '{source_name}' to '{target_name}'",
+                        now,
+                    ),
+                )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def add_session_message(
+        self, card_id: str, role: str, content: str, metadata: Dict = None
+    ):
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    card_id,
+                    role,
+                    content,
+                    json.dumps(metadata) if metadata else None,
+                    datetime.now().isoformat(),
+                ),
+            )
+
+            cursor = conn.execute(
+                "SELECT column_id FROM cards WHERE id = ?", (card_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                cursor = conn.execute(
+                    "SELECT project_id FROM columns WHERE id = ?", (row[0],)
+                )
+                proj_row = cursor.fetchone()
+                if proj_row:
+                    conn.execute(
+                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        (
+                            proj_row[0],
+                            card_id,
+                            "ai_action",
+                            f"{role}: {content[:50]}...",
+                            datetime.now().isoformat(),
+                        ),
+                    )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_session_history(self, card_id: str, limit: int = 50) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT ?",
+                (card_id, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            self.return_connection(conn)
+
+    def add_timeline_event(
+        self,
+        project_id: str,
+        card_id: str,
+        event_type: str,
+        content: str,
+        metadata: Dict = None,
+    ):
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "INSERT INTO project_timeline (project_id, card_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    project_id,
+                    card_id,
+                    event_type,
+                    content,
+                    json.dumps(metadata) if metadata else None,
+                    datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_timeline(self, project_id: str, limit: int = 100) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM project_timeline WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (project_id, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            self.return_connection(conn)
+
+    def search_cards_fts(
+        self, query: str, project_id: str = None, limit: int = 20
+    ) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            if project_id:
+                sql = """
+                    SELECT c.*, col.name as column_name FROM cards c
+                    JOIN columns col ON col.id = c.column_id
+                    JOIN cards_fts fts ON fts.rowid = c.rowid
+                    WHERE cards_fts MATCH ? AND col.project_id = ?
+                    ORDER BY rank LIMIT ?
+                """
+                cursor = conn.execute(sql, (query, project_id, limit))
+            else:
+                sql = """
+                    SELECT c.*, col.name as column_name FROM cards c
+                    JOIN columns col ON col.id = c.column_id
+                    JOIN cards_fts fts ON fts.rowid = c.rowid
+                    WHERE cards_fts MATCH ?
+                    ORDER BY rank LIMIT ?
+                """
+                cursor = conn.execute(sql, (query, limit))
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            self.return_connection(conn)
+
+    def search_cards_semantic(
+        self, embedding: List[float], project_id: str = None, limit: int = 5
+    ) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            try:
+                if project_id:
+                    sql = """
+                        SELECT c.*, col.name as column_name,
+                            vec_distance_cosine(card_vectors.embedding, ?) as distance
+                        FROM cards c
+                        JOIN columns col ON col.id = c.column_id
+                        JOIN card_vectors ON card_vectors.card_id = c.id
+                        WHERE col.project_id = ?
+                        ORDER BY distance LIMIT ?
+                    """
+                    cursor = conn.execute(sql, (embedding, project_id, limit))
+                else:
+                    sql = """
+                        SELECT c.*, col.name as column_name,
+                            vec_distance_cosine(card_vectors.embedding, ?) as distance
+                        FROM cards c
+                        JOIN columns col ON col.id = c.column_id
+                        JOIN card_vectors ON card_vectors.card_id = c.id
+                        ORDER BY distance LIMIT ?
+                    """
+                    cursor = conn.execute(sql, (embedding, limit))
+                return [dict(row) for row in cursor.fetchall()]
+            except Exception:
+                return []
+        finally:
+            self.return_connection(conn)
+
+    def upsert_card_embedding(self, card_id: str, embedding: List[float]):
+        conn = self.get_connection()
+        try:
+            embedding_json = json.dumps(embedding)
+            conn.execute(
+                "INSERT OR REPLACE INTO card_vectors (card_id, embedding) VALUES (?, ?)",
+                (card_id, embedding_json),
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            self.return_connection(conn)
+
+    def upsert_session_embedding(self, session_id: int, embedding: List[float]):
+        conn = self.get_connection()
+        try:
+            embedding_json = json.dumps(embedding)
+            conn.execute(
+                "INSERT OR REPLACE INTO session_vectors (session_id, embedding) VALUES (?, ?)",
+                (session_id, embedding_json),
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            self.return_connection(conn)
+
+    def save_summary(self, card_id: str, summary: str):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO summaries (card_id, summary, updated_at) VALUES (?, ?, ?)",
+                (card_id, summary, now),
+            )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_summary(self, card_id: str) -> Optional[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM summaries WHERE card_id = ?", (card_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            self.return_connection(conn)
+
+    def get_all_summaries(self, project_id: str) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT s.*, c.title FROM summaries s JOIN cards c ON c.id = s.card_id JOIN columns col ON col.id = c.column_id WHERE col.project_id = ? ORDER BY s.updated_at DESC",
+                (project_id,),
+            )
             return [dict(row) for row in cursor.fetchall()]
         finally:
             self.return_connection(conn)
