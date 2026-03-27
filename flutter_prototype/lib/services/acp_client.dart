@@ -1,38 +1,54 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
 import 'smart_connect.dart';
 import 'e2ee_manager.dart';
+import '../models/connection_config.dart';
 
 class ACPConfig {
+  final ConnectionMode mode;
   final String? localIp;
+  final bool useMdns;
   final String? relayHost;
+  final int relayPort;
   final String? userId;
   final String? relayToken;
   final String? cloudDirectUrl;
-  final String? sessionKeyHex; 
+  final String? sessionKeyHex;
 
   ACPConfig({
+    this.mode = ConnectionMode.local,
     this.localIp,
-    this.relayHost = "mybot.siliconpulse.cc",
+    this.useMdns = true,
+    this.relayHost,
+    this.relayPort = 8766,
     this.userId,
     this.relayToken,
     this.cloudDirectUrl,
     this.sessionKeyHex,
   });
 
-  String? get relayUrl => (relayHost != null && userId != null) 
-      ? "ws://$relayHost:8766/relay/app/$userId" : null;
-  String? get cloudUrl => cloudDirectUrl ?? (relayHost != null ? "ws://$relayHost:8766/direct" : null);
+  factory ACPConfig.fromConnectionConfig(
+      ConnectionConfig config, String userId) {
+    return ACPConfig(
+      mode: config.preferredMode,
+      localIp: config.localIp,
+      useMdns: true,
+      relayHost: config.relayHost,
+      relayPort: config.relayPort ?? 8766,
+      userId: userId,
+      relayToken: config.relayToken,
+      cloudDirectUrl: config.cloudUrl,
+    );
+  }
 }
 
 class ACPClient {
   WebSocketChannel? _channel;
   final _uuid = const Uuid();
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
-  
+
   ConnectionPath activeMode = ConnectionPath.none;
   String? activeUrl;
   E2EEManager? _e2ee;
@@ -49,11 +65,14 @@ class ACPClient {
     }
 
     final result = await SmartConnect.connect(
-      preferredLocalIp: config.localIp,
-      relayUrl: config.relayUrl,
-      cloudUrl: config.cloudUrl,
-      token: config.relayToken,
+      mode: config.mode,
+      localIp: config.localIp,
+      useMdns: config.useMdns,
+      relayHost: config.relayHost,
+      relayPort: config.relayPort,
+      relayToken: config.relayToken,
       userId: config.userId,
+      cloudUrl: config.cloudDirectUrl,
     );
 
     _channel = result.channel;
@@ -73,13 +92,17 @@ class ACPClient {
     final ownPublicKeyHex = keyPairData['publicKeyHex'] as String;
     final ownKeyPair = keyPairData['privateKey'];
 
-    final response = await sendRequest('pairing/exchange', {
-      'publicKey': ownPublicKeyHex,
-    }, forcePlaintext: true);
+    final response = await sendRequest(
+        'pairing/exchange',
+        {
+          'publicKey': ownPublicKeyHex,
+        },
+        forcePlaintext: true);
 
     if (response.containsKey('result')) {
       final peerPublicKeyHex = response['result']['publicKey'] as String;
-      final sharedSecretHex = await E2EEManager.deriveSharedSecret(ownKeyPair, peerPublicKeyHex);
+      final sharedSecretHex =
+          await E2EEManager.deriveSharedSecret(ownKeyPair, peerPublicKeyHex);
       _e2ee = E2EEManager(sharedSecretHex);
       print('[ACP] Pairing Successful!');
     } else {
@@ -92,8 +115,9 @@ class ACPClient {
     _channel!.stream.listen(
       (message) async {
         try {
-          print('[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
-          
+          print(
+              '[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
+
           // Defensive decoding: handle both String and direct JSON
           dynamic decoded = message;
           if (message is String) {
@@ -104,17 +128,19 @@ class ACPClient {
               return;
             }
           }
-          
+
           // Ensure we have a Map
           if (decoded is! Map<String, dynamic>) {
             print('[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
             return;
           }
-          
+
           Map<String, dynamic> data = decoded;
           print('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
 
-          if (_e2ee != null && data.containsKey('method') && data['method'] == 'e2ee/envelope') {
+          if (_e2ee != null &&
+              data.containsKey('method') &&
+              data['method'] == 'e2ee/envelope') {
             print('[ACP] Attempting to decrypt E2EE message...');
             try {
               data = await _e2ee!.unwrap(data);
@@ -149,15 +175,23 @@ class ACPClient {
     );
   }
 
-  Future<Map<String, dynamic>> sendRequest(String method, Map<String, dynamic> params, {bool forcePlaintext = false}) async {
-    if (_channel == null || activeMode == ConnectionPath.none) throw Exception('Not connected');
+  Future<Map<String, dynamic>> sendRequest(
+      String method, Map<String, dynamic> params,
+      {bool forcePlaintext = false}) async {
+    if (_channel == null || activeMode == ConnectionPath.none)
+      throw Exception('Not connected');
 
     final id = _uuid.v4();
     final completer = Completer<Map<String, dynamic>>();
     _pendingRequests[id] = completer;
 
-    final requestObj = {"jsonrpc": "2.0", "id": id, "method": method, "params": params};
-    
+    final requestObj = {
+      "jsonrpc": "2.0",
+      "id": id,
+      "method": method,
+      "params": params
+    };
+
     dynamic payload;
     if (_e2ee != null && !forcePlaintext) {
       payload = jsonEncode(await _e2ee!.wrap(requestObj));
@@ -185,7 +219,8 @@ class ACPClient {
   Future<String> sendMessage(String message) async {
     // Gemini CLI uses 'session/prompt'
     try {
-      final response = await sendRequest('session/prompt', {'message': message});
+      final response =
+          await sendRequest('session/prompt', {'message': message});
       if (response.containsKey('result')) {
         final result = response['result'];
         // Standard ACP often returns { "text": "response..." }
@@ -209,9 +244,11 @@ class ACPClient {
     } catch (e) {
       // If session/prompt fails, try legacy chat/message (for acp_server.py compat)
       try {
-        final legacyResponse = await sendRequest('chat/message', {'message': message});
+        final legacyResponse =
+            await sendRequest('chat/message', {'message': message});
         final result = legacyResponse['result'];
-        if (result is Map && result.containsKey('message')) return result['message'].toString();
+        if (result is Map && result.containsKey('message'))
+          return result['message'].toString();
         return result.toString();
       } catch (_) {
         // Throw original error if legacy also fails

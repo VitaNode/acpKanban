@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:multicast_dns/multicast_dns.dart';
-import 'package:web_socket_channel/io.dart';
-import 'package:web_socket_channel/html.dart'; // For Web support
 import 'package:web_socket_channel/web_socket_channel.dart';
+import '../models/connection_config.dart';
+
+// 条件导入平台特定的 WebSocket 连接函数
+import 'websocket_connect_io.dart'
+    if (dart.library.html) 'websocket_connect_web.dart';
 
 enum ConnectionPath { local, relay, cloud, none }
 
@@ -19,71 +22,114 @@ class SmartConnect {
   static const String _serviceType = '_acp._tcp.local';
 
   static Future<SmartConnectResult> connect({
-    String? preferredLocalIp,
-    String? relayUrl,
-    String? cloudUrl,
-    String? token,
+    required ConnectionMode mode,
+    String? localIp,
+    bool useMdns = true,
+    String? relayHost,
+    int relayPort = 8766,
+    String? relayToken,
     String? userId,
+    String? cloudUrl,
   }) async {
-    // 1. Try mDNS Discovery (Skip on Web)
-    if (!kIsWeb) {
+    if (mode == ConnectionMode.local && kIsWeb) {
+      throw Exception('本地连接模式不支持 Web 平台，请选择中继或云端模式');
+    }
+
+    switch (mode) {
+      case ConnectionMode.local:
+        return _connectLocal(
+            localIp: localIp, useMdns: useMdns, token: relayToken);
+      case ConnectionMode.relay:
+        if (relayHost == null || userId == null) {
+          throw Exception('Relay mode requires relayHost and userId');
+        }
+        final relayUrl = 'ws://$relayHost:$relayPort/relay/app/$userId';
+        return _connectStrict(relayUrl, ConnectionPath.relay, relayToken);
+      case ConnectionMode.cloud:
+        final targetUrl = cloudUrl ?? 'ws://$relayHost:$relayPort/direct';
+        return _connectStrict(targetUrl, ConnectionPath.cloud, relayToken);
+    }
+  }
+
+  static Future<SmartConnectResult> _connectLocal({
+    String? localIp,
+    bool useMdns = true,
+    String? token,
+  }) async {
+    if (kIsWeb) {
+      throw Exception('Local mode not supported on Web');
+    }
+
+    if (useMdns) {
       print('[SmartConnect] Starting mDNS scan...');
       try {
         final discoveredIp = await discoverLocalMac().timeout(
           const Duration(seconds: 2),
           onTimeout: () => null,
         );
-        
-        final targetLocalIp = discoveredIp ?? preferredLocalIp;
-        if (targetLocalIp != null) {
-          final localUrl = "ws://$targetLocalIp:8766";
-          print('[SmartConnect] Attempting Local Path: $localUrl');
+
+        if (discoveredIp != null) {
+          final localUrl = "ws://$discoveredIp:8766";
+          print('[SmartConnect] Attempting Local (mDNS): $localUrl');
           final channel = await _tryConnect(localUrl, token);
-          if (channel != null) return SmartConnectResult(channel, ConnectionPath.local, localUrl);
+          if (channel != null) {
+            return SmartConnectResult(channel, ConnectionPath.local, localUrl);
+          }
         }
       } catch (e) {
-        print('[SmartConnect] mDNS not supported or failed: $e');
+        print('[SmartConnect] mDNS scan failed: $e');
       }
-    } else {
-      print('[SmartConnect] Running on Web: Skipping mDNS local discovery.');
     }
 
-    // 2. Try Relay Path
-    if (relayUrl != null) {
-      print('[SmartConnect] Attempting Relay Path: $relayUrl');
-      final channel = await _tryConnect(relayUrl, token);
-      if (channel != null) return SmartConnectResult(channel, ConnectionPath.relay, relayUrl);
+    if (localIp != null) {
+      final localUrl = "ws://$localIp:8766";
+      print('[SmartConnect] Attempting Local (manual): $localUrl');
+      final channel = await _tryConnect(localUrl, token);
+      if (channel != null) {
+        return SmartConnectResult(channel, ConnectionPath.local, localUrl);
+      }
     }
 
-    // 3. Try Cloud Path
-    if (cloudUrl != null) {
-      print('[SmartConnect] Attempting Cloud Path: $cloudUrl');
-      final channel = await _tryConnect(cloudUrl, token);
-      if (channel != null) return SmartConnectResult(channel, ConnectionPath.cloud, cloudUrl);
-    }
+    throw Exception('Local connection failed. Check if Mac Bridge is running.');
+  }
 
-    throw Exception('All connection paths failed. Mac may be offline.');
+  static Future<SmartConnectResult> _connectStrict(
+    String url,
+    ConnectionPath path,
+    String? token,
+  ) async {
+    print('[SmartConnect] Attempting $path: $url');
+    final channel = await _tryConnect(url, token);
+    if (channel != null) {
+      return SmartConnectResult(channel, path, url);
+    }
+    throw Exception('$path connection failed. Check network and settings.');
   }
 
   static Future<String?> discoverLocalMac() async {
-    // This part is only called if !kIsWeb
+    if (kIsWeb) return null;
+
     final MDnsClient client = MDnsClient();
     try {
       await client.start();
       final String? ip = await (() async {
-        await for (final PtrResourceRecord ptr in client.lookup<PtrResourceRecord>(
-            ResourceRecordQuery.serverPointer(_serviceType))) {
-          await for (final SrvResourceRecord srv in client.lookup<SrvResourceRecord>(
-              ResourceRecordQuery.service(ptr.domainName))) {
-            await for (final IPAddressResourceRecord ipRecord in client.lookup<IPAddressResourceRecord>(
-                ResourceRecordQuery.addressIPv4(srv.target))) {
+        await for (final PtrResourceRecord ptr
+            in client.lookup<PtrResourceRecord>(
+                ResourceRecordQuery.serverPointer(_serviceType))) {
+          await for (final SrvResourceRecord srv
+              in client.lookup<SrvResourceRecord>(
+                  ResourceRecordQuery.service(ptr.domainName))) {
+            await for (final IPAddressResourceRecord ipRecord
+                in client.lookup<IPAddressResourceRecord>(
+                    ResourceRecordQuery.addressIPv4(srv.target))) {
               return ipRecord.address.address;
             }
           }
         }
         return null;
-      })().timeout(const Duration(seconds: 2), onTimeout: () => null);
-      
+      })()
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+
       return ip;
     } catch (e) {
       return null;
@@ -92,29 +138,31 @@ class SmartConnect {
     }
   }
 
-  static Future<WebSocketChannel?> _tryConnect(String url, String? token) async {
-    try {
-      WebSocketChannel channel;
-      
-      if (kIsWeb) {
-        // Web context: Append token to URL because headers are not supported
-        String webUrl = url;
-        if (token != null) {
-          final uri = Uri.parse(url);
-          webUrl = uri.replace(queryParameters: {'token': token}).toString();
-        }
-        channel = HtmlWebSocketChannel.connect(Uri.parse(webUrl));
-      } else {
-        final uri = Uri.parse(url);
-        final headers = token != null ? {'Authorization': 'Bearer $token'} : <String, String>{};
-        channel = IOWebSocketChannel.connect(uri, headers: headers);
-      }
+  static Future<WebSocketChannel?> _tryConnect(
+      String url, String? token) async {
+    // 直接调用平台特定的连接函数
+    return await connectWebSocket(url, token);
+  }
 
-      await channel.ready.timeout(const Duration(seconds: 3));
-      return channel;
-    } catch (e) {
-      print('[SmartConnect] Connection to $url failed: $e');
-      return null;
+  static String _getFriendlyErrorMessage(Object error) {
+    final errorStr = error.toString();
+    if (errorStr.contains('SocketException') || errorStr.contains('OSError')) {
+      if (errorStr.contains('Connection refused')) {
+        return '无法连接到服务器，请确认：\n1. 服务器已启动\n2. 地址正确\n3. 防火墙未阻止连接';
+      }
+      if (errorStr.contains('Connection timed out') ||
+          errorStr.contains('TimeoutException')) {
+        return '连接超时，请检查网络或服务器状态';
+      }
+      if (errorStr.contains('No route to host') ||
+          errorStr.contains('Network is unreachable')) {
+        return '网络不可达，请检查网络连接';
+      }
+      return '网络错误：${errorStr.length > 100 ? errorStr.substring(0, 100) : errorStr}';
     }
+    if (error is TimeoutException) {
+      return '连接超时，请检查网络或服务器状态';
+    }
+    return errorStr;
   }
 }

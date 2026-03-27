@@ -2,7 +2,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
 import 'services/smart_connect.dart';
+import 'services/connection_config_manager.dart';
+import 'models/connection_config.dart';
 import 'models/task.dart';
+import 'screens/connection_settings_screen.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -37,6 +40,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Map<String, String>> _chatHistory = [];
   final _textController = TextEditingController();
   bool _isLoading = false;
+  String? _userId;
 
   @override
   void initState() {
@@ -47,14 +51,15 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _initApp() async {
     setState(() => _isLoading = true);
     try {
-      final config = ACPConfig(
-        userId: 'test_user',
-        relayHost: '35.211.219.123',
-        relayToken: '8c939a7d-e31b-4e1d-b26c-57b4589519e1',
-        // Removed sessionKeyHex - use ECDH pairing or plaintext
-      );
+      final configManager = await ConnectionConfigManager.getInstance();
+      final savedConfig = await configManager.loadConfig();
+      _userId = savedConfig.userId;
 
-      await _acpClient.smartConnect(config);
+      final acpConfig = ACPConfig.fromConnectionConfig(
+        savedConfig,
+        _userId ?? 'test_user',
+      );
+      await _acpClient.smartConnect(acpConfig);
       await _acpClient.initialize();
       await _loadTasks();
     } catch (e) {
@@ -68,12 +73,12 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _loadTasks() async {
     try {
       final response = await _acpClient.sendMessage(
-        "Please provide the current list of all kanban tasks in a valid JSON array format. Only return the JSON."
-      );
+          "Please provide the current list of all kanban tasks in a valid JSON array format. Only return the JSON.");
       final match = RegExp(r'\[.*\]', dotAll: true).stringMatch(response);
       if (match != null) {
         final List<dynamic> data = jsonDecode(match);
-        setState(() => _tasks = data.map((t) => KanbanTask.fromJson(t)).toList());
+        setState(
+            () => _tasks = data.map((t) => KanbanTask.fromJson(t)).toList());
       }
     } catch (e) {
       debugPrint('Load Tasks Error: $e');
@@ -93,7 +98,8 @@ class _MainScreenState extends State<MainScreen> {
       setState(() => _chatHistory.add({'role': 'ai', 'message': response}));
       await _loadTasks();
     } catch (e) {
-      setState(() => _chatHistory.add({'role': 'error', 'message': 'Failed: $e'}));
+      setState(
+          () => _chatHistory.add({'role': 'error', 'message': 'Failed: $e'}));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -102,13 +108,21 @@ class _MainScreenState extends State<MainScreen> {
   Widget _getStatusDot() {
     Color color;
     switch (_acpClient.activeMode) {
-      case ConnectionPath.local: color = Colors.green; break;
-      case ConnectionPath.relay: color = Colors.orange; break;
-      case ConnectionPath.cloud: color = Colors.blue; break;
-      default: color = Colors.red;
+      case ConnectionPath.local:
+        color = Colors.green;
+        break;
+      case ConnectionPath.relay:
+        color = Colors.orange;
+        break;
+      case ConnectionPath.cloud:
+        color = Colors.blue;
+        break;
+      default:
+        color = Colors.red;
     }
     return Container(
-      width: 10, height: 10,
+      width: 10,
+      height: 10,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
@@ -119,6 +133,12 @@ class _MainScreenState extends State<MainScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
+          ),
           title: Row(
             children: [
               const Text('AI Kanban'),
@@ -127,7 +147,8 @@ class _MainScreenState extends State<MainScreen> {
               const SizedBox(width: 5),
               Text(
                 _acpClient.activeMode.name.toUpperCase(),
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                style:
+                    const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -141,6 +162,7 @@ class _MainScreenState extends State<MainScreen> {
             ],
           ),
         ),
+        drawer: _buildDrawer(),
         body: TabBarView(
           children: [
             _buildBoardView(),
@@ -149,6 +171,134 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              color: Theme.of(context).primaryColor,
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Icon(Icons.psychology, size: 48, color: Colors.white),
+                SizedBox(height: 8),
+                Text(
+                  'AI Kanban',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.dashboard),
+            title: const Text('Board'),
+            selected: true,
+            onTap: () => Navigator.pop(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: const Text('Timeline'),
+            onTap: () => Navigator.pop(context),
+          ),
+          const Divider(),
+          ListTile(
+            leading: Icon(_getStatusIcon()),
+            title: const Text('Connection'),
+            subtitle: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _getStatusDotColor(),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(_acpClient.activeMode.name.toUpperCase()),
+              ],
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              _openConnectionSettings();
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.settings),
+            title: const Text('Settings'),
+            onTap: () {
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getStatusIcon() {
+    switch (_acpClient.activeMode) {
+      case ConnectionPath.local:
+        return Icons.home;
+      case ConnectionPath.relay:
+        return Icons.cloud;
+      case ConnectionPath.cloud:
+        return Icons.public;
+      default:
+        return Icons.cloud_off;
+    }
+  }
+
+  Color _getStatusDotColor() {
+    switch (_acpClient.activeMode) {
+      case ConnectionPath.local:
+        return Colors.green;
+      case ConnectionPath.relay:
+        return Colors.orange;
+      case ConnectionPath.cloud:
+        return Colors.blue;
+      default:
+        return Colors.red;
+    }
+  }
+
+  void _openConnectionSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ConnectionSettingsScreen(
+          acpClient: _acpClient,
+          currentMode: _getCurrentConnectionMode(),
+          userId: _userId ?? 'test_user',
+          onConnectionChanged: (newMode, url) {
+            setState(() {});
+          },
+        ),
+      ),
+    );
+  }
+
+  ConnectionMode _getCurrentConnectionMode() {
+    switch (_acpClient.activeMode) {
+      case ConnectionPath.local:
+        return ConnectionMode.local;
+      case ConnectionPath.relay:
+        return ConnectionMode.relay;
+      case ConnectionPath.cloud:
+        return ConnectionMode.cloud;
+      default:
+        return ConnectionMode.local;
+    }
   }
 
   Widget _buildBoardView() {
@@ -168,14 +318,24 @@ class _MainScreenState extends State<MainScreen> {
     return Expanded(
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+        decoration: BoxDecoration(
+            color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
         child: Column(
           children: [
-            Padding(padding: const EdgeInsets.all(12.0), child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+            Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16))),
             Expanded(
               child: tasks.isEmpty
-                  ? Center(child: Text('Empty', style: TextStyle(color: Colors.grey[400])))
-                  : ListView.builder(itemCount: tasks.length, itemBuilder: (context, index) => _buildTaskCard(tasks[index])),
+                  ? Center(
+                      child: Text('Empty',
+                          style: TextStyle(color: Colors.grey[400])))
+                  : ListView.builder(
+                      itemCount: tasks.length,
+                      itemBuilder: (context, index) =>
+                          _buildTaskCard(tasks[index])),
             ),
           ],
         ),
@@ -188,8 +348,10 @@ class _MainScreenState extends State<MainScreen> {
       elevation: 2,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: ListTile(
-        title: Text(task.title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(task.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+        title: Text(task.title,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(task.description,
+            maxLines: 2, overflow: TextOverflow.ellipsis),
         isThreeLine: true,
         dense: true,
       ),
@@ -207,14 +369,17 @@ class _MainScreenState extends State<MainScreen> {
               final item = _chatHistory[index];
               final isUser = item['role'] == 'user';
               return Align(
-                alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                alignment:
+                    isUser ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
-                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                  constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.75),
                   padding: const EdgeInsets.all(14),
                   margin: const EdgeInsets.symmetric(vertical: 6),
                   decoration: BoxDecoration(
                     color: isUser ? Colors.indigo : Colors.white,
-                    border: isUser ? null : Border.all(color: Colors.grey[300]!),
+                    border:
+                        isUser ? null : Border.all(color: Colors.grey[300]!),
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(16),
                       topRight: const Radius.circular(16),
@@ -222,7 +387,9 @@ class _MainScreenState extends State<MainScreen> {
                       bottomRight: Radius.circular(isUser ? 0 : 16),
                     ),
                   ),
-                  child: Text(item['message']!, style: TextStyle(color: isUser ? Colors.white : Colors.black87)),
+                  child: Text(item['message']!,
+                      style: TextStyle(
+                          color: isUser ? Colors.white : Colors.black87)),
                 ),
               );
             },
@@ -237,7 +404,12 @@ class _MainScreenState extends State<MainScreen> {
   Widget _buildInputArea() {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -2))]),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+        BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2))
+      ]),
       child: SafeArea(
         child: Row(
           children: [
@@ -246,16 +418,20 @@ class _MainScreenState extends State<MainScreen> {
                 controller: _textController,
                 decoration: InputDecoration(
                   hintText: 'Discuss or manage tasks...',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none),
                   filled: true,
                   fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 ),
                 onSubmitted: (_) => _handleSendMessage(),
               ),
             ),
             const SizedBox(width: 8),
-            FloatingActionButton.small(onPressed: _handleSendMessage, child: const Icon(Icons.send)),
+            FloatingActionButton.small(
+                onPressed: _handleSendMessage, child: const Icon(Icons.send)),
           ],
         ),
       ),
