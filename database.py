@@ -23,6 +23,8 @@ class KanbanDB:
         self.db_path = db_path
         self.pool_size = pool_size
         self._pool = Queue(maxsize=pool_size)
+        self._column_locks = {}
+        self._locks_lock = threading.Lock()
         self._initialized = True
 
         self.init_db()
@@ -350,60 +352,81 @@ class KanbanDB:
     def create_column(
         self, project_id: str, name: str, position: int = None, color: str = "#808080"
     ) -> str:
-        column_id = str(uuid.uuid4())[:8]
-        now = datetime.now().isoformat()
-        conn = self.get_connection()
-        try:
-            if position is None:
-                cursor = conn.execute(
-                    "SELECT MAX(position) FROM columns WHERE project_id = ?",
-                    (project_id,),
+        with self._locks_lock:
+            if project_id not in self._column_locks:
+                self._column_locks[project_id] = threading.Lock()
+
+        with self._column_locks[project_id]:
+            column_id = str(uuid.uuid4())[:8]
+            now = datetime.now().isoformat()
+            conn = self.get_connection()
+            try:
+                if position is None:
+                    cursor = conn.execute(
+                        "SELECT MAX(position) FROM columns WHERE project_id = ?",
+                        (project_id,),
+                    )
+                    row = cursor.fetchone()
+                    position = (row[0] + 1) if row[0] is not None else 0
+
+                conn.execute(
+                    "INSERT INTO columns (id, project_id, name, position, color, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (column_id, project_id, name, position, color, now),
                 )
-                row = cursor.fetchone()
-                position = (row[0] + 1) if row[0] is not None else 0
 
-            conn.execute(
-                "INSERT INTO columns (id, project_id, name, position, color, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (column_id, project_id, name, position, color, now),
-            )
-
-            conn.execute(
-                "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
-                (project_id, "column_created", f"Column '{name}' created", now),
-            )
-            conn.commit()
-            return column_id
-        finally:
-            self.return_connection(conn)
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
+                    (project_id, "column_created", f"Column '{name}' created", now),
+                )
+                conn.commit()
+                return column_id
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                self.return_connection(conn)
 
     def update_column(self, column_id: str, name: str = None, color: str = None):
         now = datetime.now().isoformat()
         conn = self.get_connection()
         try:
-            if name is not None:
+            cursor = conn.execute(
+                "SELECT project_id, name, color FROM columns WHERE id = ?", (column_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            project_id, old_name, old_color = row[0], row[1], row[2]
+            changes = {}
+
+            if name is not None and name != old_name:
                 conn.execute(
                     "UPDATE columns SET name = ? WHERE id = ?", (name, column_id)
                 )
-            if color is not None:
+                changes["name"] = {"old": old_name, "new": name}
+            if color is not None and color != old_color:
                 conn.execute(
                     "UPDATE columns SET color = ? WHERE id = ?", (color, column_id)
                 )
+                changes["color"] = {"old": old_color, "new": color}
 
-            cursor = conn.execute(
-                "SELECT project_id FROM columns WHERE id = ?", (column_id,)
-            )
-            row = cursor.fetchone()
-            if row:
+            if changes:
                 conn.execute(
-                    "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
-                    (row[0], "column_updated", f"Column updated", now),
+                    "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        project_id,
+                        "column_updated",
+                        f"Column '{old_name}' updated",
+                        json.dumps(changes),
+                        now,
+                    ),
                 )
             conn.commit()
         finally:
             self.return_connection(conn)
 
     def delete_column(self, column_id: str, move_to_column_id: str = None):
-        now = datetime.now().isoformat()
         conn = self.get_connection()
         try:
             cursor = conn.execute(
@@ -414,46 +437,107 @@ class KanbanDB:
                 return
 
             project_id, col_name = row[0], row[1]
-
-            if move_to_column_id:
-                conn.execute(
-                    "UPDATE cards SET column_id = ? WHERE column_id = ?",
-                    (move_to_column_id, column_id),
-                )
-
-            conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
-
-            conn.execute(
-                "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
-                (project_id, "column_deleted", f"Column '{col_name}' deleted", now),
-            )
-            conn.commit()
         finally:
             self.return_connection(conn)
 
-    def reorder_columns(self, column_ids: List[str]):
-        now = datetime.now().isoformat()
-        conn = self.get_connection()
-        try:
-            if column_ids:
+        with self._locks_lock:
+            if project_id not in self._column_locks:
+                self._column_locks[project_id] = threading.Lock()
+
+        with self._column_locks[project_id]:
+            now = datetime.now().isoformat()
+            conn = self.get_connection()
+            try:
+                metadata = {"column_name": col_name}
+                if move_to_column_id:
+                    result = conn.execute(
+                        "UPDATE cards SET column_id = ? WHERE column_id = ?",
+                        (move_to_column_id, column_id),
+                    )
+                    cursor = conn.execute(
+                        "SELECT name FROM columns WHERE id = ?", (move_to_column_id,)
+                    )
+                    target_row = cursor.fetchone()
+                    if target_row:
+                        metadata["moved_cards_to"] = target_row[0]
+
+                result = conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+                if result.rowcount == 0:
+                    raise Exception(f"Column {column_id} not found")
+
+                conn.execute(
+                    "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        project_id,
+                        "column_deleted",
+                        f"Column '{col_name}' deleted",
+                        json.dumps(metadata),
+                        now,
+                    ),
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                self.return_connection(conn)
+
+    def reorder_columns(self, positions: List[Dict[str, Any]]):
+        if not positions:
+            return
+
+        project_id = positions[0].get("project_id")
+        if not project_id:
+            conn = self.get_connection()
+            try:
                 cursor = conn.execute(
-                    "SELECT project_id FROM columns WHERE id = ?", (column_ids[0],)
+                    "SELECT project_id FROM columns WHERE id = ?", (positions[0]["id"],)
                 )
                 row = cursor.fetchone()
                 if row:
                     project_id = row[0]
-                    conn.execute(
-                        "INSERT INTO project_timeline (project_id, event_type, content, timestamp) VALUES (?, ?, ?, ?)",
-                        (project_id, "columns_reordered", "Column order updated", now),
-                    )
+            finally:
+                self.return_connection(conn)
 
-            for position, col_id in enumerate(column_ids):
+        if not project_id:
+            return
+
+        with self._locks_lock:
+            if project_id not in self._column_locks:
+                self._column_locks[project_id] = threading.Lock()
+
+        with self._column_locks[project_id]:
+            now = datetime.now().isoformat()
+            conn = self.get_connection()
+            try:
+                reordered_ids = [p["id"] for p in positions]
                 conn.execute(
-                    "UPDATE columns SET position = ? WHERE id = ?", (position, col_id)
+                    "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        project_id,
+                        "columns_reordered",
+                        "Column order updated",
+                        json.dumps({"column_ids": reordered_ids}),
+                        now,
+                    ),
                 )
-            conn.commit()
-        finally:
-            self.return_connection(conn)
+
+                try:
+                    for item in positions:
+                        col_id = item["id"]
+                        position = item["position"]
+                        result = conn.execute(
+                            "UPDATE columns SET position = ? WHERE id = ?",
+                            (position, col_id),
+                        )
+                        if result.rowcount == 0:
+                            raise Exception(f"Column {col_id} not found or unchanged")
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    raise e
+            finally:
+                self.return_connection(conn)
 
     def get_cards_by_column(self, column_id: str) -> List[Dict]:
         conn = self.get_connection()
@@ -531,15 +615,19 @@ class KanbanDB:
                 return
 
             if title is not None:
-                conn.execute(
+                result = conn.execute(
                     "UPDATE cards SET title = ?, updated_at = ? WHERE id = ?",
                     (title, now, card_id),
                 )
+                if result.rowcount == 0:
+                    raise Exception(f"Card {card_id} not found")
             if description is not None:
-                conn.execute(
+                result = conn.execute(
                     "UPDATE cards SET description = ?, updated_at = ? WHERE id = ?",
                     (description, now, card_id),
                 )
+                if result.rowcount == 0:
+                    raise Exception(f"Card {card_id} not found")
 
             cursor = conn.execute(
                 "SELECT project_id FROM columns WHERE id = ?", (row[0],)
@@ -551,6 +639,9 @@ class KanbanDB:
                     (proj_row[0], card_id, "card_updated", "Card updated", now),
                 )
             conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             self.return_connection(conn)
 
@@ -590,50 +681,72 @@ class KanbanDB:
     def move_card(
         self, card_id: str, target_column_id: str, target_position: int = None
     ):
-        now = datetime.now().isoformat()
         conn = self.get_connection()
         try:
             cursor = conn.execute(
-                "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
+                "SELECT project_id FROM columns WHERE id = ?", (target_column_id,)
             )
             row = cursor.fetchone()
             if not row:
                 return
-            source_column_id, title = row[0], row[1]
-
-            if target_position is None:
-                cursor = conn.execute(
-                    "SELECT MAX(position) FROM cards WHERE column_id = ?",
-                    (target_column_id,),
-                )
-                row = cursor.fetchone()
-                target_position = (row[0] + 1) if row[0] is not None else 0
-
-            conn.execute(
-                "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
-                (target_column_id, target_position, now, card_id),
-            )
-
-            cursor = conn.execute(
-                "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
-                (source_column_id, target_column_id),
-            )
-            row = cursor.fetchone()
-            if row:
-                source_name, target_name, project_id = row[0], row[1], row[2]
-                conn.execute(
-                    "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                    (
-                        project_id,
-                        card_id,
-                        "card_moved",
-                        f"Card moved from '{source_name}' to '{target_name}'",
-                        now,
-                    ),
-                )
-            conn.commit()
+            project_id = row[0]
         finally:
             self.return_connection(conn)
+
+        with self._locks_lock:
+            if project_id not in self._column_locks:
+                self._column_locks[project_id] = threading.Lock()
+
+        with self._column_locks[project_id]:
+            now = datetime.now().isoformat()
+            conn = self.get_connection()
+            try:
+                cursor = conn.execute(
+                    "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return
+                source_column_id, title = row[0], row[1]
+
+                if target_position is None:
+                    cursor = conn.execute(
+                        "SELECT MAX(position) FROM cards WHERE column_id = ?",
+                        (target_column_id,),
+                    )
+                    row = cursor.fetchone()
+                    target_position = (row[0] + 1) if row[0] is not None else 0
+
+                result = conn.execute(
+                    "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
+                    (target_column_id, target_position, now, card_id),
+                )
+                if result.rowcount == 0:
+                    raise Exception(f"Card {card_id} not found")
+
+                cursor = conn.execute(
+                    "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
+                    (source_column_id, target_column_id),
+                )
+                row = cursor.fetchone()
+                if row:
+                    source_name, target_name, project_id = row[0], row[1], row[2]
+                    conn.execute(
+                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        (
+                            project_id,
+                            card_id,
+                            "card_moved",
+                            f"Card moved from '{source_name}' to '{target_name}'",
+                            now,
+                        ),
+                    )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
+            finally:
+                self.return_connection(conn)
 
     def add_session_message(
         self, card_id: str, role: str, content: str, metadata: Dict = None
@@ -715,7 +828,12 @@ class KanbanDB:
         conn = self.get_connection()
         try:
             cursor = conn.execute(
-                "SELECT * FROM project_timeline WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?",
+                """SELECT t.*, c.title as card_title
+                   FROM project_timeline t
+                   LEFT JOIN cards c ON c.id = t.card_id
+                   WHERE t.project_id = ?
+                   ORDER BY t.timestamp DESC
+                   LIMIT ?""",
                 (project_id, limit),
             )
             return [dict(row) for row in cursor.fetchall()]

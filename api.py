@@ -1,11 +1,40 @@
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from enum import Enum
 from database import KanbanDB
 from embedding import embedding_service
 
 app = FastAPI(title="Kanban API", version="2.0.0")
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "detail": str(exc)},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=400,
+        content={"error": "Validation error", "detail": exc.errors()},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.detail},
+    )
+
+
 db = KanbanDB()
 
 
@@ -101,13 +130,37 @@ def delete_project(project_id: str):
 
 @app.get("/api/projects/{project_id}/columns", response_model=List[Dict])
 def get_columns(project_id: str):
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     return db.get_columns(project_id)
 
 
 @app.post("/api/projects/{project_id}/columns", response_model=Dict)
 def create_column(project_id: str, data: ColumnCreate):
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
     column_id = db.create_column(project_id, data.name, data.position, data.color)
-    return {"id": column_id, "name": data.name}
+    column = db.get_column(column_id)
+    return column
+
+
+@app.post("/api/projects/{project_id}/columns/batch", response_model=List[Dict])
+def create_columns_batch(project_id: str, data: List[ColumnCreate]):
+    """批量创建列（用于导入或初始化）"""
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    results = []
+    for i, col in enumerate(data):
+        position = col.position if col.position is not None else i
+        column_id = db.create_column(project_id, col.name, position, col.color)
+        column = db.get_column(column_id)
+        results.append(column)
+    return results
 
 
 @app.get("/api/columns/{column_id}", response_model=Dict)
@@ -120,19 +173,74 @@ def get_column(column_id: str):
 
 @app.put("/api/columns/{column_id}", response_model=Dict)
 def update_column(column_id: str, data: ColumnUpdate):
+    column = db.get_column(column_id)
+    if not column:
+        raise HTTPException(status_code=404, detail="Column not found")
+
     db.update_column(column_id, data.name, data.color)
-    return {"id": column_id}
+    return db.get_column(column_id)
 
 
 @app.delete("/api/columns/{column_id}")
-def delete_column(column_id: str, move_to_column_id: Optional[str] = None):
+def delete_column(
+    column_id: str,
+    move_to_column_id: Optional[str] = Query(
+        None, description="Target column ID to move cards to"
+    ),
+):
+    column = db.get_column(column_id)
+    if not column:
+        raise HTTPException(status_code=404, detail="Column not found")
+
+    cards = db.get_cards_by_column(column_id)
+    if cards and not move_to_column_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Column has {len(cards)} cards. Provide move_to_column_id or delete cards first",
+        )
+
+    if move_to_column_id:
+        target_column = db.get_column(move_to_column_id)
+        if not target_column:
+            raise HTTPException(status_code=404, detail="Target column not found")
+        if target_column["project_id"] != column["project_id"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Target column must belong to the same project",
+            )
+
     db.delete_column(column_id, move_to_column_id)
     return {"status": "deleted"}
 
 
+class ColumnPositionUpdate(BaseModel):
+    positions: List[Dict[str, Any]]  # [{"id": "xxx", "position": 1}, ...]
+
+
 @app.patch("/api/columns/{column_id}/position", response_model=Dict)
-def reorder_columns(column_id: str, column_ids: List[str]):
-    db.reorder_columns(column_ids)
+def reorder_columns(column_id: str, data: ColumnPositionUpdate):
+    if not data.positions:
+        raise HTTPException(status_code=400, detail="No positions provided")
+
+    source_column = db.get_column(column_id)
+    if not source_column:
+        raise HTTPException(status_code=404, detail="Column not found")
+
+    project_id = source_column["project_id"]
+
+    # 验证所有列都属于同一项目
+    for item in data.positions:
+        col = db.get_column(item["id"])
+        if not col:
+            raise HTTPException(
+                status_code=404, detail=f"Column {item['id']} not found"
+            )
+        if col["project_id"] != project_id:
+            raise HTTPException(
+                status_code=400, detail="All columns must belong to the same project"
+            )
+
+    db.reorder_columns(data.positions)
     return {"status": "reordered"}
 
 

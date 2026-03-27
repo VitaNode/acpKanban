@@ -1,0 +1,217 @@
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+from api.models import (
+    CardCreateRequest,
+    CardUpdateRequest,
+    CardMoveRequest,
+    CardResponse,
+    CardListResponse,
+    SessionMessageRequest,
+    SessionMessageResponse,
+    SessionHistoryResponse,
+    ProjectTimelineResponse,
+    TimelineEventResponse,
+)
+from api.dependencies import (
+    get_db,
+    validate_card_exists,
+    validate_column_exists,
+    validate_project_exists,
+    format_card_response,
+    format_session_message,
+    format_timeline_event,
+    HTTPError,
+)
+
+router = APIRouter(prefix="/api", tags=["cards"])
+
+
+@router.post("/cards", response_model=CardResponse, status_code=201)
+async def create_card(request: CardCreateRequest):
+    """
+    Create a new card in a specified column.
+    """
+    db = get_db()
+
+    validate_column_exists(request.column_id, db)
+
+    try:
+        card_id = db.create_card(
+            column_id=request.column_id,
+            title=request.title,
+            description=request.description or "",
+        )
+        card = db.get_card(card_id)
+        if not card:
+            raise HTTPError(500, "Failed to create card")
+        return format_card_response(card)
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/cards/{card_id}", response_model=CardResponse)
+async def get_card(card_id: str):
+    """
+    Get a card by ID.
+    """
+    db = get_db()
+    card = validate_card_exists(card_id, db)
+    return format_card_response(card)
+
+
+@router.put("/cards/{card_id}", response_model=CardResponse)
+async def update_card(card_id: str, request: CardUpdateRequest):
+    """
+    Update a card's title and/or description.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    try:
+        db.update_card(
+            card_id=card_id,
+            title=request.title,
+            description=request.description,
+        )
+        card = db.get_card(card_id)
+        if not card:
+            raise HTTPError(404, "Card not found after update")
+        return format_card_response(card)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.delete("/cards/{card_id}")
+async def delete_card(card_id: str):
+    """
+    Delete a card.
+    """
+    db = get_db()
+    card = validate_card_exists(card_id, db)
+
+    try:
+        db.delete_card(card_id)
+        return {"message": f"Card '{card['title']}' deleted successfully"}
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.patch("/cards/{card_id}/move", response_model=CardResponse)
+async def move_card(card_id: str, request: CardMoveRequest):
+    """
+    Move a card to a different column and/or position.
+    """
+    db = get_db()
+    card = validate_card_exists(card_id, db)
+    target_column = validate_column_exists(request.target_column_id, db)
+
+    source_column = db.get_column(card["column_id"])
+    if source_column["project_id"] != target_column["project_id"]:
+        raise HTTPError(400, "Card and target column must belong to the same project")
+
+    try:
+        db.move_card(
+            card_id=card_id,
+            target_column_id=request.target_column_id,
+            target_position=request.target_position,
+        )
+        card = db.get_card(card_id)
+        if not card:
+            raise HTTPError(404, "Card not found after move")
+        return format_card_response(card)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/cards/{card_id}/session", response_model=SessionHistoryResponse)
+async def get_session_history(
+    card_id: str,
+    limit: int = Query(50, ge=1, le=200),
+):
+    """
+    Get the conversation history for a card.
+    """
+    db = get_db()
+    card = validate_card_exists(card_id, db)
+
+    messages = db.get_session_history(card_id, limit)
+    return {
+        "card_id": card_id,
+        "card_title": card.get("title"),
+        "messages": [format_session_message(msg) for msg in messages],
+        "total": len(messages),
+    }
+
+
+@router.post("/cards/{card_id}/session", response_model=SessionMessageResponse)
+async def add_session_message(card_id: str, request: SessionMessageRequest):
+    """
+    Add a message to the card's conversation history.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    try:
+        db.add_session_message(
+            card_id=card_id,
+            role=request.role.value,
+            content=request.content,
+            metadata=request.metadata,
+        )
+        messages = db.get_session_history(card_id, 1)
+        if not messages:
+            raise HTTPError(500, "Failed to add message")
+        return format_session_message(messages[0])
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/projects/{project_id}/timeline", response_model=ProjectTimelineResponse)
+async def get_project_timeline(
+    project_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    card_id: Optional[str] = Query(None, description="Filter by card ID"),
+):
+    """
+    Get the timeline events for a project (read-only).
+    """
+    db = get_db()
+    project = validate_project_exists(project_id, db)
+
+    events = db.get_timeline(project_id, limit)
+
+    if card_id:
+        events = [e for e in events if e.get("card_id") == card_id]
+
+    return {
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "events": [format_timeline_event(e) for e in events],
+        "total": len(events),
+    }
+
+
+@router.get("/columns/{column_id}/cards", response_model=CardListResponse)
+async def get_cards_by_column(
+    column_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Get all cards in a specific column.
+    """
+    db = get_db()
+    validate_column_exists(column_id, db)
+
+    cards = db.get_cards_by_column(column_id)
+    total = len(cards)
+    cards = cards[offset : offset + limit]
+
+    return {
+        "cards": [format_card_response(c) for c in cards],
+        "total": total,
+    }
