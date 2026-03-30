@@ -6,6 +6,8 @@ from typing import Optional, List, Dict, Any
 import threading
 from queue import Queue, Empty
 
+MAX_SESSION_MESSAGES_PER_CARD = 200
+
 
 class KanbanDB:
     _instance_lock = threading.Lock()
@@ -23,7 +25,12 @@ class KanbanDB:
         self.db_path = db_path
         self.pool_size = pool_size
         self._pool = Queue(maxsize=pool_size)
-        self._column_locks = {}
+        self._column_locks = {}  # Per-project locks for column/card operations
+        # Locking strategy:
+        # 1. Per-project locks prevent concurrent modifications to the same project
+        # 2. Each project has its own lock object, allowing parallel operations across projects
+        # 3. Cross-project moves are rejected at the application level before locking
+        # 4. SQLite's IMMEDIATE transactions provide additional row-level safety
         self._locks_lock = threading.Lock()
         self._initialized = True
 
@@ -569,37 +576,43 @@ class KanbanDB:
         now = datetime.now().isoformat()
         conn = self.get_connection()
         try:
-            if position is None:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if position is None:
+                    cursor = conn.execute(
+                        "SELECT MAX(position) FROM cards WHERE column_id = ?",
+                        (column_id,),
+                    )
+                    row = cursor.fetchone()
+                    position = (row[0] + 1) if row[0] is not None else 0
+
+                conn.execute(
+                    "INSERT INTO cards (id, column_id, title, description, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (card_id, column_id, title, description, position, now, now),
+                )
+
                 cursor = conn.execute(
-                    "SELECT MAX(position) FROM cards WHERE column_id = ?", (column_id,)
+                    "SELECT project_id FROM columns WHERE id = ?", (column_id,)
                 )
                 row = cursor.fetchone()
-                position = (row[0] + 1) if row[0] is not None else 0
+                if row:
+                    project_id = row[0]
+                    conn.execute(
+                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        (
+                            project_id,
+                            card_id,
+                            "card_created",
+                            f"Card '{title}' created",
+                            now,
+                        ),
+                    )
 
-            conn.execute(
-                "INSERT INTO cards (id, column_id, title, description, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (card_id, column_id, title, description, position, now, now),
-            )
-
-            cursor = conn.execute(
-                "SELECT project_id FROM columns WHERE id = ?", (column_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                project_id = row[0]
-                conn.execute(
-                    "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                    (
-                        project_id,
-                        card_id,
-                        "card_created",
-                        f"Card '{title}' created",
-                        now,
-                    ),
-                )
-
-            conn.commit()
-            return card_id
+                conn.commit()
+                return card_id
+            except Exception as e:
+                conn.rollback()
+                raise e
         finally:
             self.return_connection(conn)
 
@@ -684,12 +697,27 @@ class KanbanDB:
         conn = self.get_connection()
         try:
             cursor = conn.execute(
-                "SELECT project_id FROM columns WHERE id = ?", (target_column_id,)
+                "SELECT c.column_id, col1.project_id as source_project, col2.project_id as target_project "
+                "FROM cards c "
+                "JOIN columns col1 ON col1.id = c.column_id "
+                "JOIN columns col2 ON col2.id = ? "
+                "WHERE c.id = ?",
+                (target_column_id, card_id),
             )
             row = cursor.fetchone()
             if not row:
                 return
-            project_id = row[0]
+            source_column_id, source_project, target_project = row[0], row[1], row[2]
+
+            if source_project != target_project:
+                raise Exception("Cannot move card between different projects")
+
+            # Safety: We only lock the target project because:
+            # 1. We've already verified source_project == target_project (same project)
+            # 2. SQLite's IMMEDIATE transaction provides row-level locking
+            # 3. Column operations are independent within the same project
+            # This prevents deadlocks while ensuring thread safety for same-project moves
+            project_id = target_project
         finally:
             self.return_connection(conn)
 
@@ -701,50 +729,52 @@ class KanbanDB:
             now = datetime.now().isoformat()
             conn = self.get_connection()
             try:
-                cursor = conn.execute(
-                    "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
-                )
-                row = cursor.fetchone()
-                if not row:
-                    return
-                source_column_id, title = row[0], row[1]
-
-                if target_position is None:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
                     cursor = conn.execute(
-                        "SELECT MAX(position) FROM cards WHERE column_id = ?",
-                        (target_column_id,),
+                        "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
                     )
                     row = cursor.fetchone()
-                    target_position = (row[0] + 1) if row[0] is not None else 0
+                    if not row:
+                        return
+                    source_column_id, title = row[0], row[1]
 
-                result = conn.execute(
-                    "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
-                    (target_column_id, target_position, now, card_id),
-                )
-                if result.rowcount == 0:
-                    raise Exception(f"Card {card_id} not found")
+                    if target_position is None:
+                        cursor = conn.execute(
+                            "SELECT MAX(position) FROM cards WHERE column_id = ?",
+                            (target_column_id,),
+                        )
+                        row = cursor.fetchone()
+                        target_position = (row[0] + 1) if row[0] is not None else 0
 
-                cursor = conn.execute(
-                    "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
-                    (source_column_id, target_column_id),
-                )
-                row = cursor.fetchone()
-                if row:
-                    source_name, target_name, project_id = row[0], row[1], row[2]
-                    conn.execute(
-                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                        (
-                            project_id,
-                            card_id,
-                            "card_moved",
-                            f"Card moved from '{source_name}' to '{target_name}'",
-                            now,
-                        ),
+                    result = conn.execute(
+                        "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
+                        (target_column_id, target_position, now, card_id),
                     )
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
+                    if result.rowcount == 0:
+                        raise Exception(f"Card {card_id} not found")
+
+                    cursor = conn.execute(
+                        "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
+                        (source_column_id, target_column_id),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        source_name, target_name, project_id = row[0], row[1], row[2]
+                        conn.execute(
+                            "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                project_id,
+                                card_id,
+                                "card_moved",
+                                f"Card moved from '{source_name}' to '{target_name}'",
+                                now,
+                            ),
+                        )
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    raise e
             finally:
                 self.return_connection(conn)
 
@@ -753,38 +783,62 @@ class KanbanDB:
     ):
         conn = self.get_connection()
         try:
-            conn.execute(
-                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-                (
-                    card_id,
-                    role,
-                    content,
-                    json.dumps(metadata) if metadata else None,
-                    datetime.now().isoformat(),
-                ),
-            )
-
-            cursor = conn.execute(
-                "SELECT column_id FROM cards WHERE id = ?", (card_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                cursor = conn.execute(
-                    "SELECT project_id FROM columns WHERE id = ?", (row[0],)
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        card_id,
+                        role,
+                        content,
+                        json.dumps(metadata) if metadata else None,
+                        datetime.now().isoformat(),
+                    ),
                 )
-                proj_row = cursor.fetchone()
-                if proj_row:
-                    conn.execute(
-                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                        (
-                            proj_row[0],
-                            card_id,
-                            "ai_action",
-                            f"{role}: {content[:50]}...",
-                            datetime.now().isoformat(),
-                        ),
+
+                cursor = conn.execute(
+                    "SELECT column_id FROM cards WHERE id = ?", (card_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    cursor = conn.execute(
+                        "SELECT project_id FROM columns WHERE id = ?", (row[0],)
                     )
-            conn.commit()
+                    proj_row = cursor.fetchone()
+                    if proj_row:
+                        display_content = (
+                            f"[{role}] {content[:100]}"
+                            if len(content) > 100
+                            else f"[{role}] {content}"
+                        )
+                        conn.execute(
+                            "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                proj_row[0],
+                                card_id,
+                                "ai_action",
+                                display_content,
+                                datetime.now().isoformat(),
+                            ),
+                        )
+
+                conn.execute(
+                    """
+                    DELETE FROM card_sessions 
+                    WHERE card_id = ? AND id NOT IN (
+                        SELECT id FROM card_sessions 
+                        WHERE card_id = ? 
+                        ORDER BY created_at DESC 
+                        LIMIT ?
+                    )
+                """,
+                    (card_id, card_id, MAX_SESSION_MESSAGES_PER_CARD),
+                )
+
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
         finally:
             self.return_connection(conn)
 
@@ -792,7 +846,7 @@ class KanbanDB:
         conn = self.get_connection()
         try:
             cursor = conn.execute(
-                "SELECT * FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM card_sessions WHERE card_id = ? ORDER BY created_at ASC LIMIT ?",
                 (card_id, limit),
             )
             return [dict(row) for row in cursor.fetchall()]

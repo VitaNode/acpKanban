@@ -1,11 +1,17 @@
 import os
 import base64
 import json
+from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+
+KEY_STORAGE_PATH = Path.home() / ".mybot" / "e2ee_keys.json"
+
 
 class E2EEManager:
     def __init__(self, session_key_hex=None):
@@ -15,7 +21,10 @@ class E2EEManager:
             self.setup_session(session_key_hex)
         else:
             import warnings
-            warnings.warn("E2EE initialized without a session key. Encryption will fail until setup_session is called.")
+
+            warnings.warn(
+                "E2EE initialized without a session key. Encryption will fail until setup_session is called."
+            )
 
     def setup_session(self, session_key_hex):
         """Initializes the AES-GCM engine with a real session key."""
@@ -31,8 +40,7 @@ class E2EEManager:
         private_key = x25519.X25519PrivateKey.generate()
         public_key = private_key.public_key()
         public_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
         )
         return private_key, public_bytes.hex()
 
@@ -46,7 +54,7 @@ class E2EEManager:
             algorithm=hashes.SHA256(),
             length=32,
             salt=None,
-            info=b'mybot-e2ee-x25519-context',
+            info=b"mybot-e2ee-x25519-context",
         ).derive(shared_key)
         return derived_key.hex()
 
@@ -57,7 +65,7 @@ class E2EEManager:
         # Returns ciphertext + 16 bytes tag
         ciphertext = self.aesgcm.encrypt(nonce, plaintext_str.encode(), None)
         payload = nonce + ciphertext
-        return base64.b64encode(payload).decode('utf-8')
+        return base64.b64encode(payload).decode("utf-8")
 
     def decrypt(self, b64_payload):
         if not self.is_ready:
@@ -67,15 +75,15 @@ class E2EEManager:
         ciphertext = payload[12:]
         # Decrypts and verifies the 16 bytes tag at the end of ciphertext
         plaintext = self.aesgcm.decrypt(nonce, ciphertext, None)
-        return plaintext.decode('utf-8')
+        return plaintext.decode("utf-8")
 
     def wrap_json_rpc(self, data):
         """
         Wrap data in E2EE envelope.
-        
+
         Args:
             data: Dictionary to encrypt
-            
+
         Returns:
             Dictionary (not JSON string) for consistent API
         """
@@ -84,7 +92,7 @@ class E2EEManager:
         return {
             "jsonrpc": "2.0",
             "method": "e2ee/envelope",
-            "params": {"payload": encrypted_payload}
+            "params": {"payload": encrypted_payload},
         }
 
     def unwrap_json_rpc(self, envelope_str):
@@ -94,3 +102,48 @@ class E2EEManager:
             decrypted_str = self.decrypt(payload)
             return json.loads(decrypted_str)
         return data
+
+    @staticmethod
+    def save_key_pair(user_id: str, private_key_hex: str, public_key_hex: str):
+        KEY_STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        keys = {}
+        if KEY_STORAGE_PATH.exists():
+            with open(KEY_STORAGE_PATH, "r") as f:
+                keys = json.load(f)
+
+        keys[user_id] = {
+            "private_key": private_key_hex,
+            "public_key": public_key_hex,
+        }
+
+        with open(KEY_STORAGE_PATH, "w") as f:
+            json.dump(keys, f)
+
+        os.chmod(KEY_STORAGE_PATH, 0o600)
+
+    @staticmethod
+    def load_key_pair(user_id: str):
+        if not KEY_STORAGE_PATH.exists():
+            return None
+
+        with open(KEY_STORAGE_PATH, "r") as f:
+            keys = json.load(f)
+
+        if user_id in keys:
+            return keys[user_id]["private_key"], keys[user_id]["public_key"]
+        return None
+
+    @staticmethod
+    def delete_key_pair(user_id: str):
+        if not KEY_STORAGE_PATH.exists():
+            return
+
+        with open(KEY_STORAGE_PATH, "r") as f:
+            keys = json.load(f)
+
+        if user_id in keys:
+            del keys[user_id]
+
+            with open(KEY_STORAGE_PATH, "w") as f:
+                json.dump(keys, f)

@@ -8,6 +8,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.cards import router as cards_router
+from api.projects import router as projects_router
+from api.sessions import router as sessions_router
 from api.dependencies import (
     get_db,
     http_exception_handler,
@@ -47,6 +49,8 @@ app.add_exception_handler(HTTPError, http_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
 app.include_router(cards_router)
+app.include_router(projects_router)
+app.include_router(sessions_router)
 
 
 @app.get("/")
@@ -55,6 +59,7 @@ async def root():
         "service": "Kanban API",
         "version": "1.0.0",
         "endpoints": {
+            "projects": "/api/projects",
             "cards": "/api/cards",
             "columns": "/api/columns/{id}/cards",
             "timeline": "/api/projects/{id}/timeline",

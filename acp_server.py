@@ -29,8 +29,11 @@ class ACPServer:
         self.client = OpenAI(
             api_key=self.api_key, base_url=self.base_url, timeout=60.0, max_retries=2
         )
-        self.history = []
+
+        # Session cache: {card_id: [{"role": "system|user|assistant", "content": "..."}]}
+        self._sessions = {}
         self.current_project_id = None
+        self.current_workspace_path = None
         self.log(f"ACP Server (Brain) initialized with {self.model_id}")
 
     def log(self, message):
@@ -46,6 +49,48 @@ class ACPServer:
             }
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
+
+    def _get_session(self, card_id: str) -> list:
+        """Get or create session history for a specific card."""
+        if card_id not in self._sessions:
+            self._sessions[card_id] = []
+        return self._sessions[card_id]
+
+    def _load_session_from_db(self, card_id: str) -> list:
+        """Load session history from database."""
+        history = self.db.get_session_history(card_id, limit=50)
+        messages = []
+        for msg in reversed(history):
+            messages.append({"role": msg["role"], "content": msg["content"] or ""})
+        return messages
+
+    def _save_message_to_db(self, card_id: str, role: str, content: str):
+        """Save a message to the database."""
+        try:
+            self.db.add_session_message(card_id, role, content)
+
+            project_id = self._get_project_for_card(card_id)
+            if project_id:
+                display_content = (
+                    f"[{role}] {content[:100]}"
+                    if len(content) > 100
+                    else f"[{role}] {content}"
+                )
+                self.db.add_timeline_event(
+                    project_id=project_id,
+                    card_id=card_id,
+                    event_type="ai_action" if role == "assistant" else "user_message",
+                    content=display_content,
+                )
+        except Exception as e:
+            self.log(f"Error saving message to DB: {e}")
+
+    def _get_project_for_card(self, card_id: str) -> str:
+        """Get project_id for a card."""
+        card = self.db.get_card(card_id)
+        if card:
+            return card.get("project_id")
+        return None
 
     def send_response(self, response_id, result=None, error=None):
         response = {"jsonrpc": "2.0", "id": response_id}
@@ -69,9 +114,22 @@ class ACPServer:
             return self.send_response(request_id, result=self.health_check())
         elif method == "set_project":
             project_id = params.get("project_id")
+            workspace_path = params.get("workspace_path")
             if project_id:
                 self.current_project_id = project_id
-            return self.send_response(request_id, result={"project_id": project_id})
+                if workspace_path:
+                    self.current_workspace_path = workspace_path
+                else:
+                    project = self.db.get_project(project_id)
+                    if project:
+                        self.current_workspace_path = project.get("workspace_path")
+            return self.send_response(
+                request_id,
+                result={
+                    "project_id": project_id,
+                    "workspace_path": self.current_workspace_path,
+                },
+            )
         elif method == "shutdown":
             self.running = False
             return self.send_response(request_id, result={})
@@ -113,7 +171,11 @@ class ACPServer:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "column_name": {"type": "string", "enum": column_names},
+                        "column_name": {
+                            "type": "string",
+                            "enum": column_names,
+                            "description": f"Valid columns: {', '.join(column_names)}",
+                        },
                         "title": {"type": "string"},
                         "description": {"type": "string"},
                     },
@@ -127,7 +189,11 @@ class ACPServer:
                     "type": "object",
                     "properties": {
                         "card_id": {"type": "string"},
-                        "target_column_name": {"type": "string", "enum": column_names},
+                        "target_column_name": {
+                            "type": "string",
+                            "enum": column_names,
+                            "description": f"Valid columns: {', '.join(column_names)}",
+                        },
                     },
                     "required": ["card_id", "target_column_name"],
                 },
@@ -218,28 +284,42 @@ class ACPServer:
         return None
 
     async def on_chat_message(self, request_id, params):
-        async with self.lock:
-            user_text = params.get("message", "")
-            self.log(f"Processing chat: {user_text}")
+        card_id = params.get("card_id")
+        user_text = params.get("message", "")
 
-        system_content = self._get_system_prompt(self.current_project_id)
-        if not self.history or self.history[0]["role"] != "system":
-            self.history.insert(0, {"role": "system", "content": system_content})
+        async with self.lock:
+            self.log(f"Processing chat for card {card_id}: {user_text}")
+
+        project_id = self.current_project_id
+        if card_id:
+            card = self.db.get_card(card_id)
+            if card:
+                project_id = card.get("project_id")
+
+        system_content = self._get_system_prompt(project_id)
+
+        history = self._get_session(card_id) if card_id else []
+
+        if not history or history[0]["role"] != "system":
+            history.insert(0, {"role": "system", "content": system_content})
         else:
-            self.history[0]["content"] = system_content
+            history[0]["content"] = system_content
 
         MAX_HISTORY = 20
-        if len(self.history) > MAX_HISTORY:
-            self.history = [self.history[0]] + self.history[-(MAX_HISTORY - 1) :]
+        if len(history) > MAX_HISTORY:
+            history = [history[0]] + history[-(MAX_HISTORY - 1) :]
 
-        self.history.append({"role": "user", "content": user_text})
+        history.append({"role": "user", "content": user_text})
 
-        tools = self._get_tools(self.current_project_id)
+        if card_id:
+            self._save_message_to_db(card_id, "user", user_text)
+
+        tools = self._get_tools(project_id)
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model_id,
-                messages=self.history,
+                messages=history,
                 tools=tools,
                 tool_choice="auto",
             )
@@ -288,7 +368,7 @@ class ACPServer:
                     message.content = None
 
             if message.tool_calls:
-                self.history.append(message)
+                history.append(message)
                 for tool_call in message.tool_calls:
                     function_name = tool_call.function.name
                     arguments = json.loads(tool_call.function.arguments)
@@ -378,7 +458,7 @@ class ACPServer:
                         self.log(f"Tool Error: {te}")
                         result = f"Error: {str(te)}"
 
-                    self.history.append(
+                    history.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -388,13 +468,19 @@ class ACPServer:
                     )
 
                 second_response = self.client.chat.completions.create(
-                    model=self.model_id, messages=self.history
+                    model=self.model_id, messages=history
                 )
                 final_text = second_response.choices[0].message.content
-                self.history.append({"role": "assistant", "content": final_text})
+                history.append({"role": "assistant", "content": final_text})
             else:
                 final_text = message.content
-                self.history.append({"role": "assistant", "content": final_text})
+                history.append({"role": "assistant", "content": final_text})
+
+            if card_id:
+                self._save_message_to_db(card_id, "assistant", final_text or "")
+
+            if card_id:
+                self._sessions[card_id] = history
 
             self.send_response(request_id, result={"message": final_text})
 

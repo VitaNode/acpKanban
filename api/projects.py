@@ -1,0 +1,234 @@
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+from pydantic import BaseModel, Field
+from api.dependencies import (
+    get_db,
+    validate_project_exists,
+    format_card_response,
+    HTTPError,
+)
+
+router = APIRouter(prefix="/api", tags=["projects"])
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    workspace_path: Optional[str] = Field(None, max_length=500)
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    workspace_path: Optional[str] = Field(None, max_length=500)
+
+
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    workspace_path: Optional[str]
+    created_at: str
+    updated_at: str
+    card_count: int = 0
+
+
+@router.get("/projects", response_model=list[ProjectResponse])
+async def get_projects():
+    """
+    Get all projects.
+    """
+    db = get_db()
+    try:
+        projects = db.get_projects()
+        return [
+            ProjectResponse(
+                id=p["id"],
+                name=p["name"],
+                workspace_path=p.get("workspace_path"),
+                created_at=p["created_at"],
+                updated_at=p["updated_at"],
+                card_count=p.get("card_count", 0),
+            )
+            for p in projects
+        ]
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.post("/projects", response_model=ProjectResponse, status_code=201)
+async def create_project(request: ProjectCreateRequest):
+    """
+    Create a new project.
+    """
+    db = get_db()
+    try:
+        project_id = db.create_project(
+            name=request.name,
+            workspace_path=request.workspace_path,
+        )
+        project = db.get_project(project_id)
+        if not project:
+            raise HTTPError(500, "Failed to create project")
+
+        return ProjectResponse(
+            id=project["id"],
+            name=project["name"],
+            workspace_path=project.get("workspace_path"),
+            created_at=project["created_at"],
+            updated_at=project["updated_at"],
+            card_count=0,
+        )
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/projects/{project_id}", response_model=ProjectResponse)
+async def get_project(project_id: str):
+    """
+    Get a project by ID.
+    """
+    db = get_db()
+    project = validate_project_exists(project_id, db)
+
+    cursor = db.get_connection().execute(
+        "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
+        (project_id,),
+    )
+    row = cursor.fetchone()
+    card_count = row[0] if row else 0
+
+    return ProjectResponse(
+        id=project["id"],
+        name=project["name"],
+        workspace_path=project.get("workspace_path"),
+        created_at=project["created_at"],
+        updated_at=project["updated_at"],
+        card_count=card_count,
+    )
+
+
+@router.put("/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(project_id: str, request: ProjectUpdateRequest):
+    """
+    Update a project.
+    """
+    db = get_db()
+    validate_project_exists(project_id, db)
+
+    try:
+        db.update_project(
+            project_id=project_id,
+            name=request.name,
+            workspace_path=request.workspace_path,
+        )
+        project = db.get_project(project_id)
+        if not project:
+            raise HTTPError(404, "Project not found")
+
+        cursor = db.get_connection().execute(
+            "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
+            (project_id,),
+        )
+        row = cursor.fetchone()
+        card_count = row[0] if row else 0
+
+        return ProjectResponse(
+            id=project["id"],
+            name=project["name"],
+            workspace_path=project.get("workspace_path"),
+            created_at=project["created_at"],
+            updated_at=project["updated_at"],
+            card_count=card_count,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(project_id: str):
+    """
+    Delete a project.
+    """
+    db = get_db()
+    project = validate_project_exists(project_id, db)
+
+    try:
+        db.delete_project(project_id)
+        return {"message": f"Project '{project['name']}' deleted successfully"}
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/projects/{project_id}/columns", response_model=list)
+async def get_columns(project_id: str):
+    """
+    Get all columns for a project.
+    """
+    db = get_db()
+    validate_project_exists(project_id, db)
+
+    try:
+        columns = db.get_columns(project_id)
+        return columns
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.post("/projects/{project_id}/switch")
+async def switch_project(project_id: str):
+    """
+    Switch to a project. Returns complete project data for UI refresh.
+    This should be called when user switches projects to refresh context.
+    """
+    db = get_db()
+    project = validate_project_exists(project_id, db)
+
+    cursor = db.get_connection().execute(
+        "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
+        (project_id,),
+    )
+    row = cursor.fetchone()
+    card_count = row[0] if row else 0
+
+    db.return_connection(cursor)
+
+    columns = db.get_columns(project_id)
+
+    column_data = []
+    for col in columns:
+        cards = db.get_cards_by_column(col["id"])
+        column_data.append(
+            {
+                "id": col["id"],
+                "name": col["name"],
+                "position": col["position"],
+                "color": col["color"],
+                "card_count": col.get("card_count", 0),
+                "cards": [
+                    {
+                        "id": c["id"],
+                        "title": c["title"],
+                        "description": c.get("description", ""),
+                        "position": c["position"],
+                        "session_count": c.get("session_count", 0),
+                    }
+                    for c in cards
+                ],
+            }
+        )
+
+    timeline = db.get_timeline(project_id, limit=20)
+
+    return {
+        "project": {
+            "id": project_id,
+            "name": project["name"],
+            "workspace_path": project.get("workspace_path"),
+            "card_count": card_count,
+            "created_at": project["created_at"],
+            "updated_at": project["updated_at"],
+        },
+        "columns": column_data,
+        "timeline": timeline,
+        "message": f"Switched to project '{project['name']}'",
+    }

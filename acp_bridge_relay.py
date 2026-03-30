@@ -13,13 +13,22 @@ from acp_adapter import ACPProtocolAdapter
 # Set up logging
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    stream=sys.stdout
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    stream=sys.stdout,
 )
 logger = logging.getLogger("BridgeRelay")
 
+
 class UnifiedBridge:
-    def __init__(self, user_id, relay_url, acp_command, token=None, session_key=None, workspace_cwd=None):
+    def __init__(
+        self,
+        user_id,
+        relay_url,
+        acp_command,
+        token=None,
+        session_key=None,
+        workspace_cwd=None,
+    ):
         self.user_id = user_id
         self.relay_url = f"{relay_url.rstrip('/')}/relay/mac/{user_id}"
         self.token = token or os.getenv("RELAY_TOKEN", "default_secret")
@@ -28,13 +37,17 @@ class UnifiedBridge:
         self.local_discovery = LocalDiscovery(user_id)
 
         # Protocol adapter for Flutter App compatibility
-        self.adapter = ACPProtocolAdapter(
-            self.acp, 
-            workspace_cwd=workspace_cwd
-        )
+        self.adapter = ACPProtocolAdapter(self.acp, workspace_cwd=workspace_cwd)
 
-        # ECDH pair for initial handshake
-        self.private_key, self.public_key_hex = E2EEManager.generate_key_pair()
+        # ECDH pair for initial handshake (load from storage or generate new)
+        saved_keys = E2EEManager.load_key_pair(user_id)
+        if saved_keys:
+            self.private_key, self.public_key_hex = saved_keys
+            logger.info(f"Loaded existing ECDH key pair for user: {user_id}")
+        else:
+            self.private_key, self.public_key_hex = E2EEManager.generate_key_pair()
+            E2EEManager.save_key_pair(user_id, self.private_key, self.public_key_hex)
+            logger.info(f"Generated new ECDH key pair for user: {user_id}")
 
         # Session key manager (Starts NOT ready)
         self.e2ee = E2EEManager(session_key_hex=session_key)
@@ -46,18 +59,16 @@ class UnifiedBridge:
     async def start(self):
         logger.info(f"Starting Unified Bridge for User: {self.user_id}")
         logger.info(f"Pairing Public Key: {self.public_key_hex}")
-        
+
         self.local_discovery.start_broadcast()
         self.acp.add_handler(self.on_acp_message)
         await self.acp.start()
-        
+
         local_server = websockets.serve(self.handle_local_client, "0.0.0.0", 8766)
         logger.info("Local Server listening on ws://0.0.0.0:8766")
 
         await asyncio.gather(
-            local_server,
-            self.maintain_relay_connection(),
-            self.health_check_loop()
+            local_server, self.maintain_relay_connection(), self.health_check_loop()
         )
 
     async def handle_local_client(self, websocket, path=None):
@@ -77,7 +88,10 @@ class UnifiedBridge:
         while self.running:
             try:
                 async with websockets.connect(
-                    self.relay_url, ping_interval=30, ping_timeout=10, extra_headers=headers
+                    self.relay_url,
+                    ping_interval=30,
+                    ping_timeout=10,
+                    extra_headers=headers,
                 ) as ws:
                     logger.info("Connected to Cloud Relay.")
                     self.relay_ws = ws
@@ -92,7 +106,7 @@ class UnifiedBridge:
     async def on_acp_message(self, data):
         """
         Broadcast output from ACP process.
-        
+
         Only forwards important notifications, filters out verbose thought chunks.
         """
         # Filter: Only forward notifications, not responses
@@ -100,20 +114,22 @@ class UnifiedBridge:
         # Notifications have 'method'
         if "method" not in data:
             return  # This is a response, not a notification
-        
+
         # Filter verbose notifications
         if data.get("method") == "session/update":
             update_type = data.get("params", {}).get("update", {}).get("sessionUpdate")
             # Skip thought chunks - they're too verbose for mobile
             if update_type in ["agent_thought_chunk"]:
                 return  # Skip
-        
+
         plaintext_str = json.dumps(data)
 
         # 1. Local clients receive plaintext (Performance/Simplicity)
         for client in list(self.local_clients):
-            try: await client.send(plaintext_str)
-            except Exception: self.local_clients.discard(client)
+            try:
+                await client.send(plaintext_str)
+            except Exception:
+                self.local_clients.discard(client)
 
         # 2. Cloud Relay receives E2EE encrypted messages
         if self.relay_ws and not self.relay_ws.closed:
@@ -122,20 +138,29 @@ class UnifiedBridge:
                     # wrap_json_rpc now returns dict, so json.dumps here
                     encrypted_env = json.dumps(self.e2ee.wrap_json_rpc(data))
                     await self.relay_ws.send(encrypted_env)
-                    logger.debug(f"-> Sent E2EE notification to relay: {data.get('method')}")
+                    logger.debug(
+                        f"-> Sent E2EE notification to relay: {data.get('method')}"
+                    )
                 except Exception as e:
                     logger.error(f"E2EE Wrap error for notification: {e}")
             else:
                 # Security boundary: Drop messages if session key not yet negotiated
-                logger.debug("Relay connected but E2EE not paired. Dropping ACP notification.")
+                logger.debug(
+                    "Relay connected but E2EE not paired. Dropping ACP notification."
+                )
 
     async def handle_pairing(self, data):
         peer_public = data.get("params", {}).get("publicKey")
-        if not peer_public: return {"error": "Missing publicKey"}
-        
+        if not peer_public:
+            return {"error": "Missing publicKey"}
+
         try:
-            shared_secret = E2EEManager.derive_shared_secret(self.private_key, peer_public)
-            self.e2ee.setup_session(shared_secret) # Securely transition to paired state
+            shared_secret = E2EEManager.derive_shared_secret(
+                self.private_key, peer_public
+            )
+            self.e2ee.setup_session(
+                shared_secret
+            )  # Securely transition to paired state
             logger.info("ECDH Pairing Successful. Session key derived.")
             return {"result": {"publicKey": self.public_key_hex, "status": "paired"}}
         except Exception as e:
@@ -145,10 +170,14 @@ class UnifiedBridge:
     async def forward_to_acp(self, message, source_ws):
         """
         Forward message to ACP CLI or handle via adapter.
-        
+
         Smart encryption: if request was E2EE encrypted, response is also encrypted.
         """
-        addr = source_ws.remote_address if hasattr(source_ws, 'remote_address') else "relay"
+        addr = (
+            source_ws.remote_address
+            if hasattr(source_ws, "remote_address")
+            else "relay"
+        )
         try:
             data = json.loads(message)
             original_was_e2ee = data.get("method") == "e2ee/envelope"
@@ -164,7 +193,9 @@ class UnifiedBridge:
             # Handle E2EE Envelope - decrypt and continue processing
             if original_was_e2ee:
                 if not self.e2ee.is_ready:
-                    logger.warning(f"Received E2EE envelope from {addr} but session not ready. Dropping.")
+                    logger.warning(
+                        f"Received E2EE envelope from {addr} but session not ready. Dropping."
+                    )
                     return
                 try:
                     data = self.e2ee.unwrap_json_rpc(message)
@@ -186,11 +217,8 @@ class UnifiedBridge:
                     response_result = await self.adapter.handle_request(method, params)
 
                     # Build response envelope
-                    response = {
-                        "jsonrpc": "2.0",
-                        "id": request_id
-                    }
-                    
+                    response = {"jsonrpc": "2.0", "id": request_id}
+
                     # If adapter returned an error dict, use it
                     if isinstance(response_result, dict) and "error" in response_result:
                         response["error"] = response_result["error"]
@@ -203,7 +231,7 @@ class UnifiedBridge:
                         await source_ws.send(json.dumps(response))
                     else:
                         await source_ws.send(json.dumps(response))
-                    
+
                     logger.info(f"-> Handled {method}: {request_id}")
                     return
 
@@ -213,7 +241,7 @@ class UnifiedBridge:
                     error_response = {
                         "jsonrpc": "2.0",
                         "id": request_id,
-                        "error": {"code": -32603, "message": str(e)}
+                        "error": {"code": -32603, "message": str(e)},
                     }
                     if original_was_e2ee and self.e2ee.is_ready:
                         error_response = self.e2ee.wrap_json_rpc(error_response)
@@ -241,22 +269,27 @@ class UnifiedBridge:
                 logger.critical("ACP Process died!")
             await asyncio.sleep(10)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--user-id", default="test_user")
     parser.add_argument("--relay-url", default="wss://mybot.siliconpulse.cc")
     parser.add_argument("--command", default="gemini --acp")
     parser.add_argument("--token", help="Relay Auth Token")
-    parser.add_argument("--e2ee-key", help="32-byte Hex Key for E2EE Session (Optional, for pre-paired)")
+    parser.add_argument(
+        "--e2ee-key", help="32-byte Hex Key for E2EE Session (Optional, for pre-paired)"
+    )
     args = parser.parse_args()
 
     # Initialize with token and session_key if provided
     bridge = UnifiedBridge(
-        args.user_id, 
-        args.relay_url, 
-        args.command.split(), 
-        token=args.token, 
-        session_key=args.e2ee_key
+        args.user_id,
+        args.relay_url,
+        args.command.split(),
+        token=args.token,
+        session_key=args.e2ee_key,
     )
-    try: asyncio.run(bridge.start())
-    except KeyboardInterrupt: pass
+    try:
+        asyncio.run(bridge.start())
+    except KeyboardInterrupt:
+        pass

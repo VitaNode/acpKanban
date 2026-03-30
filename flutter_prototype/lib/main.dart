@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
 import 'services/smart_connect.dart';
 import 'services/connection_config_manager.dart';
+import 'services/project_service.dart';
 import 'models/connection_config.dart';
 import 'models/task.dart';
+import 'models/project.dart';
 import 'screens/connection_settings_screen.dart';
+import 'screens/card_session_screen.dart';
+import 'widgets/project_selector.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -36,11 +40,18 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final _acpClient = ACPClient();
+  final _projectService = ProjectService();
   List<KanbanTask> _tasks = [];
   final List<Map<String, String>> _chatHistory = [];
   final _textController = TextEditingController();
   bool _isLoading = false;
   String? _userId;
+
+  // Project state
+  List<Project> _projects = [];
+  Project? _currentProject;
+  List<KanbanColumn> _columns = [];
+  bool _isLoadingProjects = false;
 
   @override
   void initState() {
@@ -61,6 +72,9 @@ class _MainScreenState extends State<MainScreen> {
       );
       await _acpClient.smartConnect(acpConfig);
       await _acpClient.initialize();
+
+      // Load projects after connection
+      await _loadProjects();
       await _loadTasks();
     } catch (e) {
       debugPrint('Init Error: $e');
@@ -68,6 +82,106 @@ class _MainScreenState extends State<MainScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadProjects() async {
+    setState(() => _isLoadingProjects = true);
+    try {
+      final projects = await _projectService.getProjects();
+      if (mounted) {
+        setState(() {
+          _projects = projects;
+          if (_currentProject == null && projects.isNotEmpty) {
+            _currentProject = projects.first;
+          }
+        });
+        if (_currentProject != null) {
+          await _loadProjectData(_currentProject!.id);
+        }
+      }
+    } catch (e) {
+      debugPrint('Load projects error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingProjects = false);
+    }
+  }
+
+  Future<void> _loadProjectData(String projectId) async {
+    try {
+      final columns = await _projectService.getColumns(projectId);
+      if (mounted) {
+        setState(() => _columns = columns);
+      }
+    } catch (e) {
+      debugPrint('Load project data error: $e');
+    }
+  }
+
+  Future<void> _switchProject(Project project) async {
+    setState(() => _isLoadingProjects = true);
+    try {
+      final switchData = await _projectService.switchToProject(project.id);
+      if (switchData != null && mounted) {
+        setState(() {
+          _currentProject = switchData.project;
+          _columns = switchData.columns
+              .map((c) => KanbanColumn(
+                    id: c.id,
+                    projectId: project.id,
+                    name: c.name,
+                    position: c.position,
+                    color: c.color,
+                    cardCount: c.cardCount,
+                  ))
+              .toList();
+          _tasks = switchData.columns
+              .expand((c) => c.cards.map((card) => KanbanTask(
+                    id: card.id,
+                    title: card.title,
+                    description: card.description,
+                    status: c.name,
+                    updatedAt: DateTime.now().toIso8601String(),
+                    sessionCount: card.sessionCount,
+                  )))
+              .toList();
+        });
+      } else {
+        await _loadProjectData(project.id);
+      }
+    } catch (e) {
+      debugPrint('Switch project error: $e');
+      await _loadProjectData(project.id);
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingProjects = false);
+      }
+    }
+  }
+
+  Future<void> _createProject(String name, String? workspacePath) async {
+    final project = await _projectService.createProject(
+      name,
+      workspacePath: workspacePath,
+    );
+    if (project != null && mounted) {
+      setState(() {
+        _projects.add(project);
+        _currentProject = project;
+      });
+      await _loadProjectData(project.id);
+    }
+  }
+
+  void _showCreateProjectDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => ProjectCreationDialog(
+        onCreate: (name, workspacePath) {
+          Navigator.pop(context);
+          _createProject(name, workspacePath);
+        },
+      ),
+    );
   }
 
   Future<void> _loadTasks() async {
@@ -150,9 +264,34 @@ class _MainScreenState extends State<MainScreen> {
                 style:
                     const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
               ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ProjectSelector(
+                  currentProject: _currentProject,
+                  projects: _projects,
+                  onProjectSelected: _switchProject,
+                  onCreateProject: _showCreateProjectDialog,
+                  isLoading: _isLoadingProjects,
+                ),
+              ),
             ],
           ),
           actions: [
+            if (_currentProject != null) ...[
+              IconButton(
+                icon: const Icon(Icons.folder_open),
+                tooltip:
+                    'Workspace: ${_currentProject?.workspacePath ?? "Not set"}',
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          'Workspace: ${_currentProject?.workspacePath ?? "Not set"}'),
+                    ),
+                  );
+                },
+              ),
+            ],
             IconButton(icon: const Icon(Icons.refresh), onPressed: _loadTasks),
           ],
           bottom: const TabBar(
@@ -302,43 +441,77 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildBoardView() {
+    if (_currentProject == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.folder_off, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text('No project selected'),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: _showCreateProjectDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('Create Project'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_columns.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
     return RefreshIndicator(
-      onRefresh: _loadTasks,
-      child: Row(
-        children: [
-          _buildColumn('Todo', _tasks.where((t) => t.isTodo).toList()),
-          _buildColumn('Doing', _tasks.where((t) => t.isInProgress).toList()),
-          _buildColumn('Done', _tasks.where((t) => t.isDone).toList()),
-        ],
+      onRefresh: () async {
+        await _loadProjectData(_currentProject!.id);
+        await _loadTasks();
+      },
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.all(8),
+        itemCount: _columns.length,
+        itemBuilder: (context, index) {
+          final column = _columns[index];
+          final columnTasks = _tasks
+              .where((t) => t.status.toLowerCase() == column.name.toLowerCase())
+              .toList();
+          return _buildColumn(column.name, columnTasks, column.color);
+        },
       ),
     );
   }
 
-  Widget _buildColumn(String title, List<KanbanTask> tasks) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        decoration: BoxDecoration(
-            color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
-        child: Column(
-          children: [
-            Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Text(title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16))),
-            Expanded(
-              child: tasks.isEmpty
-                  ? Center(
-                      child: Text('Empty',
-                          style: TextStyle(color: Colors.grey[400])))
-                  : ListView.builder(
-                      itemCount: tasks.length,
-                      itemBuilder: (context, index) =>
-                          _buildTaskCard(tasks[index])),
-            ),
-          ],
-        ),
+  Widget _buildColumn(String title, List<KanbanTask> tasks,
+      [String? colorHex]) {
+    return Container(
+      width: 280,
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: BoxDecoration(
+          color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Text(title,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          Expanded(
+            child: tasks.isEmpty
+                ? const Center(
+                    child: Text('Empty', style: TextStyle(color: Colors.grey)),
+                  )
+                : ListView.builder(
+                    itemCount: tasks.length,
+                    itemBuilder: (context, index) =>
+                        _buildTaskCard(tasks[index])),
+          ),
+        ],
       ),
     );
   }
@@ -347,13 +520,45 @@ class _MainScreenState extends State<MainScreen> {
     return Card(
       elevation: 2,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: ListTile(
-        title: Text(task.title,
-            style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(task.description,
-            maxLines: 2, overflow: TextOverflow.ellipsis),
-        isThreeLine: true,
-        dense: true,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CardSessionScreen(task: task),
+            ),
+          );
+        },
+        child: ListTile(
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(task.title,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.chat_bubble_outline, size: 12),
+                    const SizedBox(width: 2),
+                    Text('${task.sessionCount}',
+                        style: const TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          subtitle: Text(task.description,
+              maxLines: 2, overflow: TextOverflow.ellipsis),
+          isThreeLine: true,
+          dense: true,
+        ),
       ),
     );
   }
