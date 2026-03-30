@@ -196,6 +196,31 @@ class ProjectService {
     }
   }
 
+  Future<bool> moveCard(String cardId, String targetColumnId, int position) async {
+    try {
+      final response = await _patch('/api/cards/$cardId/move', {
+        'target_column_id': targetColumnId,
+        'target_position': position,
+      });
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('moveCard error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updateColumnPosition(String columnId, int position) async {
+    try {
+      final response = await _patch('/api/columns/$columnId/position', {
+        'position': position,
+      });
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('updateColumnPosition error: $e');
+      return false;
+    }
+  }
+
   // HTTP helpers using dart:io
   Future<dynamic> _get(String path) async {
     final client = HttpClient();
@@ -230,6 +255,21 @@ class ProjectService {
     try {
       final uri = Uri.parse('$_baseUrl$path');
       final request = await client.putUrl(uri);
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(body));
+      final response = await request.close();
+      final respBody = await response.transform(utf8.decoder).join();
+      return _HttpResponse(response.statusCode, respBody);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
+    final client = HttpClient();
+    try {
+      final uri = Uri.parse('$_baseUrl$path');
+      final request = await client.patchUrl(uri);
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(body));
       final response = await request.close();

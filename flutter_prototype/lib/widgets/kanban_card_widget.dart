@@ -13,7 +13,7 @@ class KanbanCardWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final cardWidget = Card(
       elevation: 2,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -70,6 +70,22 @@ class KanbanCardWidget extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    return LongPressDraggable<KanbanCard>(
+      data: card,
+      feedback: SizedBox(
+        width: 260,
+        child: Material(
+          color: Colors.transparent,
+          child: cardWidget,
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.3,
+        child: cardWidget,
+      ),
+      child: cardWidget,
     );
   }
 

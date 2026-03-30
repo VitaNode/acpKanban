@@ -8,6 +8,7 @@ class KanbanColumnWidget extends StatelessWidget {
   final List<KanbanCard> cards;
   final Function(KanbanCard) onCardTap;
   final VoidCallback onAddCard;
+  final Function(KanbanCard, String targetColumnId) onCardMoved;
 
   const KanbanColumnWidget({
     super.key,
@@ -15,6 +16,7 @@ class KanbanColumnWidget extends StatelessWidget {
     required this.cards,
     required this.onCardTap,
     required this.onAddCard,
+    required this.onCardMoved,
   });
 
   @override
@@ -30,31 +32,44 @@ class KanbanColumnWidget extends StatelessWidget {
           width: 1,
         ),
       ),
-      child: Column(
-        children: [
-          _buildHeader(context),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 16),
-              itemCount: cards.length,
-              itemBuilder: (context, index) {
-                return KanbanCardWidget(
-                  card: cards[index],
-                  onTap: () => onCardTap(cards[index]),
-                );
-              },
-            ),
-          ),
-          _buildFooter(context),
-        ],
+      child: DragTarget<KanbanCard>(
+        onWillAcceptWithDetails: (details) => details.data.columnId != column.id,
+        onAcceptWithDetails: (details) => onCardMoved(details.data, column.id),
+        builder: (context, candidateData, rejectedData) {
+          final isOver = candidateData.isNotEmpty;
+          return Column(
+            children: [
+              _buildHeader(context, isOver),
+              Expanded(
+                child: Container(
+                  color: isOver ? Colors.indigo.withOpacity(0.05) : Colors.transparent,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    itemCount: cards.length,
+                    itemBuilder: (context, index) {
+                      return KanbanCardWidget(
+                        card: cards[index],
+                        onTap: () => onCardTap(cards[index]),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              _buildFooter(context),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, [bool isOver = false]) {
     final color = _parseColor(column.color);
     return Container(
       padding: const EdgeInsets.all(16),
+      decoration: isOver ? BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.indigo.withOpacity(0.2))),
+      ) : null,
       child: Row(
         children: [
           Container(

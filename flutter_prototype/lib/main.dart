@@ -133,7 +133,8 @@ class _MainScreenState extends State<MainScreen> {
       if (switchData != null && mounted) {
         setState(() {
           _currentProject = switchData.project;
-          _columns = switchData.columns.map((c) => c.column).toList();
+          _columns = switchData.columns.map((c) => c.column).toList()
+            ..sort((a, b) => a.position.compareTo(b.position));
           _cards = switchData.columns.expand((c) => c.cards).toList();
         });
       } else {
@@ -146,6 +147,53 @@ class _MainScreenState extends State<MainScreen> {
       if (mounted) {
         setState(() => _isLoadingProjects = false);
       }
+    }
+  }
+
+  Future<void> _onCardMoved(KanbanCard card, String targetColumnId) async {
+    final oldColumnId = card.columnId;
+    final targetCards = _cards.where((c) => c.columnId == targetColumnId).toList();
+    final newPosition = targetCards.length;
+
+    // Optimistic update
+    setState(() {
+      _cards = _cards.map((c) {
+        if (c.id == card.id) {
+          return c.copyWith(columnId: targetColumnId, position: newPosition);
+        }
+        return c;
+      }).toList();
+    });
+
+    final success = await _projectService.moveCard(card.id, targetColumnId, newPosition);
+    if (!success && mounted) {
+      // Revert on failure
+      setState(() {
+        _cards = _cards.map((c) {
+          if (c.id == card.id) {
+            return c.copyWith(columnId: oldColumnId, position: card.position);
+          }
+          return c;
+        }).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to move card')),
+      );
+    }
+  }
+
+  Future<void> _onColumnReordered(int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    setState(() {
+      final KanbanColumn item = _columns.removeAt(oldIndex);
+      _columns.insert(newIndex, item);
+    });
+
+    // Update positions in backend
+    for (int i = 0; i < _columns.length; i++) {
+      await _projectService.updateColumnPosition(_columns[i].id, i);
     }
   }
 
@@ -483,33 +531,35 @@ class _MainScreenState extends State<MainScreen> {
       onRefresh: () async {
         await _loadProjectData(_currentProject!.id);
       },
-      child: SingleChildScrollView(
+      child: ReorderableListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: _columns.map((column) {
-            final columnCards = _cards
-                .where((c) => c.columnId == column.id)
-                .toList()
-              ..sort((a, b) => a.position.compareTo(b.position));
-            return KanbanColumnWidget(
-              column: column,
-              cards: columnCards,
-              onCardTap: (card) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => CardSessionScreen(card: card),
-                  ),
-                );
-              },
-              onAddCard: () {
-                // TODO: Implement add card
-              },
-            );
-          }).toList(),
-        ),
+        itemCount: _columns.length,
+        onReorder: _onColumnReordered,
+        itemBuilder: (context, index) {
+          final column = _columns[index];
+          final columnCards = _cards
+              .where((c) => c.columnId == column.id)
+              .toList()
+            ..sort((a, b) => a.position.compareTo(b.position));
+          return KanbanColumnWidget(
+            key: ValueKey(column.id),
+            column: column,
+            cards: columnCards,
+            onCardTap: (card) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CardSessionScreen(card: card),
+                ),
+              );
+            },
+            onAddCard: () {
+              // TODO: Implement add card
+            },
+            onCardMoved: _onCardMoved,
+          );
+        },
       ),
     );
   }
