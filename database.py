@@ -259,6 +259,22 @@ class KanbanDB:
                     (datetime.now().isoformat(),),
                 )
                 conn.commit()
+
+            if current_version < 3:
+                cursor.execute("""CREATE TABLE IF NOT EXISTS project_agent_status (
+                    project_id TEXT PRIMARY KEY,
+                    state TEXT NOT NULL DEFAULT 'idle',
+                    start_time DATETIME,
+                    last_message TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                )""")
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (3, ?)",
+                    (datetime.now().isoformat(),),
+                )
+                conn.commit()
         finally:
             conn.close()
 
