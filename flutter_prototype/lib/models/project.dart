@@ -36,6 +36,22 @@ class Project {
     };
   }
 
+  Project copyWith({
+    String? name,
+    String? workspacePath,
+    String? updatedAt,
+    int? cardCount,
+  }) {
+    return Project(
+      id: id,
+      name: name ?? this.name,
+      workspacePath: workspacePath ?? this.workspacePath,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? DateTime.now().toIso8601String(),
+      cardCount: cardCount ?? this.cardCount,
+    );
+  }
+
   String get displayName => name;
 
   String get lastActive {
