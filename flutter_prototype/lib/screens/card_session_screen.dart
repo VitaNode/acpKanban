@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/project_service.dart';
+import '../services/session_websocket_service.dart';
 import '../models/kanban_card.dart';
 import '../models/card_message.dart';
 import '../widgets/message_bubble.dart';
@@ -16,19 +17,45 @@ class CardSessionScreen extends StatefulWidget {
 
 class _CardSessionScreenState extends State<CardSessionScreen> {
   final _projectService = ProjectService();
+  final _wsService = SessionWebSocketService();
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
   List<CardMessage> _messages = [];
   bool _isLoading = false;
+  bool _wsConnected = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSession();
+    _initWebSocket();
+    _wsService.messages.listen((msgs) {
+      if (mounted) {
+        setState(() {
+          _messages = msgs;
+          _isLoading = false;
+        });
+        _scrollToBottom();
+      }
+    });
+    _wsService.status.listen((status) {
+      if (mounted) {
+        setState(() => _wsConnected = status == 'connected');
+      }
+    });
+  }
+
+  Future<void> _initWebSocket() async {
+    setState(() => _isLoading = true);
+    final connected = await _wsService.connect(widget.card.id);
+    if (!connected && mounted) {
+      await _loadSession();
+    }
   }
 
   @override
   void dispose() {
+    _wsService.disconnect();
+    _wsService.dispose();
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -81,8 +108,12 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
     _scrollToBottom();
 
     try {
-      await _projectService.addSessionMessage(widget.card.id, 'user', text);
-      await _loadSession();
+      if (_wsConnected) {
+        await _wsService.sendMessage('user', text);
+      } else {
+        await _projectService.addSessionMessage(widget.card.id, 'user', text);
+        await _loadSession();
+      }
     } catch (e) {
       debugPrint('Send message error: $e');
     } finally {

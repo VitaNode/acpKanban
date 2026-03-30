@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import Enum
 from database import KanbanDB
 from embedding import embedding_service
+import asyncio
+import json
 
 app = FastAPI(title="Kanban API", version="2.0.0")
 
@@ -349,6 +351,84 @@ def get_summary(card_id: str):
     if not summary:
         raise HTTPException(status_code=404, detail="Summary not found")
     return summary
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+
+    async def connect(self, card_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if card_id not in self.active_connections:
+            self.active_connections[card_id] = []
+        self.active_connections[card_id].append(websocket)
+
+    def disconnect(self, card_id: str, websocket: WebSocket):
+        if card_id in self.active_connections:
+            self.active_connections[card_id].remove(websocket)
+            if not self.active_connections[card_id]:
+                del self.active_connections[card_id]
+
+    async def send_message(self, card_id: str, message: dict):
+        if card_id in self.active_connections:
+            for connection in self.active_connections[card_id]:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    pass
+
+    async def broadcast_to_card(self, card_id: str, message: dict):
+        await self.send_message(card_id, message)
+
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws/session/{card_id}")
+async def websocket_session(websocket: WebSocket, card_id: str):
+    await manager.connect(card_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message_data = json.loads(data)
+                msg_type = message_data.get("type")
+
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                elif msg_type == "send_message":
+                    role = message_data.get("role", "user")
+                    content = message_data.get("content", "")
+                    metadata = message_data.get("metadata")
+                    db.add_session_message(card_id, role, content, metadata)
+
+                    await manager.broadcast_to_card(
+                        card_id,
+                        {
+                            "type": "message_added",
+                            "role": role,
+                            "content": content,
+                            "metadata": metadata,
+                        },
+                    )
+                elif msg_type == "get_history":
+                    history = db.get_session_history(card_id, limit=50)
+                    await websocket.send_json(
+                        {
+                            "type": "history",
+                            "messages": history,
+                        }
+                    )
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+    except WebSocketDisconnect:
+        manager.disconnect(card_id, websocket)
+
+
+@app.post("/api/cards/{card_id}/session/broadcast")
+async def broadcast_session_update(card_id: str):
+    await manager.broadcast_to_card(card_id, {"type": "refresh"})
+    return {"status": "broadcast_sent"}
 
 
 if __name__ == "__main__":
