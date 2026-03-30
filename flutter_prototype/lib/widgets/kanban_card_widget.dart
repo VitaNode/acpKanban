@@ -4,11 +4,13 @@ import '../models/kanban_card.dart';
 class KanbanCardWidget extends StatelessWidget {
   final KanbanCard card;
   final VoidCallback onTap;
+  final VoidCallback onSessionTap;
 
   const KanbanCardWidget({
     super.key,
     required this.card,
     required this.onTap,
+    required this.onSessionTap,
   });
 
   @override
@@ -17,18 +19,18 @@ class KanbanCardWidget extends StatelessWidget {
       elevation: 2,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(4),
                     child: Text(
                       card.title,
                       style: const TextStyle(
@@ -39,35 +41,47 @@ class KanbanCardWidget extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  _buildSessionBadge(),
-                ],
-              ),
-              if (card.description.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  card.description,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[700],
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: onSessionTap,
+                  borderRadius: BorderRadius.circular(10),
+                  child: _buildSessionBadge(),
                 ),
               ],
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            ),
+            InkWell(
+              onTap: onTap,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _formatDate(card.updatedAt),
-                    style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                  if (card.description.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      card.description,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[700],
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _formatDate(card.updatedAt),
+                        style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                      ),
+                      Icon(Icons.more_horiz, size: 16, color: Colors.grey[400]),
+                    ],
                   ),
-                  Icon(Icons.more_horiz, size: 16, color: Colors.grey[400]),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

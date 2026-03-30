@@ -235,19 +235,25 @@ class ProjectService {
     }
   }
 
-  Future<bool> updateColumnPosition(String columnId, int position) async {
+  Future<bool> reorderColumns(String projectId, List<KanbanColumn> allColumns) async {
     try {
-      final response = await _patch('/api/columns/$columnId/position', {
-        'position': position,
+      final positions = allColumns.asMap().entries.map((e) => {
+        'id': e.value.id,
+        'position': e.key,
+      }).toList();
+
+      final response = await _patch('/api/projects/$projectId/columns/reorder', {
+        'positions': positions,
       });
       return response.statusCode == 200;
     } catch (e) {
-      debugPrint('updateColumnPosition error: $e');
+      debugPrint('reorderColumns error: $e');
       return false;
     }
   }
 
-  // HTTP helpers using dart:io
+  Future<bool> updateColumn(String columnId, {String? name, String? color}) async {
+
   Future<dynamic> _get(String path) async {
     final client = HttpClient();
     try {

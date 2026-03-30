@@ -239,9 +239,8 @@ class _MainScreenState extends State<MainScreen> {
       _columns.insert(newIndex, item);
     });
 
-    // Update positions in backend
-    for (int i = 0; i < _columns.length; i++) {
-      await _projectService.updateColumnPosition(_columns[i].id, i);
+    if (_currentProject != null) {
+      await _projectService.reorderColumns(_currentProject!.id, _columns);
     }
   }
 
@@ -576,6 +575,11 @@ class _MainScreenState extends State<MainScreen> {
             column: column,
             cards: columnCards,
             onCardTap: (card) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Card Details: ${card.title}')),
+              );
+            },
+            onCardSessionTap: (card) {
               Navigator.push(
                 context,
                 MaterialPageRoute(

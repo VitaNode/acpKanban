@@ -7,6 +7,7 @@ class KanbanColumnWidget extends StatelessWidget {
   final KanbanColumn column;
   final List<KanbanCard> cards;
   final Function(KanbanCard) onCardTap;
+  final Function(KanbanCard) onCardSessionTap;
   final VoidCallback onAddCard;
   final Function(KanbanCard, String targetColumnId) onCardMoved;
 
@@ -15,6 +16,7 @@ class KanbanColumnWidget extends StatelessWidget {
     required this.column,
     required this.cards,
     required this.onCardTap,
+    required this.onCardSessionTap,
     required this.onAddCard,
     required this.onCardMoved,
   });
@@ -50,6 +52,7 @@ class KanbanColumnWidget extends StatelessWidget {
                       return KanbanCardWidget(
                         card: cards[index],
                         onTap: () => onCardTap(cards[index]),
+                        onSessionTap: () => onCardSessionTap(cards[index]),
                       );
                     },
                   ),

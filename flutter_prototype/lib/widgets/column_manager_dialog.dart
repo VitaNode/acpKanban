@@ -36,9 +36,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       _columns.insert(newIndex, item);
     });
 
-    for (int i = 0; i < _columns.length; i++) {
-      await _projectService.updateColumnPosition(_columns[i].id, i);
-    }
+    await _projectService.reorderColumns(widget.projectId, _columns);
     widget.onUpdated();
   }
 
