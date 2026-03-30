@@ -5,11 +5,13 @@ import 'services/smart_connect.dart';
 import 'services/connection_config_manager.dart';
 import 'services/project_service.dart';
 import 'models/connection_config.dart';
-import 'models/task.dart';
+import 'models/kanban_card.dart';
+import 'models/kanban_column.dart';
 import 'models/project.dart';
 import 'screens/connection_settings_screen.dart';
 import 'screens/card_session_screen.dart';
 import 'widgets/project_selector.dart';
+import 'widgets/kanban_column_widget.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -41,7 +43,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final _acpClient = ACPClient();
   final _projectService = ProjectService();
-  List<KanbanTask> _tasks = [];
+  List<KanbanCard> _cards = [];
   final List<Map<String, String>> _chatHistory = [];
   final _textController = TextEditingController();
   bool _isLoading = false;
@@ -75,7 +77,6 @@ class _MainScreenState extends State<MainScreen> {
 
       // Load projects after connection
       await _loadProjects();
-      await _loadTasks();
     } catch (e) {
       debugPrint('Init Error: $e');
       _chatHistory.add({'role': 'error', 'message': 'Connection failed: $e'});
@@ -96,7 +97,7 @@ class _MainScreenState extends State<MainScreen> {
           }
         });
         if (_currentProject != null) {
-          await _loadProjectData(_currentProject!.id);
+          await _switchProject(_currentProject!);
         }
       }
     } catch (e) {
@@ -109,8 +110,16 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _loadProjectData(String projectId) async {
     try {
       final columns = await _projectService.getColumns(projectId);
+      final List<KanbanCard> allCards = [];
+      for (var col in columns) {
+        final cards = await _projectService.getCardsByColumn(col.id);
+        allCards.addAll(cards);
+      }
       if (mounted) {
-        setState(() => _columns = columns);
+        setState(() {
+          _columns = columns;
+          _cards = allCards;
+        });
       }
     } catch (e) {
       debugPrint('Load project data error: $e');
@@ -124,26 +133,8 @@ class _MainScreenState extends State<MainScreen> {
       if (switchData != null && mounted) {
         setState(() {
           _currentProject = switchData.project;
-          _columns = switchData.columns
-              .map((c) => KanbanColumn(
-                    id: c.id,
-                    projectId: project.id,
-                    name: c.name,
-                    position: c.position,
-                    color: c.color,
-                    cardCount: c.cardCount,
-                  ))
-              .toList();
-          _tasks = switchData.columns
-              .expand((c) => c.cards.map((card) => KanbanTask(
-                    id: card.id,
-                    title: card.title,
-                    description: card.description,
-                    status: c.name,
-                    updatedAt: DateTime.now().toIso8601String(),
-                    sessionCount: card.sessionCount,
-                  )))
-              .toList();
+          _columns = switchData.columns.map((c) => c.column).toList();
+          _cards = switchData.columns.expand((c) => c.cards).toList();
         });
       } else {
         await _loadProjectData(project.id);
@@ -191,8 +182,7 @@ class _MainScreenState extends State<MainScreen> {
       final match = RegExp(r'\[.*\]', dotAll: true).stringMatch(response);
       if (match != null) {
         final List<dynamic> data = jsonDecode(match);
-        setState(
-            () => _tasks = data.map((t) => KanbanTask.fromJson(t)).toList());
+        setState(() => _cards = data.map((t) => KanbanCard.fromJson(t)).toList());
       }
     } catch (e) {
       debugPrint('Load Tasks Error: $e');
@@ -210,7 +200,9 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final response = await _acpClient.sendMessage(text);
       setState(() => _chatHistory.add({'role': 'ai', 'message': response}));
-      await _loadTasks();
+      if (_currentProject != null) {
+        await _loadProjectData(_currentProject!.id);
+      }
     } catch (e) {
       setState(
           () => _chatHistory.add({'role': 'error', 'message': 'Failed: $e'}));
@@ -292,7 +284,13 @@ class _MainScreenState extends State<MainScreen> {
                 },
               ),
             ],
-            IconButton(icon: const Icon(Icons.refresh), onPressed: _loadTasks),
+            IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: () {
+                  if (_currentProject != null) {
+                    _loadProjectData(_currentProject!.id);
+                  }
+                }),
           ],
           bottom: const TabBar(
             tabs: [
@@ -460,104 +458,57 @@ class _MainScreenState extends State<MainScreen> {
       );
     }
 
+    if (_isLoadingProjects && _columns.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (_columns.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(),
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('No columns found for this project.'),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => _loadProjectData(_currentProject!.id),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       );
     }
 
     return RefreshIndicator(
       onRefresh: () async {
         await _loadProjectData(_currentProject!.id);
-        await _loadTasks();
       },
-      child: ListView.builder(
+      child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.all(8),
-        itemCount: _columns.length,
-        itemBuilder: (context, index) {
-          final column = _columns[index];
-          final columnTasks = _tasks
-              .where((t) => t.status.toLowerCase() == column.name.toLowerCase())
-              .toList();
-          return _buildColumn(column.name, columnTasks, column.color);
-        },
-      ),
-    );
-  }
-
-  Widget _buildColumn(String title, List<KanbanTask> tasks,
-      [String? colorHex]) {
-    return Container(
-      width: 280,
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      decoration: BoxDecoration(
-          color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Text(title,
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          ),
-          Expanded(
-            child: tasks.isEmpty
-                ? const Center(
-                    child: Text('Empty', style: TextStyle(color: Colors.grey)),
-                  )
-                : ListView.builder(
-                    itemCount: tasks.length,
-                    itemBuilder: (context, index) =>
-                        _buildTaskCard(tasks[index])),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTaskCard(KanbanTask task) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => CardSessionScreen(task: task),
-            ),
-          );
-        },
-        child: ListTile(
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(task.title,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.chat_bubble_outline, size: 12),
-                    const SizedBox(width: 2),
-                    Text('${task.sessionCount}',
-                        style: const TextStyle(fontSize: 11)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          subtitle: Text(task.description,
-              maxLines: 2, overflow: TextOverflow.ellipsis),
-          isThreeLine: true,
-          dense: true,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: _columns.map((column) {
+            final columnCards = _cards
+                .where((c) => c.columnId == column.id)
+                .toList()
+              ..sort((a, b) => a.position.compareTo(b.position));
+            return KanbanColumnWidget(
+              column: column,
+              cards: columnCards,
+              onCardTap: (card) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CardSessionScreen(card: card),
+                  ),
+                );
+              },
+              onAddCard: () {
+                // TODO: Implement add card
+              },
+            );
+          }).toList(),
         ),
       ),
     );

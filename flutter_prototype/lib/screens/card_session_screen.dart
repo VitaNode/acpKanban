@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/project_service.dart';
-import '../models/task.dart';
+import '../models/kanban_card.dart';
+import '../models/card_message.dart';
 
 class CardSessionScreen extends StatefulWidget {
-  final KanbanTask task;
+  final KanbanCard card;
 
-  const CardSessionScreen({super.key, required this.task});
+  const CardSessionScreen({super.key, required this.card});
 
   @override
   State<CardSessionScreen> createState() => _CardSessionScreenState();
@@ -15,7 +16,7 @@ class CardSessionScreen extends StatefulWidget {
 class _CardSessionScreenState extends State<CardSessionScreen> {
   final _projectService = ProjectService();
   final _textController = TextEditingController();
-  List<Map<String, String>> _messages = [];
+  List<CardMessage> _messages = [];
   bool _isLoading = false;
 
   @override
@@ -33,16 +34,10 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
   Future<void> _loadSession() async {
     setState(() => _isLoading = true);
     try {
-      final response = await _projectService.getSessionHistory(widget.task.id);
+      final response = await _projectService.getSessionHistory(widget.card.id);
       if (response != null && mounted) {
-        final msgs = <Map<String, String>>[];
-        for (var msg in response['messages'] as List) {
-          msgs.add({
-            'role': msg['role'] ?? 'assistant',
-            'content': msg['content'] ?? '',
-          });
-        }
-        setState(() => _messages = msgs);
+        final List<dynamic> msgData = response['messages'] ?? [];
+        setState(() => _messages = msgData.map((m) => CardMessage.fromJson(m)).toList());
       }
     } catch (e) {
       debugPrint('Load session error: $e');
@@ -56,13 +51,19 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
     if (text.isEmpty) return;
 
     setState(() {
-      _messages.add({'role': 'user', 'content': text});
+      _messages.add(CardMessage(
+        id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+        cardId: widget.card.id,
+        role: 'user',
+        content: text,
+        createdAt: DateTime.now().toIso8601String(),
+      ));
       _textController.clear();
       _isLoading = true;
     });
 
     try {
-      await _projectService.addSessionMessage(widget.task.id, 'user', text);
+      await _projectService.addSessionMessage(widget.card.id, 'user', text);
       await _loadSession();
     } catch (e) {
       debugPrint('Send message error: $e');
@@ -75,7 +76,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.task.title),
+        title: Text(widget.card.title),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -101,7 +102,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
                         itemCount: _messages.length,
                         itemBuilder: (context, index) {
                           final item = _messages[index];
-                          final isUser = item['role'] == 'user';
+                          final isUser = item.isUser;
                           return Align(
                             alignment: isUser
                                 ? Alignment.centerRight
@@ -147,7 +148,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    item['content']!,
+                                    item.content,
                                     style: TextStyle(
                                       color: isUser
                                           ? Colors.white

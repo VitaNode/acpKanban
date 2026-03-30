@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import '../models/project.dart';
+import '../models/kanban_column.dart';
+import '../models/kanban_card.dart';
+import '../models/timeline_event.dart';
 
 class ProjectService {
   static const String _baseUrl = 'http://localhost:8000';
@@ -256,125 +259,6 @@ class ProjectService {
   }
 }
 
-// Supporting models
-class KanbanColumn {
-  final String id;
-  final String projectId;
-  final String name;
-  final int position;
-  final String color;
-  final int cardCount;
-
-  KanbanColumn({
-    required this.id,
-    required this.projectId,
-    required this.name,
-    required this.position,
-    required this.color,
-    this.cardCount = 0,
-  });
-
-  factory KanbanColumn.fromJson(Map<String, dynamic> json) {
-    return KanbanColumn(
-      id: json['id'] ?? '',
-      projectId: json['project_id'] ?? '',
-      name: json['name'] ?? '',
-      position: json['position'] ?? 0,
-      color: json['color'] ?? '#808080',
-      cardCount: json['card_count'] ?? 0,
-    );
-  }
-}
-
-class KanbanCard {
-  final String id;
-  final String columnId;
-  final String title;
-  final String description;
-  final int position;
-  final int sessionCount;
-  final String createdAt;
-  final String updatedAt;
-
-  KanbanCard({
-    required this.id,
-    required this.columnId,
-    required this.title,
-    required this.description,
-    required this.position,
-    this.sessionCount = 0,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-
-  factory KanbanCard.fromJson(Map<String, dynamic> json) {
-    return KanbanCard(
-      id: json['id'] ?? '',
-      columnId: json['column_id'] ?? '',
-      title: json['title'] ?? '',
-      description: json['description'] ?? '',
-      position: json['position'] ?? 0,
-      sessionCount: json['session_count'] ?? 0,
-      createdAt: json['created_at'] ?? '',
-      updatedAt: json['updated_at'] ?? '',
-    );
-  }
-}
-
-class TimelineEvent {
-  final int id;
-  final String projectId;
-  final String? cardId;
-  final String? cardTitle;
-  final String eventType;
-  final String? content;
-  final Map<String, dynamic>? metadata;
-  final String timestamp;
-
-  TimelineEvent({
-    required this.id,
-    required this.projectId,
-    this.cardId,
-    this.cardTitle,
-    required this.eventType,
-    this.content,
-    this.metadata,
-    required this.timestamp,
-  });
-
-  factory TimelineEvent.fromJson(Map<String, dynamic> json) {
-    return TimelineEvent(
-      id: json['id'] ?? 0,
-      projectId: json['project_id'] ?? '',
-      cardId: json['card_id'],
-      cardTitle: json['card_title'],
-      eventType: json['event_type'] ?? '',
-      content: json['content'],
-      metadata: json['metadata'],
-      timestamp: json['timestamp'] ?? '',
-    );
-  }
-
-  String get icon {
-    switch (eventType) {
-      case 'card_created':
-      case 'card_updated':
-      case 'card_deleted':
-        return '📋';
-      case 'card_moved':
-        return '🔄';
-      case 'ai_action':
-        return '🤖';
-      case 'column_created':
-      case 'column_updated':
-      case 'column_deleted':
-        return '📝';
-      default:
-        return '👤';
-    }
-  }
-}
-
 class _HttpResponse {
   final int statusCode;
   final String body;
@@ -384,7 +268,7 @@ class _HttpResponse {
 
 class ProjectSwitchData {
   final Project project;
-  final List<ProjectColumnWithCards> columns;
+  final List<KanbanColumnWithCards> columns;
   final List<TimelineEvent> timeline;
   final String message;
 
@@ -399,7 +283,7 @@ class ProjectSwitchData {
     return ProjectSwitchData(
       project: Project.fromJson(json['project']),
       columns: (json['columns'] as List)
-          .map((c) => ProjectColumnWithCards.fromJson(c))
+          .map((c) => KanbanColumnWithCards.fromJson(c))
           .toList(),
       timeline: (json['timeline'] as List)
           .map((t) => TimelineEvent.fromJson(t))
@@ -409,60 +293,22 @@ class ProjectSwitchData {
   }
 }
 
-class ProjectColumnWithCards {
-  final String id;
-  final String name;
-  final int position;
-  final String color;
-  final int cardCount;
-  final List<ProjectCard> cards;
+class KanbanColumnWithCards {
+  final KanbanColumn column;
+  final List<KanbanCard> cards;
 
-  ProjectColumnWithCards({
-    required this.id,
-    required this.name,
-    required this.position,
-    required this.color,
-    required this.cardCount,
+  KanbanColumnWithCards({
+    required this.column,
     required this.cards,
   });
 
-  factory ProjectColumnWithCards.fromJson(Map<String, dynamic> json) {
-    return ProjectColumnWithCards(
-      id: json['id'] ?? '',
-      name: json['name'] ?? '',
-      position: json['position'] ?? 0,
-      color: json['color'] ?? '#808080',
-      cardCount: json['card_count'] ?? 0,
+  factory KanbanColumnWithCards.fromJson(Map<String, dynamic> json) {
+    return KanbanColumnWithCards(
+      column: KanbanColumn.fromJson(json),
       cards: (json['cards'] as List?)
-              ?.map((c) => ProjectCard.fromJson(c))
+              ?.map((c) => KanbanCard.fromJson(c))
               .toList() ??
           [],
-    );
-  }
-}
-
-class ProjectCard {
-  final String id;
-  final String title;
-  final String description;
-  final int position;
-  final int sessionCount;
-
-  ProjectCard({
-    required this.id,
-    required this.title,
-    required this.description,
-    required this.position,
-    required this.sessionCount,
-  });
-
-  factory ProjectCard.fromJson(Map<String, dynamic> json) {
-    return ProjectCard(
-      id: json['id'] ?? '',
-      title: json['title'] ?? '',
-      description: json['description'] ?? '',
-      position: json['position'] ?? 0,
-      sessionCount: json['session_count'] ?? 0,
     );
   }
 }
