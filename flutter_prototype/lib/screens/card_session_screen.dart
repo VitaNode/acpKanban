@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/project_service.dart';
 import '../models/kanban_card.dart';
 import '../models/card_message.dart';
+import '../widgets/message_bubble.dart';
 
 class CardSessionScreen extends StatefulWidget {
   final KanbanCard card;
@@ -16,6 +17,7 @@ class CardSessionScreen extends StatefulWidget {
 class _CardSessionScreenState extends State<CardSessionScreen> {
   final _projectService = ProjectService();
   final _textController = TextEditingController();
+  final _scrollController = ScrollController();
   List<CardMessage> _messages = [];
   bool _isLoading = false;
 
@@ -28,6 +30,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
   @override
   void dispose() {
     _textController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -37,13 +40,27 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
       final response = await _projectService.getSessionHistory(widget.card.id);
       if (response != null && mounted) {
         final List<dynamic> msgData = response['messages'] ?? [];
-        setState(() => _messages = msgData.map((m) => CardMessage.fromJson(m)).toList());
+        setState(() => _messages =
+            msgData.map((m) => CardMessage.fromJson(m)).toList());
+        _scrollToBottom();
       }
     } catch (e) {
       debugPrint('Load session error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Future<void> _sendMessage() async {
@@ -61,6 +78,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
       _textController.clear();
       _isLoading = true;
     });
+    _scrollToBottom();
 
     try {
       await _projectService.addSessionMessage(widget.card.id, 'user', text);
@@ -74,7 +92,10 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final toolMessages = _messages.where((m) => m.role == 'tool').toList();
+
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: Text(widget.card.title),
         actions: [
@@ -86,6 +107,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
       ),
       body: Column(
         children: [
+          if (toolMessages.isNotEmpty) _buildExecutionSummary(toolMessages),
           Expanded(
             child: _isLoading && _messages.isEmpty
                 ? const Center(child: CircularProgressIndicator())
@@ -98,67 +120,11 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.all(16),
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                         itemCount: _messages.length,
                         itemBuilder: (context, index) {
-                          final item = _messages[index];
-                          final isUser = item.isUser;
-                          return Align(
-                            alignment: isUser
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Container(
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.75,
-                              ),
-                              padding: const EdgeInsets.all(14),
-                              margin: const EdgeInsets.symmetric(vertical: 6),
-                              decoration: BoxDecoration(
-                                color: isUser ? Colors.indigo : Colors.white,
-                                border: isUser
-                                    ? null
-                                    : Border.all(color: Colors.grey[300]!),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        isUser ? Icons.person : Icons.smart_toy,
-                                        size: 14,
-                                        color: isUser
-                                            ? Colors.white70
-                                            : Colors.grey,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        isUser ? 'You' : 'AI',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: isUser
-                                              ? Colors.white70
-                                              : Colors.grey,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item.content,
-                                    style: TextStyle(
-                                      color: isUser
-                                          ? Colors.white
-                                          : Colors.black87,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
+                          return MessageBubble(message: _messages[index]);
                         },
                       ),
           ),
@@ -167,6 +133,62 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildExecutionSummary(List<CardMessage> toolMessages) {
+    return Container(
+      color: Colors.indigo.withOpacity(0.05),
+      child: ExpansionTile(
+        dense: true,
+        leading: const Icon(Icons.analytics_outlined, color: Colors.indigo),
+        title: Text(
+          'Execution Log: ${toolMessages.length} operations',
+          style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: Colors.indigo),
+        ),
+        children: [
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              itemCount: toolMessages.length,
+              itemBuilder: (context, index) {
+                final msg = toolMessages[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline,
+                          size: 14, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          msg.metadata?['name'] ?? 'Unknown Tool',
+                          style: const TextStyle(
+                              fontSize: 12, fontFamily: 'monospace'),
+                        ),
+                      ),
+                      Text(
+                        _formatTime(msg.createdAt),
+                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(String dateStr) {
+    final dt = DateTime.tryParse(dateStr);
+    if (dt == null) return '';
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildInputArea() {

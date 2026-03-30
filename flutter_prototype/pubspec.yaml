@@ -17,6 +17,7 @@ dependencies:
   cryptography: ^2.5.0
   shared_preferences: ^2.2.2
   flutter_secure_storage: ^9.0.0
+  flutter_markdown: ^0.7.3
 
 dev_dependencies:
   flutter_test:
