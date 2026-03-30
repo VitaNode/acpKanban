@@ -40,8 +40,8 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
       final response = await _projectService.getSessionHistory(widget.card.id);
       if (response != null && mounted) {
         final List<dynamic> msgData = response['messages'] ?? [];
-        setState(() => _messages =
-            msgData.map((m) => CardMessage.fromJson(m)).toList());
+        setState(() =>
+            _messages = msgData.map((m) => CardMessage.fromJson(m)).toList());
         _scrollToBottom();
       }
     } catch (e) {
@@ -144,37 +144,70 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
         title: Text(
           'Execution Log: ${toolMessages.length} operations',
           style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Colors.indigo),
+              fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo),
         ),
         children: [
           SizedBox(
-            height: 200,
+            height: 250,
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemCount: toolMessages.length,
               itemBuilder: (context, index) {
                 final msg = toolMessages[index];
+                final args = msg.metadata?['arguments'];
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle_outline,
-                          size: 14, color: Colors.green),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          msg.metadata?['name'] ?? 'Unknown Tool',
-                          style: const TextStyle(
-                              fontSize: 12, fontFamily: 'monospace'),
-                        ),
+                  child: Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.check_circle_outline,
+                                  size: 14, color: Colors.green),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  msg.metadata?['name'] ?? 'Unknown Tool',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace'),
+                                ),
+                              ),
+                              Text(
+                                _formatTime(msg.createdAt),
+                                style: const TextStyle(
+                                    fontSize: 10, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                          if (args != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Arguments: $args',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                  color: Colors.grey),
+                            ),
+                          ],
+                          if (msg.content.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Result: ${msg.content}',
+                              style: const TextStyle(
+                                  fontSize: 11, fontFamily: 'monospace'),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ],
                       ),
-                      Text(
-                        _formatTime(msg.createdAt),
-                        style: const TextStyle(fontSize: 10, color: Colors.grey),
-                      ),
-                    ],
+                    ),
                   ),
                 );
               },
