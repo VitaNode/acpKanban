@@ -232,3 +232,56 @@ async def switch_project(project_id: str):
         "timeline": timeline,
         "message": f"Switched to project '{project['name']}'",
     }
+
+
+@router.get("/projects/{project_id}/status", response_model=dict)
+async def get_project_status(project_id: str):
+    """
+    Get agent status for a project.
+    """
+    db = get_db()
+    validate_project_exists(project_id, db)
+
+    try:
+        status = db.get_project_agent_status(project_id)
+        if status:
+            return {
+                "project_id": project_id,
+                "state": status["state"],
+                "start_time": status.get("start_time"),
+                "last_message": status.get("last_message"),
+                "updated_at": status.get("updated_at"),
+            }
+        else:
+            return {
+                "project_id": project_id,
+                "state": "idle",
+                "start_time": None,
+                "last_message": None,
+                "updated_at": None,
+            }
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/projects/status", response_model=list)
+async def get_all_project_statuses():
+    """
+    Get agent statuses for all active projects.
+    """
+    db = get_db()
+    try:
+        statuses = db.get_all_agent_statuses()
+        return [
+            {
+                "project_id": s["project_id"],
+                "project_name": s["project_name"],
+                "state": s["state"],
+                "start_time": s.get("start_time"),
+                "last_message": s.get("last_message"),
+                "updated_at": s.get("updated_at"),
+            }
+            for s in statuses
+        ]
+    except Exception as e:
+        raise HTTPError(400, str(e))

@@ -139,7 +139,7 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {
           _timelineEvents = events;
           // Mock status updates for demo
-          _updateMockStatuses();
+          _updateAgentStatuses();
         });
       }
     } catch (e) {
@@ -149,27 +149,42 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _updateMockStatuses() {
+  Future<void> _updateAgentStatuses() async {
     if (_projects.isEmpty) return;
-    final now = DateTime.now();
-    _agentStatuses = [
-      if (_projects.isNotEmpty)
-        ProjectAgentStatus(
-          project: _projects.first,
-          state: AgentState.working,
-          startTime: now.subtract(const Duration(minutes: 5, seconds: 12)),
-        ),
-      if (_projects.length > 1)
-        ProjectAgentStatus(
-          project: _projects[1],
-          state: AgentState.needsAuthorization,
-        ),
-      if (_projects.length > 2)
-        ProjectAgentStatus(
-          project: _projects[2],
-          state: AgentState.completed,
-        ),
-    ];
+    try {
+      final statuses = await _projectService.getAllProjectStatuses();
+      if (!mounted) return;
+
+      _agentStatuses = statuses.map((s) {
+        final project = _projects.firstWhere(
+          (p) => p.id == s['project_id'],
+          orElse: () => _projects.first,
+        );
+        return ProjectAgentStatus(
+          project: project,
+          state: _parseAgentState(s['state'] as String?),
+          startTime: s['start_time'] != null
+              ? DateTime.tryParse(s['start_time'] as String)
+              : null,
+          lastMessage: s['last_message'] as String?,
+        );
+      }).toList();
+    } catch (e) {
+      debugPrint('Failed to update agent statuses: $e');
+    }
+  }
+
+  AgentState _parseAgentState(String? state) {
+    switch (state) {
+      case 'working':
+        return AgentState.working;
+      case 'needsAuthorization':
+        return AgentState.needsAuthorization;
+      case 'completed':
+        return AgentState.completed;
+      default:
+        return AgentState.idle;
+    }
   }
 
   Future<void> _switchProject(Project project) async {
@@ -184,7 +199,7 @@ class _MainScreenState extends State<MainScreen> {
           _cards = switchData.columns.expand((c) => c.cards).toList();
           _timelineEvents = switchData.timeline;
         });
-        _updateMockStatuses();
+        _updateAgentStatuses();
       } else {
         await _loadProjectData(project.id);
       }
@@ -200,7 +215,8 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _onCardMoved(KanbanCard card, String targetColumnId) async {
     final oldColumnId = card.columnId;
-    final targetCards = _cards.where((c) => c.columnId == targetColumnId).toList();
+    final targetCards =
+        _cards.where((c) => c.columnId == targetColumnId).toList();
     final newPosition = targetCards.length;
 
     // Optimistic update
@@ -213,7 +229,8 @@ class _MainScreenState extends State<MainScreen> {
       }).toList();
     });
 
-    final success = await _projectService.moveCard(card.id, targetColumnId, newPosition);
+    final success =
+        await _projectService.moveCard(card.id, targetColumnId, newPosition);
     if (!success && mounted) {
       // Revert on failure
       setState(() {

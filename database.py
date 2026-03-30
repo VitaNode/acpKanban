@@ -161,6 +161,15 @@ class KanbanDB:
                 FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
             )""")
 
+            cursor.execute("""CREATE TABLE IF NOT EXISTS project_agent_status (
+                project_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL DEFAULT 'idle',
+                start_time DATETIME,
+                last_message TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )""")
+
             cursor.execute("""CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY,
                 updated_at DATETIME
@@ -333,6 +342,54 @@ class KanbanDB:
         try:
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_project_agent_status(self, project_id: str) -> Optional[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM project_agent_status WHERE project_id = ?",
+                (project_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            self.return_connection(conn)
+
+    def update_project_agent_status(
+        self,
+        project_id: str,
+        state: str,
+        start_time: str = None,
+        last_message: str = None,
+    ):
+        now = datetime.now().isoformat()
+        conn = self.get_connection()
+        try:
+            conn.execute(
+                """INSERT INTO project_agent_status (project_id, state, start_time, last_message, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(project_id) DO UPDATE SET
+                   state = excluded.state,
+                   start_time = excluded.start_time,
+                   last_message = excluded.last_message,
+                   updated_at = excluded.updated_at""",
+                (project_id, state, start_time, last_message, now),
+            )
+            conn.commit()
+        finally:
+            self.return_connection(conn)
+
+    def get_all_agent_statuses(self) -> List[Dict]:
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(
+                """SELECT ps.*, p.name as project_name FROM project_agent_status ps
+                   JOIN projects p ON p.id = ps.project_id
+                   WHERE ps.state != 'idle'"""
+            )
+            return [dict(row) for row in cursor.fetchall()]
         finally:
             self.return_connection(conn)
 

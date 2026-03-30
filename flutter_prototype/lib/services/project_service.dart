@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import '../models/project.dart';
 import '../models/kanban_column.dart';
 import '../models/kanban_card.dart';
@@ -86,6 +87,32 @@ class ProjectService {
       return [];
     } catch (e) {
       debugPrint('getColumns error: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> getProjectStatus(String projectId) async {
+    try {
+      final response = await _get('/api/projects/$projectId/status');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getProjectStatus error: $e');
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllProjectStatuses() async {
+    try {
+      final response = await _get('/api/projects/status');
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      return [];
+    } catch (e) {
+      debugPrint('getAllProjectStatuses error: $e');
       return [];
     }
   }
