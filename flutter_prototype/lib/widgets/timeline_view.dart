@@ -133,40 +133,88 @@ class TimelineView extends StatelessWidget {
 
   IconData _getIconData(TimelineEventType type) {
     switch (type) {
-      case TimelineEventType.cardCreated: return Icons.add_task;
-      case TimelineEventType.cardUpdated: return Icons.edit_note;
-      case TimelineEventType.cardDeleted: return Icons.delete_outline;
-      case TimelineEventType.cardMoved: return Icons.move_up;
-      case TimelineEventType.aiAction: return Icons.smart_toy;
-      case TimelineEventType.userAction: return Icons.person;
-      case TimelineEventType.columnChanged: return Icons.view_column;
-      default: return Icons.info_outline;
+      case TimelineEventType.cardCreated:
+        return Icons.add_task;
+      case TimelineEventType.cardUpdated:
+        return Icons.edit_note;
+      case TimelineEventType.cardDeleted:
+        return Icons.delete_outline;
+      case TimelineEventType.cardMoved:
+        return Icons.move_up;
+      case TimelineEventType.aiAction:
+        return Icons.smart_toy;
+      case TimelineEventType.userAction:
+        return Icons.person;
+      case TimelineEventType.columnCreated:
+        return Icons.add_circle_outline;
+      case TimelineEventType.columnUpdated:
+        return Icons.edit;
+      case TimelineEventType.columnDeleted:
+        return Icons.remove_circle_outline;
+      case TimelineEventType.columnsReordered:
+        return Icons.swap_vert;
+      case TimelineEventType.projectCreated:
+        return Icons.create_new_folder;
+      default:
+        return Icons.info_outline;
     }
   }
 
   Color _getIconColor(TimelineEventType type) {
     switch (type) {
-      case TimelineEventType.cardCreated: return Colors.green;
-      case TimelineEventType.cardUpdated: return Colors.blue;
-      case TimelineEventType.cardDeleted: return Colors.red;
-      case TimelineEventType.cardMoved: return Colors.orange;
-      case TimelineEventType.aiAction: return Colors.indigo;
-      case TimelineEventType.userAction: return Colors.blueGrey;
-      case TimelineEventType.columnChanged: return Colors.purple;
-      default: return Colors.grey;
+      case TimelineEventType.cardCreated:
+        return Colors.green;
+      case TimelineEventType.cardUpdated:
+        return Colors.blue;
+      case TimelineEventType.cardDeleted:
+        return Colors.red;
+      case TimelineEventType.cardMoved:
+        return Colors.orange;
+      case TimelineEventType.aiAction:
+        return Colors.indigo;
+      case TimelineEventType.userAction:
+        return Colors.blueGrey;
+      case TimelineEventType.columnCreated:
+        return Colors.teal;
+      case TimelineEventType.columnUpdated:
+        return Colors.purple;
+      case TimelineEventType.columnDeleted:
+        return Colors.red[400]!;
+      case TimelineEventType.columnsReordered:
+        return Colors.amber;
+      case TimelineEventType.projectCreated:
+        return Colors.green;
+      default:
+        return Colors.grey;
     }
   }
 
   String _getEventTitle(TimelineEventType type) {
     switch (type) {
-      case TimelineEventType.cardCreated: return 'Card Created';
-      case TimelineEventType.cardUpdated: return 'Card Updated';
-      case TimelineEventType.cardDeleted: return 'Card Deleted';
-      case TimelineEventType.cardMoved: return 'Card Moved';
-      case TimelineEventType.aiAction: return 'AI Action';
-      case TimelineEventType.userAction: return 'User Action';
-      case TimelineEventType.columnChanged: return 'Column Changed';
-      default: return 'Project Event';
+      case TimelineEventType.cardCreated:
+        return 'Card Created';
+      case TimelineEventType.cardUpdated:
+        return 'Card Updated';
+      case TimelineEventType.cardDeleted:
+        return 'Card Deleted';
+      case TimelineEventType.cardMoved:
+        return 'Card Moved';
+      case TimelineEventType.aiAction:
+        return 'AI Action';
+      case TimelineEventType.userAction:
+        return 'User Action';
+      case TimelineEventType.columnCreated:
+        return 'Column Created';
+      case TimelineEventType.columnUpdated:
+        return 'Column Updated';
+      case TimelineEventType.columnDeleted:
+        return 'Column Deleted';
+      case TimelineEventType.columnsReordered:
+        return 'Columns Reordered';
+      case TimelineEventType.projectCreated:
+        return 'Project Created';
+      default:
+        return 'Project Event';
     }
   }
 
