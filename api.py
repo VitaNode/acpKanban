@@ -1,3 +1,10 @@
+"""
+DEPRECATED: This file is no longer maintained.
+Please use api/main.py instead (python -m api.main or python api/main.py).
+
+This file is kept for backward compatibility only.
+"""
+
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse

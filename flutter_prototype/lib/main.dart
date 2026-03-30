@@ -583,10 +583,8 @@ class _MainScreenState extends State<MainScreen> {
         onReorder: _onColumnReordered,
         itemBuilder: (context, index) {
           final column = _columns[index];
-          final columnCards = _cards
-              .where((c) => c.columnId == column.id)
-              .toList()
-            ..sort((a, b) => a.position.compareTo(b.position));
+          final columnCards =
+              _cards.where((c) => c.columnId == column.id).toList();
           return KanbanColumnWidget(
             key: ValueKey(column.id),
             column: column,
