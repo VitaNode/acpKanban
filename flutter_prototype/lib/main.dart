@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
 import 'services/smart_connect.dart';
@@ -13,6 +12,9 @@ import 'screens/card_session_screen.dart';
 import 'widgets/project_selector.dart';
 import 'widgets/kanban_column_widget.dart';
 import 'widgets/column_manager_dialog.dart';
+import 'widgets/timeline_view.dart';
+import 'widgets/status_summary_widget.dart';
+import 'models/timeline_event.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -45,8 +47,8 @@ class _MainScreenState extends State<MainScreen> {
   final _acpClient = ACPClient();
   final _projectService = ProjectService();
   List<KanbanCard> _cards = [];
-  final List<Map<String, String>> _chatHistory = [];
-  final _textController = TextEditingController();
+  List<TimelineEvent> _timelineEvents = [];
+  List<ProjectAgentStatus> _agentStatuses = [];
   bool _isLoading = false;
   String? _userId;
 
@@ -55,6 +57,7 @@ class _MainScreenState extends State<MainScreen> {
   Project? _currentProject;
   List<KanbanColumn> _columns = [];
   bool _isLoadingProjects = false;
+  bool _isLoadingTimeline = false;
 
   @override
   void initState() {
@@ -80,7 +83,6 @@ class _MainScreenState extends State<MainScreen> {
       await _loadProjects();
     } catch (e) {
       debugPrint('Init Error: $e');
-      _chatHistory.add({'role': 'error', 'message': 'Connection failed: $e'});
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -122,10 +124,52 @@ class _MainScreenState extends State<MainScreen> {
           _columns = columns;
           _cards = allCards;
         });
+        await _loadTimeline(projectId);
       }
     } catch (e) {
       debugPrint('Load project data error: $e');
     }
+  }
+
+  Future<void> _loadTimeline(String projectId) async {
+    setState(() => _isLoadingTimeline = true);
+    try {
+      final events = await _projectService.getTimeline(projectId);
+      if (mounted) {
+        setState(() {
+          _timelineEvents = events;
+          // Mock status updates for demo
+          _updateMockStatuses();
+        });
+      }
+    } catch (e) {
+      debugPrint('Load timeline error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingTimeline = false);
+    }
+  }
+
+  void _updateMockStatuses() {
+    if (_projects.isEmpty) return;
+    final now = DateTime.now();
+    _agentStatuses = [
+      if (_projects.isNotEmpty)
+        ProjectAgentStatus(
+          project: _projects.first,
+          state: AgentState.working,
+          startTime: now.subtract(const Duration(minutes: 5, seconds: 12)),
+        ),
+      if (_projects.length > 1)
+        ProjectAgentStatus(
+          project: _projects[1],
+          state: AgentState.needsAuthorization,
+        ),
+      if (_projects.length > 2)
+        ProjectAgentStatus(
+          project: _projects[2],
+          state: AgentState.completed,
+        ),
+    ];
   }
 
   Future<void> _switchProject(Project project) async {
@@ -138,7 +182,9 @@ class _MainScreenState extends State<MainScreen> {
           _columns = switchData.columns.map((c) => c.column).toList()
             ..sort((a, b) => a.position.compareTo(b.position));
           _cards = switchData.columns.expand((c) => c.cards).toList();
+          _timelineEvents = switchData.timeline;
         });
+        _updateMockStatuses();
       } else {
         await _loadProjectData(project.id);
       }
@@ -237,64 +283,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Future<void> _loadTasks() async {
-    try {
-      final response = await _acpClient.sendMessage(
-          "Please provide the current list of all kanban tasks in a valid JSON array format. Only return the JSON.");
-      final match = RegExp(r'\[.*\]', dotAll: true).stringMatch(response);
-      if (match != null) {
-        final List<dynamic> data = jsonDecode(match);
-        setState(() => _cards = data.map((t) => KanbanCard.fromJson(t)).toList());
-      }
-    } catch (e) {
-      debugPrint('Load Tasks Error: $e');
-    }
-  }
-
-  Future<void> _handleSendMessage() async {
-    final text = _textController.text;
-    if (text.isEmpty) return;
-    setState(() {
-      _chatHistory.add({'role': 'user', 'message': text});
-      _textController.clear();
-      _isLoading = true;
-    });
-    try {
-      final response = await _acpClient.sendMessage(text);
-      setState(() => _chatHistory.add({'role': 'ai', 'message': response}));
-      if (_currentProject != null) {
-        await _loadProjectData(_currentProject!.id);
-      }
-    } catch (e) {
-      setState(
-          () => _chatHistory.add({'role': 'error', 'message': 'Failed: $e'}));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Widget _getStatusDot() {
-    Color color;
-    switch (_acpClient.activeMode) {
-      case ConnectionPath.local:
-        color = Colors.green;
-        break;
-      case ConnectionPath.relay:
-        color = Colors.orange;
-        break;
-      case ConnectionPath.cloud:
-        color = Colors.blue;
-        break;
-      default:
-        color = Colors.red;
-    }
-    return Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -311,7 +299,14 @@ class _MainScreenState extends State<MainScreen> {
             children: [
               const Text('AI Kanban'),
               const SizedBox(width: 10),
-              _getStatusDot(),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: _getStatusDotColor(),
+                  shape: BoxShape.circle,
+                ),
+              ),
               const SizedBox(width: 5),
               Text(
                 _acpClient.activeMode.name.toUpperCase(),
@@ -367,10 +362,25 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         drawer: _buildDrawer(),
-        body: TabBarView(
+        body: Column(
           children: [
-            _buildBoardView(),
-            _buildChatView(),
+            StatusSummaryWidget(statuses: _agentStatuses),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildBoardView(),
+                  TimelineView(
+                    events: _timelineEvents,
+                    isLoading: _isLoadingTimeline,
+                    onRefresh: () {
+                      if (_currentProject != null) {
+                        _loadTimeline(_currentProject!.id);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -579,86 +589,6 @@ class _MainScreenState extends State<MainScreen> {
             onCardMoved: _onCardMoved,
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildChatView() {
-    return Column(
-      children: [
-        Expanded(
-          child: ListView.builder(
-            itemCount: _chatHistory.length,
-            padding: const EdgeInsets.all(16),
-            itemBuilder: (context, index) {
-              final item = _chatHistory[index];
-              final isUser = item['role'] == 'user';
-              return Align(
-                alignment:
-                    isUser ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.75),
-                  padding: const EdgeInsets.all(14),
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isUser ? Colors.indigo : Colors.white,
-                    border:
-                        isUser ? null : Border.all(color: Colors.grey[300]!),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(16),
-                      topRight: const Radius.circular(16),
-                      bottomLeft: Radius.circular(isUser ? 16 : 0),
-                      bottomRight: Radius.circular(isUser ? 0 : 16),
-                    ),
-                  ),
-                  child: Text(item['message']!,
-                      style: TextStyle(
-                          color: isUser ? Colors.white : Colors.black87)),
-                ),
-              );
-            },
-          ),
-        ),
-        if (_isLoading) const LinearProgressIndicator(),
-        _buildInputArea(),
-      ],
-    );
-  }
-
-  Widget _buildInputArea() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [
-        BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -2))
-      ]),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _textController,
-                decoration: InputDecoration(
-                  hintText: 'Discuss or manage tasks...',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                ),
-                onSubmitted: (_) => _handleSendMessage(),
-              ),
-            ),
-            const SizedBox(width: 8),
-            FloatingActionButton.small(
-                onPressed: _handleSendMessage, child: const Icon(Icons.send)),
-          ],
-        ),
       ),
     );
   }
