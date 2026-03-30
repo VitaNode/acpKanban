@@ -120,6 +120,32 @@ class ProjectService {
     }
   }
 
+  Future<bool> updateColumn(String columnId, {String? name, String? color}) async {
+    try {
+      final body = <String, dynamic>{};
+      if (name != null) body['name'] = name;
+      if (color != null) body['color'] = color;
+      final response = await _put('/api/columns/$columnId', body);
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('updateColumn error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteColumn(String columnId, {String? moveToColumnId}) async {
+    try {
+      final path = moveToColumnId != null 
+          ? '/api/columns/$columnId?move_to_column_id=$moveToColumnId'
+          : '/api/columns/$columnId';
+      final response = await _delete(path);
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('deleteColumn error: $e');
+      return false;
+    }
+  }
+
   Future<List<KanbanCard>> getCardsByColumn(String columnId) async {
     try {
       final response = await _get('/api/columns/$columnId/cards');

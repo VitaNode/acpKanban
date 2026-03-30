@@ -12,6 +12,7 @@ import 'screens/connection_settings_screen.dart';
 import 'screens/card_session_screen.dart';
 import 'widgets/project_selector.dart';
 import 'widgets/kanban_column_widget.dart';
+import 'widgets/column_manager_dialog.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -110,6 +111,7 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _loadProjectData(String projectId) async {
     try {
       final columns = await _projectService.getColumns(projectId);
+      columns.sort((a, b) => a.position.compareTo(b.position));
       final List<KanbanCard> allCards = [];
       for (var col in columns) {
         final cards = await _projectService.getCardsByColumn(col.id);
@@ -207,8 +209,20 @@ class _MainScreenState extends State<MainScreen> {
         _projects.add(project);
         _currentProject = project;
       });
-      await _loadProjectData(project.id);
+      await _switchProject(project);
     }
+  }
+
+  void _showColumnManager() {
+    if (_currentProject == null) return;
+    showDialog(
+      context: context,
+      builder: (context) => ColumnManagerDialog(
+        projectId: _currentProject!.id,
+        columns: _columns,
+        onUpdated: () => _loadProjectData(_currentProject!.id),
+      ),
+    );
   }
 
   void _showCreateProjectDialog() {
@@ -318,6 +332,11 @@ class _MainScreenState extends State<MainScreen> {
           ),
           actions: [
             if (_currentProject != null) ...[
+              IconButton(
+                icon: const Icon(Icons.view_column_outlined),
+                tooltip: 'Manage Columns',
+                onPressed: _showColumnManager,
+              ),
               IconButton(
                 icon: const Icon(Icons.folder_open),
                 tooltip:
