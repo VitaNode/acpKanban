@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from api.dependencies import (
     get_db,
@@ -9,6 +9,15 @@ from api.dependencies import (
 )
 
 router = APIRouter(prefix="/api", tags=["projects"])
+
+
+class ColumnPositionItem(BaseModel):
+    id: str
+    position: int
+
+
+class ColumnReorderRequest(BaseModel):
+    positions: List[ColumnPositionItem]
 
 
 class ProjectCreateRequest(BaseModel):
@@ -170,6 +179,26 @@ async def get_columns(project_id: str):
     try:
         columns = db.get_columns(project_id)
         return columns
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.patch("/projects/{project_id}/columns/reorder")
+async def reorder_columns(project_id: str, request: ColumnReorderRequest):
+    """
+    Reorder columns for a project.
+    """
+    db = get_db()
+    validate_project_exists(project_id, db)
+
+    positions = [{"id": p.id, "position": p.position} for p in request.positions]
+
+    if not positions:
+        raise HTTPError(400, "No positions provided")
+
+    try:
+        db.reorder_columns(positions)
+        return {"status": "reordered"}
     except Exception as e:
         raise HTTPError(400, str(e))
 
