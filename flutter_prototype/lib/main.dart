@@ -61,6 +61,9 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoadingProjects = false;
   bool _isLoadingTimeline = false;
 
+  // View state
+  String _currentView = 'board';
+
   @override
   void initState() {
     super.initState();
@@ -103,7 +106,7 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _addCard(KanbanColumn column) async {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
-    
+
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => AlertDialog(
@@ -393,91 +396,81 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          leading: Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () => Scaffold.of(context).openDrawer(),
-            ),
-          ),
-          title: Row(
-            children: [
-              const Text('AI Kanban'),
-              const SizedBox(width: 10),
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: _getStatusDotColor(),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 5),
-              Text(
-                _acpClient.activeMode.name.toUpperCase(),
-                style:
-                    const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: ProjectSelector(
-                  currentProject: _currentProject,
-                  projects: _projects,
-                  onProjectSelected: _switchProject,
-                  onCreateProject: _showCreateProjectDialog,
-                  isLoading: _isLoadingProjects,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            if (_currentProject != null) ...[
-              IconButton(
-                icon: const Icon(Icons.view_column_outlined),
-                tooltip: 'Manage Columns',
-                onPressed: _showColumnManager,
-              ),
-              IconButton(
-                icon: const Icon(Icons.folder_open),
-                tooltip:
-                    'Workspace: ${_currentProject?.workspacePath ?? "Not set"}',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                          'Workspace: ${_currentProject?.workspacePath ?? "Not set"}'),
-                    ),
-                  );
-                },
-              ),
-            ],
-            IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: () {
-                  if (_currentProject != null) {
-                    _loadProjectData(_currentProject!.id);
-                  }
-                }),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(icon: Icon(Icons.dashboard), text: 'Board'),
-              Tab(icon: Icon(Icons.history), text: 'Timeline'),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        drawer: _buildDrawer(),
-        body: Column(
+        title: Row(
           children: [
-            StatusSummaryWidget(statuses: _agentStatuses),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _buildBoardView(),
-                  TimelineView(
+            const Text('AI Kanban'),
+            const SizedBox(width: 10),
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: _getStatusDotColor(),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              _acpClient.activeMode.name.toUpperCase(),
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        actions: [
+          if (_currentProject != null) ...[
+            IconButton(
+              icon: const Icon(Icons.view_column_outlined),
+              tooltip: 'Manage Columns',
+              onPressed: _showColumnManager,
+            ),
+            IconButton(
+              icon: const Icon(Icons.folder_open),
+              tooltip:
+                  'Workspace: ${_currentProject?.workspacePath ?? "Not set"}',
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        'Workspace: ${_currentProject?.workspacePath ?? "Not set"}'),
+                  ),
+                );
+              },
+            ),
+          ],
+          IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () {
+                if (_currentProject != null) {
+                  _loadProjectData(_currentProject!.id);
+                }
+              }),
+        ],
+      ),
+      drawer: _buildDrawer(),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: ProjectSelector(
+              currentProject: _currentProject,
+              projects: _projects,
+              onProjectSelected: _switchProject,
+              onCreateProject: _showCreateProjectDialog,
+              isLoading: _isLoadingProjects,
+            ),
+          ),
+          StatusSummaryWidget(statuses: _agentStatuses),
+          Expanded(
+            child: _currentView == 'board'
+                ? _buildBoardView()
+                : TimelineView(
                     events: _timelineEvents,
                     isLoading: _isLoadingTimeline,
                     onRefresh: () {
@@ -486,11 +479,8 @@ class _MainScreenState extends State<MainScreen> {
                       }
                     },
                   ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -524,13 +514,20 @@ class _MainScreenState extends State<MainScreen> {
           ListTile(
             leading: const Icon(Icons.dashboard),
             title: const Text('Board'),
-            selected: true,
-            onTap: () => Navigator.pop(context),
+            selected: _currentView == 'board',
+            onTap: () {
+              setState(() => _currentView = 'board');
+              Navigator.pop(context);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.history),
             title: const Text('Timeline'),
-            onTap: () => Navigator.pop(context),
+            selected: _currentView == 'timeline',
+            onTap: () {
+              setState(() => _currentView = 'timeline');
+              Navigator.pop(context);
+            },
           ),
           const Divider(),
           ListTile(
