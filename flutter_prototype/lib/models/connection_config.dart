@@ -6,7 +6,7 @@ enum ConnectionMode {
   /// 云端中继
   relay,
 
-  /// 云端SaaS (直连云端服务)
+  /// 云端 SaaS (直连云端服务)
   cloud,
 }
 
@@ -15,6 +15,7 @@ class ConnectionConfig {
   final ConnectionMode preferredMode;
   final String? localIp;
   final int? localPort;
+  final int? apiPort;
   final String? relayHost;
   final int? relayPort;
   final String? relayToken;
@@ -27,6 +28,7 @@ class ConnectionConfig {
     this.preferredMode = ConnectionMode.local,
     this.localIp,
     this.localPort = 8766,
+    this.apiPort = 8000,
     this.relayHost,
     this.relayPort = 8766,
     this.relayToken,
@@ -41,6 +43,7 @@ class ConnectionConfig {
     return ConnectionConfig(
       preferredMode: ConnectionMode.local,
       localPort: 8766,
+      apiPort: 8000,
       relayHost: '35.211.219.123',
       relayPort: 8766,
       cloudUrl: 'ws://35.211.219.123:8766/direct',
@@ -49,7 +52,7 @@ class ConnectionConfig {
     );
   }
 
-  /// 从JSON创建配置
+  /// 从 JSON 创建配置
   factory ConnectionConfig.fromJson(Map<String, dynamic> json) {
     final modeIndex = json['preferredMode'] as int? ?? 0;
     final mode = modeIndex == 0
@@ -59,6 +62,7 @@ class ConnectionConfig {
       preferredMode: mode,
       localIp: json['localIp'] as String?,
       localPort: json['localPort'] as int? ?? 8766,
+      apiPort: json['apiPort'] as int? ?? 8000,
       relayHost: json['relayHost'] as String?,
       relayPort: json['relayPort'] as int? ?? 8766,
       relayToken: json['relayToken'] as String?,
@@ -71,12 +75,13 @@ class ConnectionConfig {
     );
   }
 
-  /// 转换为JSON
+  /// 转换为 JSON
   Map<String, dynamic> toJson() {
     return {
       'preferredMode': preferredMode.index,
       'localIp': localIp,
       'localPort': localPort,
+      'apiPort': apiPort,
       'relayHost': relayHost,
       'relayPort': relayPort,
       'relayToken': relayToken,
@@ -92,6 +97,7 @@ class ConnectionConfig {
     ConnectionMode? preferredMode,
     String? localIp,
     int? localPort,
+    int? apiPort,
     String? relayHost,
     int? relayPort,
     String? relayToken,
@@ -104,6 +110,7 @@ class ConnectionConfig {
       preferredMode: preferredMode ?? this.preferredMode,
       localIp: localIp ?? this.localIp,
       localPort: localPort ?? this.localPort,
+      apiPort: apiPort ?? this.apiPort,
       relayHost: relayHost ?? this.relayHost,
       relayPort: relayPort ?? this.relayPort,
       relayToken: relayToken ?? this.relayToken,
@@ -123,6 +130,6 @@ class ConnectionConfig {
 
   @override
   String toString() {
-    return 'ConnectionConfig(mode: $preferredMode, local: $localIp:$localPort, relay: $relayHost:$relayPort, cloud: $cloudUrl)';
+    return 'ConnectionConfig(mode: $preferredMode, local: $localIp:$localPort, api: $apiPort, relay: $relayHost:$relayPort, cloud: $cloudUrl)';
   }
 }

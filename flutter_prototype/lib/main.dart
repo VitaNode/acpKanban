@@ -3,12 +3,14 @@ import 'services/acp_client.dart';
 import 'services/smart_connect.dart';
 import 'services/connection_config_manager.dart';
 import 'services/project_service.dart';
+import 'services/kanban_refresh_service.dart';
 import 'models/connection_config.dart';
 import 'models/kanban_card.dart';
 import 'models/kanban_column.dart';
 import 'models/project.dart';
 import 'screens/connection_settings_screen.dart';
 import 'screens/card_session_screen.dart';
+import 'screens/card_detail_screen.dart';
 import 'widgets/project_selector.dart';
 import 'widgets/kanban_column_widget.dart';
 import 'widgets/column_manager_dialog.dart';
@@ -63,6 +65,16 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _initApp();
+    _setupRefreshService();
+  }
+
+  void _setupRefreshService() {
+    final refreshService = KanbanRefreshService();
+    refreshService.addRefreshListener(() {
+      if (mounted && _currentProject != null) {
+        _loadProjectData(_currentProject!.id);
+      }
+    });
   }
 
   Future<void> _initApp() async {
@@ -89,29 +101,69 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _addCard(KanbanColumn column) async {
-    final controller = TextEditingController();
-    final title = await showDialog<String>(
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
+    
+    final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Add Card to ${column.name}'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Card Title'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Title *',
+                  hintText: 'Enter card title',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 1,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                  hintText: 'Enter card description',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 4,
+                minLines: 2,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel')),
           TextButton(
-              onPressed: () => Navigator.pop(context, controller.text),
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Title is required')),
+                  );
+                  return;
+                }
+                Navigator.pop(context, {
+                  'title': titleController.text.trim(),
+                  'description': descriptionController.text.trim(),
+                });
+              },
               child: const Text('Add')),
         ],
       ),
     );
 
-    if (title != null && title.isNotEmpty) {
-      final card = await _projectService.createCard(column.id, title);
+    if (result != null && result['title']!.isNotEmpty) {
+      final card = await _projectService.createCard(
+        column.id,
+        result['title']!,
+        description: result['description'],
+      );
       if (card != null && _currentProject != null) {
         await _loadProjectData(_currentProject!.id);
       }
@@ -281,6 +333,9 @@ class _MainScreenState extends State<MainScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to move card')),
       );
+    } else {
+      // Trigger refresh on success
+      KanbanRefreshService().markNeedsRefresh();
     }
   }
 
@@ -627,9 +682,18 @@ class _MainScreenState extends State<MainScreen> {
             column: column,
             cards: columnCards,
             onCardTap: (card) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Card Details: ${card.title}')),
-              );
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CardDetailScreen(
+                    card: card,
+                    projectId: _currentProject!.id,
+                  ),
+                ),
+              ).then((_) {
+                // Refresh when returning from card detail
+                KanbanRefreshService().markNeedsRefresh();
+              });
             },
             onCardSessionTap: (card) {
               Navigator.push(
@@ -638,7 +702,10 @@ class _MainScreenState extends State<MainScreen> {
                   builder: (context) =>
                       CardSessionScreen(card: card, acpClient: _acpClient),
                 ),
-              );
+              ).then((_) {
+                // Refresh when returning from session
+                KanbanRefreshService().markNeedsRefresh();
+              });
             },
             onAddCard: () => _addCard(column),
             onCardMoved: _onCardMoved,

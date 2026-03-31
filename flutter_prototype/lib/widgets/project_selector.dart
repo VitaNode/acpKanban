@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
-import '../services/project_service.dart';
 
 class ProjectSelector extends StatelessWidget {
   final Project? currentProject;

@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import '../models/project.dart';
 import '../models/kanban_column.dart';
 import '../models/kanban_card.dart';
@@ -248,6 +247,23 @@ class ProjectService {
     } catch (e) {
       debugPrint('addSessionMessage error: $e');
       return false;
+    }
+  }
+
+  Future<KanbanCard?> updateCard(
+      String cardId, {String? title, String? description}) async {
+    try {
+      final body = <String, dynamic>{};
+      if (title != null) body['title'] = title;
+      if (description != null) body['description'] = description;
+      final response = await _put('/api/cards/$cardId', body);
+      if (response.statusCode == 200) {
+        return KanbanCard.fromJson(jsonDecode(response.body));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('updateCard error: $e');
+      return null;
     }
   }
 

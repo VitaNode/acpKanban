@@ -1,12 +1,11 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/project_service.dart';
 import '../services/session_websocket_service.dart';
 import '../models/kanban_card.dart';
 import '../models/card_message.dart';
 import '../widgets/message_bubble.dart';
-
-import 'services/acp_client.dart';
+import '../services/acp_client.dart';
+import '../services/smart_connect.dart';
 
 class CardSessionScreen extends StatefulWidget {
   final KanbanCard card;
@@ -115,24 +114,29 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
         await _wsService.sendMessage('user', text);
       } else {
         try {
-          if (widget.acpClient != null && widget.acpClient!.activeMode != ConnectionPath.none) {
+          if (widget.acpClient != null &&
+              widget.acpClient!.activeMode != ConnectionPath.none) {
             // Path 2: Route through local bridge via ACPClient
-            final response = await widget.acpClient!.sendRequest('chat/message', {
+            final response = await widget.acpClient!.sendRequest(
+                'chat/message', {
               'message': text,
               'card_id': widget.card.id,
             });
 
-            final aiMessage = response['result']?['message'] ?? 'No response from AI';
+            final aiMessage =
+                response['result']?['message'] ?? 'No response from AI';
             // Save AI response to server history too
-            await _projectService.addSessionMessage(widget.card.id, 'assistant', aiMessage);
+            await _projectService.addSessionMessage(
+                widget.card.id, 'assistant', aiMessage);
           } else {
             // Path 3: Direct to cloud server
             await _projectService.addSessionMessage(widget.card.id, 'user', text);
           }
           await _loadSession();
         } catch (e) {
-
-      debugPrint('Send message error: $e');
+          debugPrint('Send message error: $e');
+        }
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

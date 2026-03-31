@@ -31,9 +31,11 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   late TextEditingController _cloudUrlController;
   late TextEditingController _localPortController;
   late TextEditingController _relayPortController;
+  late TextEditingController _apiPortController;
 
   late int _relayPort;
   late int _localPort;
+  late int _apiPort;
 
   bool _isConnecting = false;
   String _connectionStatus = 'Disconnected';
@@ -51,8 +53,10 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
         TextEditingController(text: 'ws://35.211.219.123:8766/direct');
     _localPortController = TextEditingController(text: '8766');
     _relayPortController = TextEditingController(text: '8766');
+    _apiPortController = TextEditingController(text: '8000');
     _relayPort = 8766;
     _localPort = 8766;
+    _apiPort = 8000;
     _loadConfig();
   }
 
@@ -68,8 +72,10 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
           config.cloudUrl ?? 'ws://35.211.219.123:8766/direct';
       _localPortController.text = (config.localPort ?? 8766).toString();
       _relayPortController.text = (config.relayPort ?? 8766).toString();
+      _apiPortController.text = (config.apiPort ?? 8000).toString();
       _relayPort = config.relayPort ?? 8766;
       _localPort = config.localPort ?? 8766;
+      _apiPort = config.apiPort ?? 8000;
     });
   }
 
@@ -81,6 +87,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     _cloudUrlController.dispose();
     _localPortController.dispose();
     _relayPortController.dispose();
+    _apiPortController.dispose();
     super.dispose();
   }
 
@@ -116,6 +123,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       preferredMode: _selectedMode,
       localIp: _localIpController.text.isEmpty ? null : _localIpController.text,
       localPort: _localPort,
+      apiPort: _apiPort,
       relayHost:
           _relayHostController.text.isEmpty ? null : _relayHostController.text,
       relayPort: _relayPort,
@@ -332,12 +340,24 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
         TextField(
           controller: _localPortController,
           decoration: const InputDecoration(
-            labelText: 'Port',
+            labelText: 'WebSocket Port',
             border: OutlineInputBorder(),
           ),
           keyboardType: TextInputType.number,
           onChanged: (v) =>
               setState(() => _localPort = int.tryParse(v) ?? 8766),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _apiPortController,
+          decoration: const InputDecoration(
+            labelText: 'API Port',
+            hintText: '8000',
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.number,
+          onChanged: (v) =>
+              setState(() => _apiPort = int.tryParse(v) ?? 8000),
         ),
       ],
     );
