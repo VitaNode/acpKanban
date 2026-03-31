@@ -131,12 +131,13 @@ async def get_project(project_id: str):
     db = get_db()
     project = validate_project_exists(project_id, db)
 
-    cursor = db.get_connection().execute(
-        "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
-        (project_id,),
-    )
-    row = cursor.fetchone()
-    card_count = row[0] if row else 0
+    with db.get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
+            (project_id,),
+        )
+        row = cursor.fetchone()
+        card_count = row[0] if row else 0
 
     return ProjectResponse(
         id=project["id"],
@@ -166,12 +167,13 @@ async def update_project(project_id: str, request: ProjectUpdateRequest):
         if not project:
             raise HTTPError(404, "Project not found")
 
-        cursor = db.get_connection().execute(
-            "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
-            (project_id,),
-        )
-        row = cursor.fetchone()
-        card_count = row[0] if row else 0
+        with db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
+                (project_id,),
+            )
+            row = cursor.fetchone()
+            card_count = row[0] if row else 0
 
         return ProjectResponse(
             id=project["id"],
@@ -248,7 +250,7 @@ async def update_column(column_id: str, request: ColumnUpdateRequest):
     Update a column.
     """
     db = get_db()
-    
+
     # Check column exists
     column = db.get_column(column_id)
     if not column:
@@ -279,7 +281,7 @@ async def delete_column(
     If the column has cards, you must provide move_to_column_id to move them.
     """
     db = get_db()
-    
+
     # Check column exists
     column = db.get_column(column_id)
     if not column:
@@ -290,7 +292,7 @@ async def delete_column(
     if cards and not move_to_column_id:
         raise HTTPError(
             400,
-            f"Column has {len(cards)} cards. Provide move_to_column_id or delete cards first"
+            f"Column has {len(cards)} cards. Provide move_to_column_id or delete cards first",
         )
 
     if move_to_column_id:
@@ -339,14 +341,13 @@ async def switch_project(project_id: str):
     db = get_db()
     project = validate_project_exists(project_id, db)
 
-    cursor = db.get_connection().execute(
-        "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
-        (project_id,),
-    )
-    row = cursor.fetchone()
-    card_count = row[0] if row else 0
-
-    db.return_connection(cursor)
+    with db.get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
+            (project_id,),
+        )
+        row = cursor.fetchone()
+        card_count = row[0] if row else 0
 
     columns = db.get_columns(project_id)
 
