@@ -84,20 +84,31 @@ class KanbanDB:
             except Empty:
                 conn = self._create_new_connection()
                 self._load_extensions(conn)
-            
+
             conn.execute("PRAGMA foreign_keys = ON")
             yield conn
-            
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            raise e
-        finally:
+            # 仅在成功时提交
             if conn:
                 conn.commit()
-                # 归还连接池
-                if not self._pool.full():
-                    self._pool.put(conn)
+
+        except Exception as e:
+            # 异常时回滚
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass  # 忽略回滚失败
+            raise e
+        finally:
+            # 确保连接归还到池中（避免连接泄漏）
+            if conn:
+                try:
+                    if not self._pool.full():
+                        self._pool.put_nowait(conn)
+                    else:
+                        conn.close()
+                except Exception:
+                    conn.close()  # 确保连接不泄漏
 
     def return_connection(self, conn):
         """DEPRECATED: 不再需要手动归还连接，使用 get_connection() 上下文管理器"""
