@@ -510,6 +510,10 @@ class KanbanDB:
                     logging.warning(f"Failed to insert timeline event: {e}")
 
     def delete_column(self, column_id: str, move_to_column_id: str = None):
+        """删除列（验证和执行在同一事务中）"""
+        project_id = None
+        
+        # 先在锁外获取项目信息（只读操作）
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT project_id, name FROM columns WHERE id = ?", (column_id,)
@@ -517,31 +521,50 @@ class KanbanDB:
             row = cursor.fetchone()
             if not row:
                 return
-
             project_id, col_name = row[0], row[1]
 
+        # 获取项目锁
         with self._locks_lock:
             if project_id not in self._column_locks:
                 self._column_locks[project_id] = threading.Lock()
 
+        # 在锁内执行验证和删除（保证原子性）
         with self._column_locks[project_id]:
             now = datetime.now().isoformat()
             with self.get_connection() as conn:
+                # 重新验证列仍然存在
+                cursor = conn.execute(
+                    "SELECT project_id, name FROM columns WHERE id = ?", (column_id,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return  # 列在锁获取前已被删除
+                if row[0] != project_id:
+                    raise Exception("Column project mismatch")
+
                 metadata = {"column_name": col_name}
                 if move_to_column_id:
-                    conn.execute(
-                        "UPDATE cards SET column_id = ? WHERE column_id = ?",
-                        (move_to_column_id, column_id),
-                    )
+                    # 验证目标列存在
                     cursor = conn.execute(
                         "SELECT name FROM columns WHERE id = ?", (move_to_column_id,)
                     )
                     target_row = cursor.fetchone()
-                    if target_row:
-                        metadata["moved_cards_to"] = target_row[0]
+                    if not target_row:
+                        raise Exception("Target column not found")
+                    metadata["moved_cards_to"] = target_row[0]
 
-                conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+                    # 移动卡片
+                    result = conn.execute(
+                        "UPDATE cards SET column_id = ? WHERE column_id = ?",
+                        (move_to_column_id, column_id),
+                    )
 
+                # 删除列
+                result = conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+                if result.rowcount == 0:
+                    raise Exception(f"Column {column_id} not found")
+
+                # 记录时间线
                 try:
                     conn.execute(
                         "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
@@ -581,6 +604,28 @@ class KanbanDB:
         with self._column_locks[project_id]:
             now = datetime.now().isoformat()
             with self.get_connection() as conn:
+                # 先验证所有列都存在
+                for item in positions:
+                    cursor = conn.execute(
+                        "SELECT id FROM columns WHERE id = ? AND project_id = ?",
+                        (item["id"], project_id),
+                    )
+                    row = cursor.fetchone()
+                    if not row:
+                        raise Exception(f"Column {item['id']} not found or project mismatch")
+
+                # 执行更新
+                for item in positions:
+                    col_id = item["id"]
+                    position = item["position"]
+                    result = conn.execute(
+                        "UPDATE columns SET position = ? WHERE id = ?",
+                        (position, col_id),
+                    )
+                    if result.rowcount == 0:
+                        raise Exception(f"Column {col_id} not found")
+
+                # 所有更新成功后才记录时间线
                 reordered_ids = [p["id"] for p in positions]
                 try:
                     conn.execute(
@@ -596,14 +641,6 @@ class KanbanDB:
                 except Exception as e:
                     import logging
                     logging.warning(f"Failed to insert timeline event: {e}")
-
-                for item in positions:
-                    col_id = item["id"]
-                    position = item["position"]
-                    conn.execute(
-                        "UPDATE columns SET position = ? WHERE id = ?",
-                        (position, col_id),
-                    )
 
     def get_cards_by_column(self, column_id: str) -> List[Dict]:
         with self.get_connection() as conn:
@@ -739,10 +776,13 @@ class KanbanDB:
     def move_card(
         self, card_id: str, target_column_id: str, target_position: int = None
     ):
+        """移动卡片到目标列（验证和执行在同一事务中）"""
+        project_id = None
+        
+        # 先在锁外获取项目 ID（只读操作）
         with self.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT c.column_id, col1.project_id as source_project, col2.project_id as target_project "
-                "FROM cards c "
+                "SELECT col2.project_id FROM cards c "
                 "JOIN columns col1 ON col1.id = c.column_id "
                 "JOIN columns col2 ON col2.id = ? "
                 "WHERE c.id = ?",
@@ -750,29 +790,36 @@ class KanbanDB:
             )
             row = cursor.fetchone()
             if not row:
-                return
-            source_column_id, source_project, target_project = row[0], row[1], row[2]
+                return  # Card 或 target column 不存在
+            project_id = row[0]
 
-            if source_project != target_project:
-                raise Exception("Cannot move card between different projects")
-
-            project_id = target_project
-
+        # 获取项目锁
         with self._locks_lock:
             if project_id not in self._column_locks:
                 self._column_locks[project_id] = threading.Lock()
 
+        # 在锁内执行验证和更新（保证原子性）
         with self._column_locks[project_id]:
             now = datetime.now().isoformat()
             with self.get_connection() as conn:
+                # 重新验证并获取源列信息
                 cursor = conn.execute(
-                    "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
+                    "SELECT c.column_id, col1.project_id as source_project, col2.project_id as target_project "
+                    "FROM cards c "
+                    "JOIN columns col1 ON col1.id = c.column_id "
+                    "JOIN columns col2 ON col2.id = ? "
+                    "WHERE c.id = ?",
+                    (target_column_id, card_id),
                 )
                 row = cursor.fetchone()
                 if not row:
-                    return
-                source_column_id, title = row[0], row[1]
+                    return  # 数据在锁获取前已被修改
+                source_column_id, source_project, target_project = row[0], row[1], row[2]
 
+                if source_project != target_project:
+                    raise Exception("Cannot move card between different projects")
+
+                # 执行移动
                 if target_position is None:
                     cursor = conn.execute(
                         "SELECT MAX(position) FROM cards WHERE column_id = ?",
@@ -781,11 +828,14 @@ class KanbanDB:
                     row = cursor.fetchone()
                     target_position = (row[0] + 1) if row[0] is not None else 0
 
-                conn.execute(
+                result = conn.execute(
                     "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
                     (target_column_id, target_position, now, card_id),
                 )
+                if result.rowcount == 0:
+                    raise Exception(f"Card {card_id} not found")
 
+                # 记录时间线
                 cursor = conn.execute(
                     "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
                     (source_column_id, target_column_id),
