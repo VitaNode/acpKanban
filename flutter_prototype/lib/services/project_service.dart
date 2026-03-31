@@ -121,7 +121,8 @@ class ProjectService {
     try {
       final response = await _post('/api/projects/$projectId/switch', {});
       if (response.statusCode == 200) {
-        return ProjectSwitchData.fromJson(jsonDecode(response.body));
+        return ProjectSwitchData.fromJsonWithColumnId(
+            jsonDecode(response.body));
       }
       return null;
     } catch (e) {
@@ -179,7 +180,11 @@ class ProjectService {
       final response = await _get('/api/columns/$columnId/cards');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
-        return data.map((c) => KanbanCard.fromJson(c)).toList();
+        return data.map((c) {
+          final cardMap = Map<String, dynamic>.from(c);
+          cardMap['column_id'] = columnId;
+          return KanbanCard.fromJson(cardMap);
+        }).toList();
       }
       return [];
     } catch (e) {
@@ -250,26 +255,26 @@ class ProjectService {
     }
   }
 
-  Future<KanbanCard?> updateCard(
-      String cardId, {String? title, String? description}) async {
+  Future<KanbanCard?> updateCard(String cardId,
+      {String? title, String? description}) async {
     try {
       final body = <String, dynamic>{};
       if (title != null) body['title'] = title;
       if (description != null) body['description'] = description;
-      
+
       // Debug logging
       debugPrint('[ProjectService] updateCard request:');
       debugPrint('  - cardId: $cardId');
       debugPrint('  - body: $body');
       debugPrint('  - title: "$title"');
       debugPrint('  - description: "$description"');
-      
+
       final response = await _put('/api/cards/$cardId', body);
-      
+
       debugPrint('[ProjectService] updateCard response:');
       debugPrint('  - statusCode: ${response.statusCode}');
       debugPrint('  - body: ${response.body}');
-      
+
       if (response.statusCode == 200) {
         return KanbanCard.fromJson(jsonDecode(response.body));
       }
@@ -431,6 +436,19 @@ class ProjectSwitchData {
       message: json['message'] ?? '',
     );
   }
+
+  factory ProjectSwitchData.fromJsonWithColumnId(Map<String, dynamic> json) {
+    return ProjectSwitchData(
+      project: Project.fromJson(json['project']),
+      columns: (json['columns'] as List)
+          .map((c) => KanbanColumnWithCards.fromJsonWithColumnId(c))
+          .toList(),
+      timeline: (json['timeline'] as List)
+          .map((t) => TimelineEvent.fromJson(t))
+          .toList(),
+      message: json['message'] ?? '',
+    );
+  }
 }
 
 class KanbanColumnWithCards {
@@ -449,6 +467,21 @@ class KanbanColumnWithCards {
               ?.map((c) => KanbanCard.fromJson(c))
               .toList() ??
           [],
+    );
+  }
+
+  factory KanbanColumnWithCards.fromJsonWithColumnId(
+      Map<String, dynamic> json) {
+    final column = KanbanColumn.fromJson(json);
+    final cards = (json['cards'] as List?)?.map((c) {
+          final cardMap = Map<String, dynamic>.from(c);
+          cardMap['column_id'] = column.id;
+          return KanbanCard.fromJson(cardMap);
+        }).toList() ??
+        [];
+    return KanbanColumnWithCards(
+      column: column,
+      cards: cards,
     );
   }
 }
