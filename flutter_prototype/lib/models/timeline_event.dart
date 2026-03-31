@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 enum TimelineEventType {
   cardCreated,
   cardUpdated,
@@ -33,14 +35,30 @@ class TimelineEvent {
   });
 
   factory TimelineEvent.fromJson(Map<String, dynamic> json) {
+    Map<String, dynamic>? parsedMetadata;
+    if (json['metadata'] != null) {
+      if (json['metadata'] is String) {
+        try {
+          parsedMetadata =
+              Map<String, dynamic>.from(jsonDecode(json['metadata']));
+        } catch (_) {
+          parsedMetadata = null;
+        }
+      } else if (json['metadata'] is Map) {
+        parsedMetadata = Map<String, dynamic>.from(json['metadata']);
+      }
+    }
+
     return TimelineEvent(
       id: json['id']?.toString() ?? '',
       projectId: json['project_id']?.toString() ?? '',
       cardId: json['card_id']?.toString(),
       type: _parseType(json['event_type']),
       content: json['content'] ?? '',
-      createdAt: json['created_at'] ?? DateTime.now().toIso8601String(),
-      metadata: json['metadata'],
+      createdAt: json['timestamp'] ??
+          json['created_at'] ??
+          DateTime.now().toIso8601String(),
+      metadata: parsedMetadata,
     );
   }
 
