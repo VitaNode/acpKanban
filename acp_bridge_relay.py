@@ -199,6 +199,9 @@ class UnifiedBridge:
                     return
                 try:
                     data = self.e2ee.unwrap_json_rpc(message)
+                    logger.debug(f"Decrypted E2EE from {addr}: {data.get('method')}")
+                    # CRITICAL: Overwrite 'message' with decrypted string so rest of logic works
+                    message = json.dumps(data)
                 except Exception as e:
                     logger.error(f"Failed to decrypt E2EE message from {addr}: {e}")
                     return

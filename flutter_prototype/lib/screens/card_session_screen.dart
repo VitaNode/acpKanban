@@ -6,10 +6,13 @@ import '../models/kanban_card.dart';
 import '../models/card_message.dart';
 import '../widgets/message_bubble.dart';
 
+import 'services/acp_client.dart';
+
 class CardSessionScreen extends StatefulWidget {
   final KanbanCard card;
+  final ACPClient? acpClient;
 
-  const CardSessionScreen({super.key, required this.card});
+  const CardSessionScreen({super.key, required this.card, this.acpClient});
 
   @override
   State<CardSessionScreen> createState() => _CardSessionScreenState();
@@ -111,10 +114,24 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
       if (_wsConnected) {
         await _wsService.sendMessage('user', text);
       } else {
-        await _projectService.addSessionMessage(widget.card.id, 'user', text);
-        await _loadSession();
-      }
-    } catch (e) {
+        try {
+          if (widget.acpClient != null && widget.acpClient!.activeMode != ConnectionPath.none) {
+            // Path 2: Route through local bridge via ACPClient
+            final response = await widget.acpClient!.sendRequest('chat/message', {
+              'message': text,
+              'card_id': widget.card.id,
+            });
+
+            final aiMessage = response['result']?['message'] ?? 'No response from AI';
+            // Save AI response to server history too
+            await _projectService.addSessionMessage(widget.card.id, 'assistant', aiMessage);
+          } else {
+            // Path 3: Direct to cloud server
+            await _projectService.addSessionMessage(widget.card.id, 'user', text);
+          }
+          await _loadSession();
+        } catch (e) {
+
       debugPrint('Send message error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);

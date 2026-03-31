@@ -88,18 +88,15 @@ class ACPProtocolAdapter:
     async def chat_message(self, message: str, card_id: str = None) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
-
-        Args:
-            message: User's message
-            card_id: Card ID for session isolation (optional)
-
-        Optimized with specific context to prevent excessive file searching.
         """
+        self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id})")
         self._current_card_id = card_id
 
         # Ensure session exists
         if not self._session_id:
+            self.log("Creating new session...")
             await self._create_session()
+            self.log(f"Session created: {self._session_id}")
 
         # Get or create session history for this card
         session_history = self._sessions.get(card_id, []) if card_id else []

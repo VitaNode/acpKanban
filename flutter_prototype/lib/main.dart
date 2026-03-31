@@ -635,7 +635,8 @@ class _MainScreenState extends State<MainScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => CardSessionScreen(card: card),
+                  builder: (context) =>
+                      CardSessionScreen(card: card, acpClient: _acpClient),
                 ),
               );
             },
