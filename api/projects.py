@@ -20,6 +20,17 @@ class ColumnReorderRequest(BaseModel):
     positions: List[ColumnPositionItem]
 
 
+class ColumnCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    position: Optional[int] = None
+    color: Optional[str] = "#808080"
+
+
+class ColumnUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    color: Optional[str] = None
+
+
 class ProjectCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     workspace_path: Optional[str] = Field(None, max_length=500)
@@ -202,6 +213,99 @@ async def get_columns(project_id: str):
     try:
         columns = db.get_columns(project_id)
         return columns
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.post("/projects/{project_id}/columns", response_model=dict, status_code=201)
+async def create_column(project_id: str, request: ColumnCreateRequest):
+    """
+    Create a new column for a project.
+    """
+    db = get_db()
+    validate_project_exists(project_id, db)
+
+    try:
+        column_id = db.create_column(
+            project_id=project_id,
+            name=request.name,
+            position=request.position,
+            color=request.color,
+        )
+        column = db.get_column(column_id)
+        if not column:
+            raise HTTPError(500, "Failed to create column")
+        return column
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.put("/columns/{column_id}", response_model=dict)
+async def update_column(column_id: str, request: ColumnUpdateRequest):
+    """
+    Update a column.
+    """
+    db = get_db()
+    
+    # Check column exists
+    column = db.get_column(column_id)
+    if not column:
+        raise HTTPError(404, "Column not found")
+
+    try:
+        db.update_column(
+            column_id=column_id,
+            name=request.name,
+            color=request.color,
+        )
+        return db.get_column(column_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.delete("/columns/{column_id}")
+async def delete_column(
+    column_id: str,
+    move_to_column_id: Optional[str] = Query(
+        None, description="Target column ID to move cards to"
+    ),
+):
+    """
+    Delete a column.
+    If the column has cards, you must provide move_to_column_id to move them.
+    """
+    db = get_db()
+    
+    # Check column exists
+    column = db.get_column(column_id)
+    if not column:
+        raise HTTPError(404, "Column not found")
+
+    # Check if column has cards
+    cards = db.get_cards_by_column(column_id)
+    if cards and not move_to_column_id:
+        raise HTTPError(
+            400,
+            f"Column has {len(cards)} cards. Provide move_to_column_id or delete cards first"
+        )
+
+    if move_to_column_id:
+        # Validate target column
+        target_column = db.get_column(move_to_column_id)
+        if not target_column:
+            raise HTTPError(404, "Target column not found")
+        if target_column["project_id"] != column["project_id"]:
+            raise HTTPError(400, "Target column must belong to the same project")
+
+    try:
+        db.delete_column(column_id, move_to_column_id)
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPError(400, str(e))
 
