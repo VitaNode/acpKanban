@@ -85,66 +85,70 @@ class _MainScreenState extends State<MainScreen> {
       debugPrint('Init Error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
-    Future<void> _addCard(KanbanColumn column) async {
-      final controller = TextEditingController();
-      final title = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Add Card to ${column.name}'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Card Title'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Add')),
-          ],
-        ),
-      );
+    }
+  }
 
-      if (title != null && title.isNotEmpty) {
-        final card = await _projectService.createCard(column.id, title);
-        if (card != null) {
-          await _loadProjectData(_currentProject!.id);
-        }
+  Future<void> _addCard(KanbanColumn column) async {
+    final controller = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Add Card to ${column.name}'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Card Title'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('Add')),
+        ],
+      ),
+    );
+
+    if (title != null && title.isNotEmpty) {
+      final card = await _projectService.createCard(column.id, title);
+      if (card != null && _currentProject != null) {
+        await _loadProjectData(_currentProject!.id);
       }
     }
+  }
 
-    Future<void> _loadProjects() async {
-      setState(() => _isLoadingProjects = true);
-      try {
-        final projects = await _projectService.getProjects();
-        if (mounted) {
-          setState(() {
-            _projects = projects;
-            // Only pick the first project if we don't have a current one
-            if (_currentProject == null && projects.isNotEmpty) {
-              _currentProject = projects.first;
-            }
-          });
-          // Important: If we have a current project, refresh it
-          if (_currentProject != null) {
-            final stillExists = projects.any((p) => p.id == _currentProject!.id);
-            if (stillExists) {
-              await _switchProject(_currentProject!);
-            } else {
-              setState(() => _currentProject = projects.isNotEmpty ? projects.first : null);
-              if (_currentProject != null) await _switchProject(_currentProject!);
-            }
+  Future<void> _loadProjects() async {
+    setState(() => _isLoadingProjects = true);
+    try {
+      final projects = await _projectService.getProjects();
+      if (mounted) {
+        setState(() {
+          _projects = projects;
+          if (_currentProject == null && projects.isNotEmpty) {
+            _currentProject = projects.first;
+          }
+        });
+        if (_currentProject != null) {
+          final stillExists = projects.any((p) => p.id == _currentProject!.id);
+          if (stillExists) {
+            await _switchProject(_currentProject!);
+          } else {
+            setState(() =>
+                _currentProject = projects.isNotEmpty ? projects.first : null);
+            if (_currentProject != null) await _switchProject(_currentProject!);
           }
         }
-      } catch (e) {
-        debugPrint('Load projects error: $e');
-      } finally {
-        if (mounted) setState(() => _isLoadingProjects = false);
       }
+    } catch (e) {
+      debugPrint('Load projects error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingProjects = false);
     }
-    ...
-              onAddCard: () => _addCard(column),
-              onCardMoved: _onCardMoved,
-            );
+  }
 
+  Future<void> _loadProjectData(String projectId) async {
+    try {
       final columns = await _projectService.getColumns(projectId);
       columns.sort((a, b) => a.position.compareTo(b.position));
       final List<KanbanCard> allCards = [];
@@ -635,9 +639,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               );
             },
-            onAddCard: () {
-              // TODO: Implement add card
-            },
+            onAddCard: () => _addCard(column),
             onCardMoved: _onCardMoved,
           );
         },
