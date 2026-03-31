@@ -38,18 +38,32 @@ class E2EEManager:
     @staticmethod
     def generate_key_pair():
         private_key = x25519.X25519PrivateKey.generate()
+        private_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
         public_key = private_key.public_key()
         public_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
         )
-        return private_key, public_bytes.hex()
+        return private_bytes.hex(), public_bytes.hex()
 
     @staticmethod
     def derive_shared_secret(private_key, peer_public_hex):
+        # Convert hex private key to object if needed
+        if isinstance(private_key, str):
+            private_key_obj = x25519.X25519PrivateKey.from_private_bytes(
+                bytes.fromhex(private_key)
+            )
+        else:
+            private_key_obj = private_key
+
         peer_public_key = x25519.X25519PublicKey.from_public_bytes(
             bytes.fromhex(peer_public_hex)
         )
-        shared_key = private_key.exchange(peer_public_key)
+        shared_key = private_key_obj.exchange(peer_public_key)
         derived_key = HKDF(
             algorithm=hashes.SHA256(),
             length=32,
