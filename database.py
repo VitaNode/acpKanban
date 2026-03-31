@@ -133,6 +133,7 @@ class KanbanDB:
                 break
 
     def init_db(self):
+        """初始化数据库表结构"""
         conn = self._create_new_connection()
         try:
             cursor = conn.cursor()
@@ -231,6 +232,7 @@ class KanbanDB:
             conn.close()
 
     def migrate(self):
+        """数据库迁移"""
         conn = self._create_new_connection()
         try:
             cursor = conn.execute(
@@ -532,53 +534,68 @@ class KanbanDB:
         with self._column_locks[project_id]:
             now = datetime.now().isoformat()
             with self.get_connection() as conn:
-                # 重新验证列仍然存在
-                cursor = conn.execute(
-                    "SELECT project_id, name FROM columns WHERE id = ?", (column_id,)
-                )
-                row = cursor.fetchone()
-                if not row:
-                    return  # 列在锁获取前已被删除
-                if row[0] != project_id:
-                    raise Exception("Column project mismatch")
-
-                metadata = {"column_name": col_name}
-                if move_to_column_id:
-                    # 验证目标列存在
-                    cursor = conn.execute(
-                        "SELECT name FROM columns WHERE id = ?", (move_to_column_id,)
-                    )
-                    target_row = cursor.fetchone()
-                    if not target_row:
-                        raise Exception("Target column not found")
-                    metadata["moved_cards_to"] = target_row[0]
-
-                    # 移动卡片
-                    result = conn.execute(
-                        "UPDATE cards SET column_id = ? WHERE column_id = ?",
-                        (move_to_column_id, column_id),
-                    )
-
-                # 删除列
-                result = conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
-                if result.rowcount == 0:
-                    raise Exception(f"Column {column_id} not found")
-
-                # 记录时间线
+                # 启动 IMMEDIATE 事务
+                conn.execute("BEGIN IMMEDIATE")
                 try:
-                    conn.execute(
-                        "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
-                        (
-                            project_id,
-                            "column_deleted",
-                            f"Column '{col_name}' deleted",
-                            json.dumps(metadata),
-                            now,
-                        ),
+                    # 重新验证列仍然存在
+                    cursor = conn.execute(
+                        "SELECT project_id, name FROM columns WHERE id = ?", (column_id,)
                     )
+                    row = cursor.fetchone()
+                    if not row:
+                        conn.execute("ROLLBACK")
+                        return  # 列在锁获取前已被删除
+                    if row[0] != project_id:
+                        conn.execute("ROLLBACK")
+                        raise Exception("Column project mismatch")
+
+                    metadata = {"column_name": col_name}
+                    if move_to_column_id:
+                        # 验证目标列存在
+                        cursor = conn.execute(
+                            "SELECT name FROM columns WHERE id = ?", (move_to_column_id,)
+                        )
+                        target_row = cursor.fetchone()
+                        if not target_row:
+                            conn.execute("ROLLBACK")
+                            raise Exception("Target column not found")
+                        metadata["moved_cards_to"] = target_row[0]
+
+                        # 移动卡片
+                        conn.execute(
+                            "UPDATE cards SET column_id = ? WHERE column_id = ?",
+                            (move_to_column_id, column_id),
+                        )
+
+                    # 删除列
+                    result = conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+                    if result.rowcount == 0:
+                        conn.execute("ROLLBACK")
+                        raise Exception(f"Column {column_id} not found")
+
+                    # 记录时间线
+                    try:
+                        conn.execute(
+                            "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                project_id,
+                                "column_deleted",
+                                f"Column '{col_name}' deleted",
+                                json.dumps(metadata),
+                                now,
+                            ),
+                        )
+                    except Exception as e:
+                        import logging
+                        logging.warning(f"Failed to insert timeline event: {e}")
+                    
+                    conn.execute("COMMIT")
                 except Exception as e:
-                    import logging
-                    logging.warning(f"Failed to insert timeline event: {e}")
+                    try:
+                        conn.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise e
 
     def reorder_columns(self, positions: List[Dict[str, Any]]):
         if not positions:
@@ -604,43 +621,56 @@ class KanbanDB:
         with self._column_locks[project_id]:
             now = datetime.now().isoformat()
             with self.get_connection() as conn:
-                # 先验证所有列都存在
-                for item in positions:
-                    cursor = conn.execute(
-                        "SELECT id FROM columns WHERE id = ? AND project_id = ?",
-                        (item["id"], project_id),
-                    )
-                    row = cursor.fetchone()
-                    if not row:
-                        raise Exception(f"Column {item['id']} not found or project mismatch")
-
-                # 执行更新
-                for item in positions:
-                    col_id = item["id"]
-                    position = item["position"]
-                    result = conn.execute(
-                        "UPDATE columns SET position = ? WHERE id = ?",
-                        (position, col_id),
-                    )
-                    if result.rowcount == 0:
-                        raise Exception(f"Column {col_id} not found")
-
-                # 所有更新成功后才记录时间线
-                reordered_ids = [p["id"] for p in positions]
+                # 启动 IMMEDIATE 事务
+                conn.execute("BEGIN IMMEDIATE")
                 try:
-                    conn.execute(
-                        "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
-                        (
-                            project_id,
-                            "columns_reordered",
-                            "Column order updated",
-                            json.dumps({"column_ids": reordered_ids}),
-                            now,
-                        ),
-                    )
+                    # 先验证所有列都存在
+                    for item in positions:
+                        cursor = conn.execute(
+                            "SELECT id FROM columns WHERE id = ? AND project_id = ?",
+                            (item["id"], project_id),
+                        )
+                        row = cursor.fetchone()
+                        if not row:
+                            conn.execute("ROLLBACK")
+                            raise Exception(f"Column {item['id']} not found or project mismatch")
+
+                    # 执行更新
+                    for item in positions:
+                        col_id = item["id"]
+                        position = item["position"]
+                        result = conn.execute(
+                            "UPDATE columns SET position = ? WHERE id = ?",
+                            (position, col_id),
+                        )
+                        if result.rowcount == 0:
+                            conn.execute("ROLLBACK")
+                            raise Exception(f"Column {col_id} not found")
+
+                    # 所有更新成功后才记录时间线
+                    reordered_ids = [p["id"] for p in positions]
+                    try:
+                        conn.execute(
+                            "INSERT INTO project_timeline (project_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                project_id,
+                                "columns_reordered",
+                                "Column order updated",
+                                json.dumps({"column_ids": reordered_ids}),
+                                now,
+                            ),
+                        )
+                    except Exception as e:
+                        import logging
+                        logging.warning(f"Failed to insert timeline event: {e}")
+                    
+                    conn.execute("COMMIT")
                 except Exception as e:
-                    import logging
-                    logging.warning(f"Failed to insert timeline event: {e}")
+                    try:
+                        conn.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise e
 
     def get_cards_by_column(self, column_id: str) -> List[Dict]:
         with self.get_connection() as conn:
@@ -802,121 +832,145 @@ class KanbanDB:
         with self._column_locks[project_id]:
             now = datetime.now().isoformat()
             with self.get_connection() as conn:
-                # 重新验证并获取源列信息
-                cursor = conn.execute(
-                    "SELECT c.column_id, col1.project_id as source_project, col2.project_id as target_project "
-                    "FROM cards c "
-                    "JOIN columns col1 ON col1.id = c.column_id "
-                    "JOIN columns col2 ON col2.id = ? "
-                    "WHERE c.id = ?",
-                    (target_column_id, card_id),
-                )
-                row = cursor.fetchone()
-                if not row:
-                    return  # 数据在锁获取前已被修改
-                source_column_id, source_project, target_project = row[0], row[1], row[2]
-
-                if source_project != target_project:
-                    raise Exception("Cannot move card between different projects")
-
-                # 执行移动
-                if target_position is None:
+                # 启动 IMMEDIATE 事务（高并发下避免 database is locked）
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    # 重新验证并获取源列信息
                     cursor = conn.execute(
-                        "SELECT MAX(position) FROM cards WHERE column_id = ?",
-                        (target_column_id,),
+                        "SELECT c.column_id, col1.project_id as source_project, col2.project_id as target_project "
+                        "FROM cards c "
+                        "JOIN columns col1 ON col1.id = c.column_id "
+                        "JOIN columns col2 ON col2.id = ? "
+                        "WHERE c.id = ?",
+                        (target_column_id, card_id),
                     )
                     row = cursor.fetchone()
-                    target_position = (row[0] + 1) if row[0] is not None else 0
+                    if not row:
+                        conn.execute("ROLLBACK")
+                        return  # 数据在锁获取前已被修改
+                    source_column_id, source_project, target_project = row[0], row[1], row[2]
 
-                result = conn.execute(
-                    "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
-                    (target_column_id, target_position, now, card_id),
-                )
-                if result.rowcount == 0:
-                    raise Exception(f"Card {card_id} not found")
+                    if source_project != target_project:
+                        conn.execute("ROLLBACK")
+                        raise Exception("Cannot move card between different projects")
 
-                # 记录时间线
-                cursor = conn.execute(
-                    "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
-                    (source_column_id, target_column_id),
-                )
-                row = cursor.fetchone()
-                if row:
-                    source_name, target_name, project_id = row[0], row[1], row[2]
-                    try:
-                        conn.execute(
-                            "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                            (
-                                project_id,
-                                card_id,
-                                "card_moved",
-                                f"Card moved from '{source_name}' to '{target_name}'",
-                                now,
-                            ),
+                    # 执行移动
+                    if target_position is None:
+                        cursor = conn.execute(
+                            "SELECT MAX(position) FROM cards WHERE column_id = ?",
+                            (target_column_id,),
                         )
-                    except Exception as e:
-                        import logging
-                        logging.warning(f"Failed to insert timeline event: {e}")
+                        row = cursor.fetchone()
+                        target_position = (row[0] + 1) if row[0] is not None else 0
+
+                    result = conn.execute(
+                        "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
+                        (target_column_id, target_position, now, card_id),
+                    )
+                    if result.rowcount == 0:
+                        conn.execute("ROLLBACK")
+                        raise Exception(f"Card {card_id} not found")
+
+                    # 记录时间线
+                    cursor = conn.execute(
+                        "SELECT col1.name, col2.name, col1.project_id FROM columns col1, columns col2 WHERE col1.id = ? AND col2.id = ?",
+                        (source_column_id, target_column_id),
+                    )
+                    row = cursor.fetchone()
+                    if row:
+                        source_name, target_name, project_id = row[0], row[1], row[2]
+                        try:
+                            conn.execute(
+                                "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                (
+                                    project_id,
+                                    card_id,
+                                    "card_moved",
+                                    f"Card moved from '{source_name}' to '{target_name}'",
+                                    now,
+                                ),
+                            )
+                        except Exception as e:
+                            import logging
+                            logging.warning(f"Failed to insert timeline event: {e}")
+                    
+                    conn.execute("COMMIT")
+                except Exception as e:
+                    try:
+                        conn.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise e
 
     def add_session_message(
         self, card_id: str, role: str, content: str, metadata: Dict = None
     ):
         now = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
-            conn.execute(
-                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
-                (
-                    card_id,
-                    role,
-                    content,
-                    json.dumps(metadata) if metadata else None,
-                    now,
-                ),
-            )
+            # 启动 IMMEDIATE 事务
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        card_id,
+                        role,
+                        content,
+                        json.dumps(metadata) if metadata else None,
+                        now,
+                    ),
+                )
 
-            cursor = conn.execute(
-                "SELECT column_id FROM cards WHERE id = ?", (card_id,)
-            )
-            row = cursor.fetchone()
-            if row:
                 cursor = conn.execute(
-                    "SELECT project_id FROM columns WHERE id = ?", (row[0],)
+                    "SELECT column_id FROM cards WHERE id = ?", (card_id,)
                 )
-                proj_row = cursor.fetchone()
-                if proj_row:
-                    display_content = (
-                        f"[{role}] {content[:100]}"
-                        if len(content) > 100
-                        else f"[{role}] {content}"
+                row = cursor.fetchone()
+                if row:
+                    cursor = conn.execute(
+                        "SELECT project_id FROM columns WHERE id = ?", (row[0],)
                     )
-                    try:
-                        conn.execute(
-                            "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-                            (
-                                proj_row[0],
-                                card_id,
-                                "ai_action" if role == "assistant" else "user_message",
-                                display_content,
-                                now,
-                            ),
+                    proj_row = cursor.fetchone()
+                    if proj_row:
+                        display_content = (
+                            f"[{role}] {content[:100]}"
+                            if len(content) > 100
+                            else f"[{role}] {content}"
                         )
-                    except Exception as e:
-                        import logging
-                        logging.warning(f"Failed to insert timeline event: {e}")
+                        try:
+                            conn.execute(
+                                "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                                (
+                                    proj_row[0],
+                                    card_id,
+                                    "ai_action" if role == "assistant" else "user_message",
+                                    display_content,
+                                    now,
+                                ),
+                            )
+                        except Exception as e:
+                            import logging
+                            logging.warning(f"Failed to insert timeline event: {e}")
 
-            conn.execute(
-                """
-                DELETE FROM card_sessions
-                WHERE card_id = ? AND id NOT IN (
-                    SELECT id FROM card_sessions
-                    WHERE card_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
+                conn.execute(
+                    """
+                    DELETE FROM card_sessions
+                    WHERE card_id = ? AND id NOT IN (
+                        SELECT id FROM card_sessions
+                        WHERE card_id = ?
+                        ORDER BY created_at DESC
+                        LIMIT ?
+                    )
+                """,
+                    (card_id, card_id, MAX_SESSION_MESSAGES_PER_CARD),
                 )
-            """,
-                (card_id, card_id, MAX_SESSION_MESSAGES_PER_CARD),
-            )
+                conn.execute("COMMIT")
+            except Exception as e:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise e
 
     def get_session_history(self, card_id: str, limit: int = 50) -> List[Dict]:
         with self.get_connection() as conn:
