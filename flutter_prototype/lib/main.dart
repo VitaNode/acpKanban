@@ -404,24 +404,29 @@ class _MainScreenState extends State<MainScreen> {
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
-        title: Row(
-          children: [
-            const Text('AI Kanban'),
-            const SizedBox(width: 10),
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: _getStatusDotColor(),
-                shape: BoxShape.circle,
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              const Text('AI Kanban'),
+              const SizedBox(width: 6),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: _getStatusDotColor(),
+                  shape: BoxShape.circle,
+                ),
               ),
-            ),
-            const SizedBox(width: 5),
-            Text(
-              _acpClient.activeMode.name.toUpperCase(),
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Text(
+                _acpClient.activeMode.name.toUpperCase(),
+                style:
+                    const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
         ),
         actions: [
           if (_currentProject != null) ...[
@@ -456,14 +461,17 @@ class _MainScreenState extends State<MainScreen> {
       drawer: _buildDrawer(),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: ProjectSelector(
-              currentProject: _currentProject,
-              projects: _projects,
-              onProjectSelected: _switchProject,
-              onCreateProject: _showCreateProjectDialog,
-              isLoading: _isLoadingProjects,
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: ProjectSelector(
+                currentProject: _currentProject,
+                projects: _projects,
+                onProjectSelected: _switchProject,
+                onCreateProject: _showCreateProjectDialog,
+                isLoading: _isLoadingProjects,
+              ),
             ),
           ),
           StatusSummaryWidget(statuses: _agentStatuses),
