@@ -105,12 +105,14 @@ class E2EEManager:
 
     @staticmethod
     def save_key_pair(user_id: str, private_key_hex: str, public_key_hex: str):
-        KEY_STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
         keys = {}
         if KEY_STORAGE_PATH.exists():
-            with open(KEY_STORAGE_PATH, "r") as f:
-                keys = json.load(f)
+            try:
+                with open(KEY_STORAGE_PATH, "r") as f:
+                    keys = json.load(f)
+            except (json.JSONDecodeError, ValueError):
+                # If corrupted, start fresh
+                keys = {}
 
         keys[user_id] = {
             "private_key": private_key_hex,
@@ -127,10 +129,13 @@ class E2EEManager:
         if not KEY_STORAGE_PATH.exists():
             return None
 
-        with open(KEY_STORAGE_PATH, "r") as f:
-            keys = json.load(f)
+        try:
+            with open(KEY_STORAGE_PATH, "r") as f:
+                keys = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            return None
 
-        if user_id in keys:
+        if isinstance(keys, dict) and user_id in keys:
             return keys[user_id]["private_key"], keys[user_id]["public_key"]
         return None
 
@@ -139,11 +144,14 @@ class E2EEManager:
         if not KEY_STORAGE_PATH.exists():
             return
 
-        with open(KEY_STORAGE_PATH, "r") as f:
-            keys = json.load(f)
+        try:
+            with open(KEY_STORAGE_PATH, "r") as f:
+                keys = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            return
 
-        if user_id in keys:
+        if isinstance(keys, dict) and user_id in keys:
             del keys[user_id]
-
             with open(KEY_STORAGE_PATH, "w") as f:
                 json.dump(keys, f)
+
