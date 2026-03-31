@@ -256,7 +256,20 @@ class ProjectService {
       final body = <String, dynamic>{};
       if (title != null) body['title'] = title;
       if (description != null) body['description'] = description;
+      
+      // Debug logging
+      debugPrint('[ProjectService] updateCard request:');
+      debugPrint('  - cardId: $cardId');
+      debugPrint('  - body: $body');
+      debugPrint('  - title: "$title"');
+      debugPrint('  - description: "$description"');
+      
       final response = await _put('/api/cards/$cardId', body);
+      
+      debugPrint('[ProjectService] updateCard response:');
+      debugPrint('  - statusCode: ${response.statusCode}');
+      debugPrint('  - body: ${response.body}');
+      
       if (response.statusCode == 200) {
         return KanbanCard.fromJson(jsonDecode(response.body));
       }
@@ -335,11 +348,14 @@ class ProjectService {
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
+      debugPrint('[HTTP PUT] $uri');
+      debugPrint('[HTTP PUT body] ${jsonEncode(body)}');
       final request = await client.putUrl(uri);
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(body));
       final response = await request.close();
       final respBody = await response.transform(utf8.decoder).join();
+      debugPrint('[HTTP PUT response] ${response.statusCode}: $respBody');
       return _HttpResponse(response.statusCode, respBody);
     } finally {
       client.close();
@@ -350,11 +366,14 @@ class ProjectService {
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
+      debugPrint('[HTTP PATCH] $uri');
+      debugPrint('[HTTP PATCH body] ${jsonEncode(body)}');
       final request = await client.patchUrl(uri);
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(body));
       final response = await request.close();
       final respBody = await response.transform(utf8.decoder).join();
+      debugPrint('[HTTP PATCH response] ${response.statusCode}: $respBody');
       return _HttpResponse(response.statusCode, respBody);
     } finally {
       client.close();
