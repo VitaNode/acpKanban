@@ -38,10 +38,11 @@ class ProjectService {
 
   Future<Project?> createProject(String name, {String? workspacePath}) async {
     try {
-      final response = await _post('/api/projects', {
-        'name': name,
-        if (workspacePath != null) 'workspace_path': workspacePath,
-      });
+      final body = <String, dynamic>{'name': name};
+      if (workspacePath != null && workspacePath.trim().isNotEmpty) {
+        body['workspace_path'] = workspacePath.trim();
+      }
+      final response = await _post('/api/projects', body);
       if (response.statusCode == 201) {
         return Project.fromJson(jsonDecode(response.body));
       }
@@ -147,7 +148,8 @@ class ProjectService {
     }
   }
 
-  Future<bool> updateColumn(String columnId, {String? name, String? color}) async {
+  Future<bool> updateColumn(String columnId,
+      {String? name, String? color}) async {
     try {
       final body = <String, dynamic>{};
       if (name != null) body['name'] = name;
@@ -162,7 +164,7 @@ class ProjectService {
 
   Future<bool> deleteColumn(String columnId, {String? moveToColumnId}) async {
     try {
-      final path = moveToColumnId != null 
+      final path = moveToColumnId != null
           ? '/api/columns/$columnId?move_to_column_id=$moveToColumnId'
           : '/api/columns/$columnId';
       final response = await _delete(path);
@@ -249,7 +251,8 @@ class ProjectService {
     }
   }
 
-  Future<bool> moveCard(String cardId, String targetColumnId, int position) async {
+  Future<bool> moveCard(
+      String cardId, String targetColumnId, int position) async {
     try {
       final response = await _patch('/api/cards/$cardId/move', {
         'target_column_id': targetColumnId,
@@ -262,14 +265,19 @@ class ProjectService {
     }
   }
 
-  Future<bool> reorderColumns(String projectId, List<KanbanColumn> allColumns) async {
+  Future<bool> reorderColumns(
+      String projectId, List<KanbanColumn> allColumns) async {
     try {
-      final positions = allColumns.asMap().entries.map((e) => {
-        'id': e.value.id,
-        'position': e.key,
-      }).toList();
+      final List<Map<String, dynamic>> positions = [];
+      for (int i = 0; i < allColumns.length; i++) {
+        positions.add({
+          'id': allColumns[i].id,
+          'position': i,
+        });
+      }
 
-      final response = await _patch('/api/projects/$projectId/columns/reorder', {
+      final response =
+          await _patch('/api/projects/$projectId/columns/reorder', {
         'positions': positions,
       });
       return response.statusCode == 200;
@@ -278,8 +286,6 @@ class ProjectService {
       return false;
     }
   }
-
-  Future<bool> updateColumn(String columnId, {String? name, String? color}) async {
 
   Future<dynamic> _get(String path) async {
     final client = HttpClient();
