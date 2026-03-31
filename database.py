@@ -60,7 +60,11 @@ class KanbanDB:
             extension_paths = [
                 "vec0",
                 "/usr/local/lib/vec0.so",
+                "/usr/local/lib/vec0.dylib",
                 "./lib/vec0.so",
+                "./lib/vec0.dylib",
+                "/usr/local/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-x64/vec0.dylib",
+                "/usr/local/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-arm64/vec0.dylib",
             ]
             for path in extension_paths:
                 try:
@@ -119,10 +123,11 @@ class KanbanDB:
     def return_connection(self, conn):
         """DEPRECATED: 不再需要手动归还连接，使用 get_connection() 上下文管理器"""
         import warnings
+
         warnings.warn(
             "return_connection is deprecated, use 'with self.get_connection() as conn:' instead",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         if self._pool.full():
             conn.close()
@@ -324,7 +329,7 @@ class KanbanDB:
     def create_project(self, name: str, workspace_path: str = None) -> str:
         project_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             conn.execute(
                 "INSERT INTO projects (id, name, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -450,7 +455,7 @@ class KanbanDB:
         with self._column_locks[project_id]:
             column_id = str(uuid.uuid4())[:8]
             now = datetime.now().isoformat()
-            
+
             with self.get_connection() as conn:
                 if position is None:
                     cursor = conn.execute(
@@ -472,13 +477,14 @@ class KanbanDB:
                     )
                 except Exception as e:
                     import logging
+
                     logging.warning(f"Failed to insert timeline event: {e}")
-                
+
                 return column_id
 
     def update_column(self, column_id: str, name: str = None, color: str = None):
         now = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT project_id, name, color FROM columns WHERE id = ?", (column_id,)
@@ -515,12 +521,13 @@ class KanbanDB:
                     )
                 except Exception as e:
                     import logging
+
                     logging.warning(f"Failed to insert timeline event: {e}")
 
     def delete_column(self, column_id: str, move_to_column_id: str = None):
         """删除列（验证和执行在同一事务中）"""
         project_id = None
-        
+
         # 先在锁外获取项目信息（只读操作）
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -540,7 +547,7 @@ class KanbanDB:
         with self.get_connection() as conn:
             # 启动 IMMEDIATE 事务
             conn.execute("BEGIN IMMEDIATE")
-            
+
             # 重新验证列仍然存在
             cursor = conn.execute(
                 "SELECT project_id, name FROM columns WHERE id = ?", (column_id,)
@@ -587,6 +594,7 @@ class KanbanDB:
                 )
             except Exception as e:
                 import logging
+
                 logging.warning(f"Failed to insert timeline event: {e}")
             # 上下文管理器会自动 COMMIT
 
@@ -616,7 +624,7 @@ class KanbanDB:
             with self.get_connection() as conn:
                 # 启动 IMMEDIATE 事务
                 conn.execute("BEGIN IMMEDIATE")
-                
+
                 # 先验证所有列都存在
                 for item in positions:
                     cursor = conn.execute(
@@ -625,7 +633,9 @@ class KanbanDB:
                     )
                     row = cursor.fetchone()
                     if not row:
-                        raise Exception(f"Column {item['id']} not found or project mismatch")
+                        raise Exception(
+                            f"Column {item['id']} not found or project mismatch"
+                        )
 
                 # 执行更新
                 for item in positions:
@@ -653,6 +663,7 @@ class KanbanDB:
                     )
                 except Exception as e:
                     import logging
+
                     logging.warning(f"Failed to insert timeline event: {e}")
                 # 上下文管理器会自动 COMMIT
 
@@ -678,7 +689,7 @@ class KanbanDB:
     ) -> str:
         card_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             if position is None:
                 cursor = conn.execute(
@@ -712,13 +723,14 @@ class KanbanDB:
                     )
                 except Exception as e:
                     import logging
+
                     logging.warning(f"Failed to insert timeline event: {e}")
 
             return card_id
 
     def update_card(self, card_id: str, title: str = None, description: str = None):
         now = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT column_id FROM cards WHERE id = ?", (card_id,)
@@ -750,11 +762,12 @@ class KanbanDB:
                     )
                 except Exception as e:
                     import logging
+
                     logging.warning(f"Failed to insert timeline event: {e}")
 
     def delete_card(self, card_id: str):
         now = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "SELECT column_id, title FROM cards WHERE id = ?", (card_id,)
@@ -785,6 +798,7 @@ class KanbanDB:
                     )
                 except Exception as e:
                     import logging
+
                     logging.warning(f"Failed to insert timeline event: {e}")
 
     def move_card(
@@ -792,7 +806,7 @@ class KanbanDB:
     ):
         """移动卡片到目标列（验证和执行在同一事务中）"""
         project_id = None
-        
+
         # 先在锁外获取项目 ID（只读操作）
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -818,7 +832,7 @@ class KanbanDB:
             with self.get_connection() as conn:
                 # 启动 IMMEDIATE 事务（高并发下避免 database is locked）
                 conn.execute("BEGIN IMMEDIATE")
-                
+
                 # 重新验证并获取源列信息
                 cursor = conn.execute(
                     "SELECT c.column_id, col1.project_id as source_project, col2.project_id as target_project "
@@ -831,7 +845,11 @@ class KanbanDB:
                 row = cursor.fetchone()
                 if not row:
                     return  # 数据在锁获取前已被修改
-                source_column_id, source_project, target_project = row[0], row[1], row[2]
+                source_column_id, source_project, target_project = (
+                    row[0],
+                    row[1],
+                    row[2],
+                )
 
                 if source_project != target_project:
                     raise Exception("Cannot move card between different projects")
@@ -873,6 +891,7 @@ class KanbanDB:
                         )
                     except Exception as e:
                         import logging
+
                         logging.warning(f"Failed to insert timeline event: {e}")
                 # 上下文管理器会自动 COMMIT
 
@@ -884,7 +903,7 @@ class KanbanDB:
         with self.get_connection() as conn:
             # 启动 IMMEDIATE 事务
             conn.execute("BEGIN IMMEDIATE")
-            
+
             conn.execute(
                 "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
                 (
@@ -924,6 +943,7 @@ class KanbanDB:
                         )
                     except Exception as e:
                         import logging
+
                         logging.warning(f"Failed to insert timeline event: {e}")
 
             conn.execute(
