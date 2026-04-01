@@ -73,6 +73,7 @@ class ACPProtocolAdapter:
         self,
         message: str,
         card_id: str = None,
+        workspace_path: str = None,
     ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
@@ -87,7 +88,7 @@ class ACPProtocolAdapter:
         # 1. Get or create sessionId for this card
         if sid_key not in self._card_sessions:
             self.log(f"Creating new session for card: {sid_key}")
-            session_id = await self._create_session()
+            session_id = await self._create_session(workspace_path=workspace_path)
             self._card_sessions[sid_key] = session_id
             self.log(f"Session created: {session_id}")
 
@@ -222,6 +223,7 @@ class ACPProtocolAdapter:
             return await self.chat_message(
                 params.get("message", ""),
                 card_id=params.get("card_id"),
+                workspace_path=params.get("workspace_path"),
             )
         elif method == "health":
             return await self.health(params)

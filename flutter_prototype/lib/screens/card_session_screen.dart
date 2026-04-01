@@ -10,8 +10,10 @@ import '../services/smart_connect.dart';
 class CardSessionScreen extends StatefulWidget {
   final KanbanCard card;
   final ACPClient? acpClient;
+  final String? workspacePath;
 
-  const CardSessionScreen({super.key, required this.card, this.acpClient});
+  const CardSessionScreen(
+      {super.key, required this.card, this.acpClient, this.workspacePath});
 
   @override
   State<CardSessionScreen> createState() => _CardSessionScreenState();
@@ -125,6 +127,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
                 await widget.acpClient!.sendRequest('chat/message', {
               'message': text,
               'card_id': widget.card.id,
+              'workspace_path': widget.workspacePath,
             });
 
             final aiMessage =

@@ -693,6 +693,7 @@ class _MainScreenState extends State<MainScreen> {
                   builder: (context) => CardDetailScreen(
                     card: card,
                     projectId: _currentProject!.id,
+                    workspacePath: _currentProject?.workspacePath,
                   ),
                 ),
               ).then((_) {
@@ -704,8 +705,10 @@ class _MainScreenState extends State<MainScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) =>
-                      CardSessionScreen(card: card, acpClient: _acpClient),
+                  builder: (context) => CardSessionScreen(
+                      card: card,
+                      acpClient: _acpClient,
+                      workspacePath: _currentProject?.workspacePath),
                 ),
               ).then((_) {
                 // Refresh when returning from session

@@ -6,11 +6,13 @@ import 'card_session_screen.dart';
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
   final String projectId;
+  final String? workspacePath;
 
   const CardDetailScreen({
     super.key,
     required this.card,
     required this.projectId,
+    this.workspacePath,
   });
 
   @override
@@ -96,6 +98,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         builder: (context) => CardSessionScreen(
           card: _card,
           acpClient: null,
+          workspacePath: widget.workspacePath,
         ),
       ),
     );
