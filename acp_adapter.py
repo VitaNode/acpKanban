@@ -56,8 +56,13 @@ class ACPProtocolAdapter:
         """
         Handle initialize request.
         """
-        if "cwd" in params:
+        # Prioritize workspace_path (from project) over cwd
+        if "workspace_path" in params:
+            self._workspace_cwd = params["workspace_path"]
+        elif "cwd" in params:
             self._workspace_cwd = params["cwd"]
+
+        self.log(f"Initializing with workspace: {self._workspace_cwd}")
 
         acp_params = {
             "protocolVersion": 1,

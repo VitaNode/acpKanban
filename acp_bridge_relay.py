@@ -282,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--e2ee-key", help="32-byte Hex Key for E2EE Session (Optional, for pre-paired)"
     )
+    parser.add_argument("--workspace-cwd", help="Default workspace path")
     args = parser.parse_args()
 
     # Initialize with token and session_key if provided
@@ -291,6 +292,7 @@ if __name__ == "__main__":
         args.command.split(),
         token=args.token,
         session_key=args.e2ee_key,
+        workspace_cwd=args.workspace_cwd,
     )
     try:
         asyncio.run(bridge.start())

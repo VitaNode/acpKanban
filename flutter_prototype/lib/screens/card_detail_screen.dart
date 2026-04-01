@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/kanban_card.dart';
 import '../models/card_message.dart';
 import '../services/project_service.dart';
@@ -36,6 +37,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   late TextEditingController _descriptionController;
   final _chatController = TextEditingController();
   final _scrollController = ScrollController();
+  final _chatFocusNode = FocusNode();
   
   late KanbanCard _card;
   List<CardMessage> _messages = [];
@@ -88,7 +90,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     final newTitle = _titleController.text.trim();
     final newDesc = _descriptionController.text.trim();
     
-    // Validation: Title not empty and length within limits
     if (newTitle.isEmpty || newTitle.length > 200) return;
     if (newTitle == _card.title && newDesc == _card.description) return;
 
@@ -97,7 +98,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     
     bool saved = false;
 
-    // Loop retry instead of recursion
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         final updated = await _projectService.updateCard(
@@ -213,19 +213,22 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (_wsConnected) {
         await _wsService.sendMessage('user', text);
       } else {
+        // Path 2 or Path 3: Always persist user message to DB first to avoid loss on refresh
+        await _projectService.addSessionMessage(_card.id, 'user', text);
+
         if (widget.acpClient != null && widget.acpClient!.activeMode != ConnectionPath.none) {
           final response = await widget.acpClient!.sendRequest('chat/message', {
             'message': text,
             'card_id': _card.id,
             'card_title': _card.title,
             'card_description': _card.description,
+            'workspace_path': widget.workspacePath, // Explicitly pass workspace path
           });
           
           final aiMessage = response['result']?['message'] ?? 'No response';
           await _projectService.addSessionMessage(_card.id, 'assistant', aiMessage);
-        } else {
-          await _projectService.addSessionMessage(_card.id, 'user', text);
         }
+        
         await _loadSessionHistory();
       }
     } catch (e) {
@@ -252,6 +255,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _descriptionController.dispose();
     _chatController.dispose();
     _scrollController.dispose();
+    _chatFocusNode.dispose();
     super.dispose();
   }
 
@@ -455,22 +459,37 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       ),
       child: SafeArea(
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: TextField(
-                controller: _chatController,
-                style: const TextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'Ask AI Agent about this task...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
+              child: KeyboardListener(
+                focusNode: FocusNode(),
+                onKeyEvent: (event) {
+                  if (event is KeyDownEvent &&
+                      event.logicalKey == LogicalKeyboardKey.enter &&
+                      !HardwareKeyboard.instance.isShiftPressed) {
+                    _sendMessage();
+                  }
+                },
+                child: TextField(
+                  controller: _chatController,
+                  focusNode: _chatFocusNode,
+                  maxLines: 5,
+                  minLines: 1,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  style: const TextStyle(fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Ask AI Agent (Shift+Enter for newline)...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey[100],
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 ),
-                onSubmitted: (_) => _sendMessage(),
               ),
             ),
             const SizedBox(width: 8),
