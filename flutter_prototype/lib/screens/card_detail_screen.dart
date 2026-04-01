@@ -84,52 +84,66 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     });
   }
 
-  Future<void> _autoSaveCard({int retryCount = 0}) async {
+  Future<void> _autoSaveCard() async {
     final newTitle = _titleController.text.trim();
     final newDesc = _descriptionController.text.trim();
     
-    if (newTitle.isEmpty) return;
+    // Validation: Title not empty and length within limits
+    if (newTitle.isEmpty || newTitle.length > 200) return;
     if (newTitle == _card.title && newDesc == _card.description) return;
 
     if (!mounted) return;
     setState(() => _isSavingCard = true);
     
-    try {
-      final updated = await _projectService.updateCard(
-        _card.id,
-        title: newTitle,
-        description: newDesc,
-      );
-      
-      if (updated != null) {
-        if (mounted) {
-          setState(() {
-            _card = updated;
-            _isSavingCard = false;
-          });
+    bool saved = false;
+
+    // Loop retry instead of recursion
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+          _card.id,
+          title: newTitle,
+          description: newDesc,
+        );
+        
+        if (updated != null) {
+          if (mounted) {
+            setState(() {
+              _card = updated;
+              _isSavingCard = false;
+            });
+          }
+          saved = true;
+          break;
+        } else {
+          throw Exception('Server returned null on update');
         }
-      } else {
-        throw Exception('Server returned null on update');
-      }
-    } catch (e) {
-      debugPrint('Auto-save error (attempt ${retryCount + 1}): $e');
-      
-      if (retryCount < 2) {
-        await Future.delayed(AppConstants.retryDelayBase * (retryCount + 1));
-        return _autoSaveCard(retryCount: retryCount + 1);
-      } else {
-        if (mounted) {
-          setState(() => _isSavingCard = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to save changes. Please check your connection.'),
-              backgroundColor: AppConstants.errorColor,
-              duration: Duration(seconds: 2),
-            ),
-          );
+      } catch (e) {
+        lastException = e as Exception;
+        debugPrint('Auto-save error (attempt ${attempt + 1}): $e');
+        if (attempt < 2) {
+          await Future.delayed(AppConstants.retryDelayBase * (attempt + 1));
         }
       }
     }
+
+    if (!saved && mounted) {
+      setState(() => _isSavingCard = false);
+      _showErrorSnackBar('Failed to save changes. Please check your connection.');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: AppConstants.errorColor,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    });
   }
 
   Future<void> _initWebSocket() async {
@@ -160,12 +174,15 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: AppConstants.animationDuration,
-          curve: Curves.easeOut,
-        );
+      if (_scrollController.hasClients && _scrollController.position.hasContentDimensions) {
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        if (maxScroll.isFinite && maxScroll > 0) {
+          _scrollController.animateTo(
+            maxScroll,
+            duration: AppConstants.animationDuration,
+            curve: Curves.easeOut,
+          );
+        }
       }
     });
   }
@@ -218,12 +235,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           _messages = originalMessages;
           _isLoadingMessages = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to send message. Please try again.'),
-            backgroundColor: AppConstants.errorColor,
-          ),
-        );
+        _showErrorSnackBar('Failed to send message. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _isLoadingMessages = false);
@@ -284,6 +296,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 children: [
                   TextField(
                     controller: _titleController,
+                    maxLength: 200,
+                    buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -294,6 +308,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       border: InputBorder.none,
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 8),
+                      counterText: '',
                     ),
                     maxLines: null,
                   ),

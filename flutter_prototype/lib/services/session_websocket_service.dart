@@ -32,6 +32,11 @@ class SessionWebSocketService {
       return true;
     }
 
+    // Clear old messages if switching cards
+    if (_currentCardId != cardId) {
+      _messageController.add([]);
+    }
+
     await disconnect();
     _currentCardId = cardId;
 
@@ -51,11 +56,13 @@ class SessionWebSocketService {
           _isConnected = false;
           _statusController.add('error: $error');
           _stopHeartbeat();
+          _reconnectIfNecessary();
         },
         onDone: () {
           _isConnected = false;
           _statusController.add('disconnected');
           _stopHeartbeat();
+          _reconnectIfNecessary();
         },
       );
 
@@ -73,6 +80,16 @@ class SessionWebSocketService {
     }
   }
 
+  void _reconnectIfNecessary() {
+    if (_currentCardId != null) {
+      Timer(const Duration(seconds: 5), () {
+        if (!_isConnected && _currentCardId != null) {
+          connect(_currentCardId!);
+        }
+      });
+    }
+  }
+
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
@@ -83,6 +100,7 @@ class SessionWebSocketService {
           _isConnected = false;
           _statusController.add('disconnected');
           _stopHeartbeat();
+          _reconnectIfNecessary();
         }
       }
     });
@@ -147,12 +165,13 @@ class SessionWebSocketService {
       await _channel!.sink.close();
       _channel = null;
     }
-    _currentCardId = null;
+    // We don't clear _currentCardId here because we might need it for reconnect
     _isConnected = false;
     _statusController.add('disconnected');
   }
 
   void dispose() {
+    _currentCardId = null;
     disconnect();
   }
 }
