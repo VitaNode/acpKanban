@@ -32,19 +32,20 @@ class CardDetailScreen extends StatefulWidget {
 class _CardDetailScreenState extends State<CardDetailScreen> {
   final _projectService = ProjectService();
   final _wsService = SessionWebSocketService();
-  
+
   late TextEditingController _titleController;
   late TextEditingController _descriptionController;
   final _chatController = TextEditingController();
   final _scrollController = ScrollController();
   final _chatFocusNode = FocusNode();
-  
+
   late KanbanCard _card;
   List<CardMessage> _messages = [];
   bool _isLoadingMessages = false;
   bool _wsConnected = false;
   bool _isSavingCard = false;
-  
+  String? _sessionId;
+
   Timer? _debounceTimer;
 
   @override
@@ -53,8 +54,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _card = widget.card;
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
-    
+
     _initWebSocket();
+    _loadSessionHistory();
+    _loadSessionId();
     _setupListeners();
   }
 
@@ -89,13 +92,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   Future<void> _autoSaveCard() async {
     final newTitle = _titleController.text.trim();
     final newDesc = _descriptionController.text.trim();
-    
+
     if (newTitle.isEmpty || newTitle.length > 200) return;
     if (newTitle == _card.title && newDesc == _card.description) return;
 
     if (!mounted) return;
     setState(() => _isSavingCard = true);
-    
+
     bool saved = false;
 
     for (int attempt = 0; attempt < 3; attempt++) {
@@ -105,7 +108,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           title: newTitle,
           description: newDesc,
         );
-        
+
         if (updated != null) {
           if (mounted) {
             setState(() {
@@ -128,7 +131,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
     if (!saved && mounted) {
       setState(() => _isSavingCard = false);
-      _showErrorSnackBar('Failed to save changes. Please check your connection.');
+      _showErrorSnackBar(
+          'Failed to save changes. Please check your connection.');
     }
   }
 
@@ -172,9 +176,21 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     }
   }
 
+  Future<void> _loadSessionId() async {
+    try {
+      final sessionId = await widget.acpClient?.getSessionId(_card.id);
+      if (mounted && sessionId != null) {
+        setState(() => _sessionId = sessionId['session_id']);
+      }
+    } catch (e) {
+      debugPrint('Load session ID error: $e');
+    }
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients && _scrollController.position.hasContentDimensions) {
+      if (_scrollController.hasClients &&
+          _scrollController.position.hasContentDimensions) {
         final maxScroll = _scrollController.position.maxScrollExtent;
         if (maxScroll.isFinite && maxScroll > 0) {
           _scrollController.animateTo(
@@ -216,19 +232,22 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         // Path 2 or Path 3: Always persist user message to DB first to avoid loss on refresh
         await _projectService.addSessionMessage(_card.id, 'user', text);
 
-        if (widget.acpClient != null && widget.acpClient!.activeMode != ConnectionPath.none) {
+        if (widget.acpClient != null &&
+            widget.acpClient!.activeMode != ConnectionPath.none) {
           final response = await widget.acpClient!.sendRequest('chat/message', {
             'message': text,
             'card_id': _card.id,
             'card_title': _card.title,
             'card_description': _card.description,
-            'workspace_path': widget.workspacePath, // Explicitly pass workspace path
+            'workspace_path':
+                widget.workspacePath, // Explicitly pass workspace path
           });
-          
+
           final aiMessage = response['result']?['message'] ?? 'No response';
-          await _projectService.addSessionMessage(_card.id, 'assistant', aiMessage);
+          await _projectService.addSessionMessage(
+              _card.id, 'assistant', aiMessage);
         }
-        
+
         await _loadSessionHistory();
       }
     } catch (e) {
@@ -250,7 +269,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _debounceTimer?.cancel();
     _titleController.removeListener(_onCardInfoChanged);
     _descriptionController.removeListener(_onCardInfoChanged);
-    
+
     _titleController.dispose();
     _descriptionController.dispose();
     _chatController.dispose();
@@ -294,14 +313,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           Expanded(
             child: SingleChildScrollView(
               controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: AppConstants.horizontalPadding),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppConstants.horizontalPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
                     controller: _titleController,
                     maxLength: 200,
-                    buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+                    buildCounter: (context,
+                            {required currentLength,
+                            required isFocused,
+                            maxLength}) =>
+                        null,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -316,7 +340,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     ),
                     maxLines: null,
                   ),
-                  
                   TextField(
                     controller: _descriptionController,
                     style: TextStyle(
@@ -332,9 +355,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     ),
                     maxLines: null,
                   ),
-                  
                   const SizedBox(height: 12),
-                  
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     decoration: BoxDecoration(
@@ -347,15 +368,18 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       children: [
                         _buildSmallMeta('#${_card.shortId}'),
                         _buildDot(),
-                        _buildSmallMeta('Created ${DateFormatter.formatFull(_card.createdAt)}'),
+                        _buildSmallMeta(
+                            'Created ${DateFormatter.formatFull(_card.createdAt)}'),
                         _buildDot(),
                         _buildSmallMeta('${_card.sessionCount} Messages'),
+                        if (_sessionId != null) ...[
+                          _buildDot(),
+                          _buildSmallMeta(_buildSessionIdDisplay()),
+                        ],
                       ],
                     ),
                   ),
-                  
                   const SizedBox(height: 24),
-                  
                   if (_isLoadingMessages && _messages.isEmpty)
                     _buildSkeletonLoading()
                   else if (_messages.isEmpty)
@@ -369,16 +393,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                         return MessageBubble(message: _messages[index]);
                       },
                     ),
-                  
                   const SizedBox(height: 100),
                 ],
               ),
             ),
           ),
-          
-          if (_isLoadingMessages && _messages.isNotEmpty) 
+          if (_isLoadingMessages && _messages.isNotEmpty)
             const LinearProgressIndicator(minHeight: 2),
-          
           _buildInputArea(),
         ],
       ),
@@ -387,24 +408,37 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   Widget _buildSkeletonLoading() {
     return Column(
-      children: List.generate(3, (index) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(width: 32, height: 32, decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle)),
-            const SizedBox(width: 12),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(width: 80, height: 10, color: Colors.grey[100]),
-                const SizedBox(height: 8),
-                Container(width: double.infinity, height: 40, decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(8))),
-              ],
-            )),
-          ],
-        ),
-      )),
+      children: List.generate(
+          3,
+          (index) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                            color: Colors.grey[100], shape: BoxShape.circle)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                            width: 80, height: 10, color: Colors.grey[100]),
+                        const SizedBox(height: 8),
+                        Container(
+                            width: double.infinity,
+                            height: 40,
+                            decoration: BoxDecoration(
+                                color: Colors.grey[50],
+                                borderRadius: BorderRadius.circular(8))),
+                      ],
+                    )),
+                  ],
+                ),
+              )),
     );
   }
 
@@ -441,6 +475,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Icon(Icons.circle, size: 3, color: AppConstants.metadataIconColor),
     );
+  }
+
+  String _buildSessionIdDisplay() {
+    if (_sessionId == null) return 'No session';
+    final short =
+        _sessionId!.length > 8 ? _sessionId!.substring(0, 8) : _sessionId!;
+    return 'Session: $short';
   }
 
   Widget _buildInputArea() {
@@ -502,7 +543,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               onPressed: _isLoadingMessages ? null : _sendMessage,
               icon: Icon(
                 Icons.send_rounded,
-                color: _isLoadingMessages ? Colors.grey : AppConstants.primaryColor,
+                color: _isLoadingMessages
+                    ? Colors.grey
+                    : AppConstants.primaryColor,
               ),
             ),
           ],
