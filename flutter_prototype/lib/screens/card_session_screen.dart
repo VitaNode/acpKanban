@@ -117,6 +117,10 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
           if (widget.acpClient != null &&
               widget.acpClient!.activeMode != ConnectionPath.none) {
             // Path 2: Route through local bridge via ACPClient
+            // Save user message to server history first
+            await _projectService.addSessionMessage(
+                widget.card.id, 'user', text);
+
             final response =
                 await widget.acpClient!.sendRequest('chat/message', {
               'message': text,
@@ -125,7 +129,7 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
 
             final aiMessage =
                 response['result']?['message'] ?? 'No response from AI';
-            // Save AI response to server history too
+            // Save AI response to server history
             await _projectService.addSessionMessage(
                 widget.card.id, 'assistant', aiMessage);
           } else {

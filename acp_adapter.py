@@ -37,8 +37,9 @@ class ACPProtocolAdapter:
         """
         self.acp = acp_client
         self._workspace_cwd = workspace_cwd or str(Path.home())
-        self._session_id: Optional[str] = None
-        self._sessions = {}  # {card_id: [message_history]}
+        # Mapping: {card_id: sessionId} - One session per card for isolation
+        self._card_sessions = {}
+        self._history = {}  # {card_id: [message_history]}
         self._current_card_id: Optional[str] = None
 
     def log(self, message: str):
@@ -48,37 +49,20 @@ class ACPProtocolAdapter:
     def _build_prompt_item(self, content: str) -> Dict[str, Any]:
         """
         Build prompt item - same format for both gemini and qwen.
-
-        Both gemini --acp and qwen --acp expect:
-            {"type": "text", "text": "content"}
-
-        Args:
-            content: User's message content
-
-        Returns:
-            Prompt item in standard ACP format
         """
         return {"type": "text", "text": content}
 
     async def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle initialize request - adds protocolVersion for gemini --acp compatibility.
-
-        Args:
-            params: Initialize parameters from Flutter App
-
-        Returns:
-            Initialize response from gemini --acp
+        Handle initialize request.
         """
-        # Update workspace if provided
         if "cwd" in params:
             self._workspace_cwd = params["cwd"]
 
-        # Add protocolVersion for standard ACP compliance
         acp_params = {
             "protocolVersion": 1,
             "clientInfo": params.get(
-                "clientInfo", {"name": "Unknown", "version": "1.0.0"}
+                "clientInfo", {"name": "Kanban-Bridge", "version": "1.0.0"}
             ),
         }
 
@@ -89,23 +73,27 @@ class ACPProtocolAdapter:
         self,
         message: str,
         card_id: str = None,
-        card_title: str = None,
-        card_description: str = None,
     ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
-        Sends only the user message — no system prompt, no card context.
+        Uses a unique sessionId per card_id to ensure session isolation.
+        Sends only the raw user message — no system prompt, no card context.
         """
         self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id})")
-        self._current_card_id = card_id
 
-        # Ensure session exists
-        if not self._session_id:
-            self.log("Creating new session...")
-            await self._create_session()
-            self.log(f"Session created: {self._session_id}")
+        # Use 'default' if card_id is missing
+        sid_key = card_id or "default"
 
-        # 1. Setup notification listener
+        # 1. Get or create sessionId for this card
+        if sid_key not in self._card_sessions:
+            self.log(f"Creating new session for card: {sid_key}")
+            session_id = await self._create_session()
+            self._card_sessions[sid_key] = session_id
+            self.log(f"Session created: {session_id}")
+
+        session_id = self._card_sessions[sid_key]
+
+        # 2. Setup notification listener
         listener_id = str(uuid.uuid4())
         queue = self.acp.listen(listener_id)
         collected_text = []
@@ -113,12 +101,9 @@ class ACPProtocolAdapter:
         async def collect_notifications():
             while True:
                 try:
-                    # Non-blocking check for notifications
                     data = await asyncio.wait_for(queue.get(), timeout=0.1)
                     if data.get("method") == "session/update":
                         update = data.get("params", {}).get("update", {})
-
-                        # Capture text content from updates
                         content = update.get("content", {})
                         if isinstance(content, dict) and "text" in content:
                             collected_text.append(content["text"])
@@ -136,28 +121,25 @@ class ACPProtocolAdapter:
                                     c = item.get("content", {})
                                     if isinstance(c, dict) and c.get("type") == "text":
                                         collected_text.append(c.get("text", ""))
-
                 except asyncio.TimeoutError:
                     if prompt_task.done():
                         break
                 except Exception:
                     break
 
-        # 2. Send request with minimal prompt (no system prompt, no history)
+        # 3. Send request with only the user message
         prompt_task = asyncio.create_task(
             self.acp.request(
                 "session/prompt",
                 {
-                    "sessionId": self._session_id,
+                    "sessionId": session_id,
                     "prompt": [self._build_prompt_item(message)],
                 },
             )
         )
 
-        # 3. Run notification collection while waiting
+        # 5. Run notification collection
         await collect_notifications()
-
-        # 4. Cleanup listener
         self.acp.stop_listening(listener_id)
 
         try:
@@ -165,26 +147,20 @@ class ACPProtocolAdapter:
         except Exception as e:
             return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
 
-        # Handle errors from ACP
         if "error" in response:
             return {"error": response["error"]}
 
-        # Extract result
+        # 6. Finalize response
         result = response.get("result", {})
         final_message = "".join(collected_text).strip()
-
-        # If the result itself contains text (rare in standard ACP), prioritize or append it
         if isinstance(result, dict) and "text" in result:
             final_message = result["text"] or final_message
 
-        # Save messages to session cache for isolation
-        if card_id:
-            if card_id not in self._sessions:
-                self._sessions[card_id] = []
-            self._sessions[card_id].append({"role": "user", "content": message})
-            self._sessions[card_id].append(
-                {"role": "assistant", "content": final_message}
-            )
+        # Optional: Save to local history cache
+        if sid_key not in self._history:
+            self._history[sid_key] = []
+        self._history[sid_key].append({"role": "user", "content": message})
+        self._history[sid_key].append({"role": "assistant", "content": final_message})
 
         return {"message": final_message}
 
@@ -202,13 +178,6 @@ class ACPProtocolAdapter:
         return response.get("result", {"status": "healthy"})
 
     async def _create_session(self, workspace_path: str = None) -> str:
-        """
-        Create a new ACP session with gemini --acp.
-
-        Args:
-            workspace_path: The project workspace directory. If not provided,
-                          uses the default workspace_cwd from initialization.
-        """
         project_cwd = workspace_path or self._workspace_cwd
 
         response = await self.acp.request(
@@ -218,9 +187,9 @@ class ACPProtocolAdapter:
         if "error" in response:
             raise Exception(f"Session creation failed: {response['error']}")
 
-        self._session_id = response.get("result", {}).get("sessionId")
+        session_id = response.get("result", {}).get("sessionId")
         self._workspace_cwd = project_cwd
-        return self._session_id
+        return session_id
 
     def set_workspace(self, workspace_path: str):
         """
@@ -250,13 +219,9 @@ class ACPProtocolAdapter:
         elif method == "chat/message" or (
             method == "session/prompt" and "message" in params
         ):
-            # Handle both custom chat/message and simplified session/prompt
-            # Pass card_id, card_title, card_description for context
             return await self.chat_message(
                 params.get("message", ""),
                 card_id=params.get("card_id"),
-                card_title=params.get("card_title"),
-                card_description=params.get("card_description"),
             )
         elif method == "health":
             return await self.health(params)
@@ -268,10 +233,17 @@ class ACPProtocolAdapter:
                 return {"error": response["error"]}
             return response.get("result", {})
 
-    def get_session_id(self) -> Optional[str]:
-        """Get current session ID (for debugging)."""
-        return self._session_id
+    def get_session_id(self, card_id: str = "default") -> Optional[str]:
+        """Get sessionId for a specific card."""
+        return self._card_sessions.get(card_id)
 
-    def reset_session(self):
-        """Reset session ID to force creation of new session."""
-        self._session_id = None
+    def reset_session(self, card_id: str = None):
+        """Reset session ID to force creation of new session. If card_id is provided, only reset that card."""
+        if card_id:
+            self._card_sessions.pop(card_id, None)
+            self._history.pop(card_id, None)
+            self.log(f"Reset session for card: {card_id}")
+        else:
+            self._card_sessions.clear()
+            self._history.clear()
+            self.log("Reset all sessions")
