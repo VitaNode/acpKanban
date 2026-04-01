@@ -93,7 +93,9 @@ class ACPProtocolAdapter:
         # 1. Get or create sessionId for this card
         if sid_key not in self._card_sessions:
             self.log(f"Creating new session for card: {sid_key}")
-            session_id = await self._create_session(workspace_path=workspace_path)
+            session_id = await self._create_session(
+                workspace_path=workspace_path, card_id=sid_key
+            )
             self._card_sessions[sid_key] = session_id
             self.log(f"Session created: {session_id}")
 
@@ -183,12 +185,22 @@ class ACPProtocolAdapter:
         response = await self.acp.request("health", params)
         return response.get("result", {"status": "healthy"})
 
-    async def _create_session(self, workspace_path: str = None) -> str:
+    async def _create_session(
+        self, workspace_path: str = None, card_id: str = None
+    ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
 
-        response = await self.acp.request(
-            "session/new", {"cwd": project_cwd, "mcpServers": []}
-        )
+        params = {
+            "cwd": project_cwd,
+            "mcpServers": [],
+        }
+
+        # OpenClaw requires _meta.sessionKey to bind the ACP session
+        # Gemini CLI and others ignore this field safely
+        if card_id:
+            params["_meta"] = {"sessionKey": f"agent:main:kanban:{card_id}"}
+
+        response = await self.acp.request("session/new", params)
 
         if "error" in response:
             raise Exception(f"Session creation failed: {response['error']}")
