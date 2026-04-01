@@ -177,13 +177,17 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Future<void> _loadSessionId() async {
+    debugPrint(
+        '[CardDetail] Loading session ID for card: ${_card.id}, acpClient: ${widget.acpClient}, activeMode: ${widget.acpClient?.activeMode}');
     try {
       final sessionId = await widget.acpClient?.getSessionId(_card.id);
+      debugPrint('[CardDetail] getSessionId result: $sessionId');
       if (mounted && sessionId != null) {
         setState(() => _sessionId = sessionId['session_id']);
+        debugPrint('[CardDetail] Session ID set to: $_sessionId');
       }
     } catch (e) {
-      debugPrint('Load session ID error: $e');
+      debugPrint('[CardDetail] Load session ID error: $e');
     }
   }
 
@@ -366,15 +370,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     ),
                     child: Row(
                       children: [
-                        _buildSmallMeta('#${_card.shortId}'),
-                        _buildDot(),
                         _buildSmallMeta(
                             'Created ${DateFormatter.formatFull(_card.createdAt)}'),
                         _buildDot(),
                         _buildSmallMeta('${_card.sessionCount} Messages'),
                         if (_sessionId != null) ...[
                           _buildDot(),
-                          _buildSmallMeta(_buildSessionIdDisplay()),
+                          _buildSessionIdChip(),
                         ],
                       ],
                     ),
@@ -477,11 +479,35 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     );
   }
 
-  String _buildSessionIdDisplay() {
-    if (_sessionId == null) return 'No session';
-    final short =
-        _sessionId!.length > 8 ? _sessionId!.substring(0, 8) : _sessionId!;
-    return 'Session: $short';
+  Widget _buildSessionIdChip() {
+    return InkWell(
+      onTap: () {
+        if (_sessionId != null) {
+          Clipboard.setData(ClipboardData(text: _sessionId!));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Session ID copied'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          _sessionId ?? 'No session',
+          style: AppConstants.metadataStyle.copyWith(
+            color: AppConstants.primaryColor,
+            fontFamily: 'monospace',
+            fontSize: 11,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildInputArea() {
