@@ -4,6 +4,14 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/card_message.dart';
 
 class SessionWebSocketService {
+  static final SessionWebSocketService _instance = SessionWebSocketService._internal();
+  
+  factory SessionWebSocketService() {
+    return _instance;
+  }
+
+  SessionWebSocketService._internal();
+
   static const String _baseUrl = 'http://localhost:8000';
 
   WebSocketChannel? _channel;
@@ -19,6 +27,7 @@ class SessionWebSocketService {
 
   Future<bool> connect(String cardId) async {
     if (_channel != null && _currentCardId == cardId && _isConnected) {
+      _statusController.add('connected');
       return true;
     }
 
@@ -107,11 +116,16 @@ class SessionWebSocketService {
     }
     _currentCardId = null;
     _isConnected = false;
+    _statusController.add('disconnected');
   }
 
+  // Note: dispose() is generally not called for singletons during app life,
+  // but keeping it here for completeness/testing.
   void dispose() {
     disconnect();
-    _messageController.close();
-    _statusController.close();
+    // In a singleton, we might NOT want to close these if we expect the service to live forever.
+    // However, if we're shutting down the app or re-initializing, it's good to have.
+    // _messageController.close();
+    // _statusController.close();
   }
 }

@@ -80,32 +80,57 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   void _onCardInfoChanged() {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 1000), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
       _autoSaveCard();
     });
   }
 
-  Future<void> _autoSaveCard() async {
+  Future<void> _autoSaveCard({int retryCount = 0}) async {
     final newTitle = _titleController.text.trim();
     final newDesc = _descriptionController.text.trim();
     
     if (newTitle.isEmpty) return;
     if (newTitle == _card.title && newDesc == _card.description) return;
 
+    if (!mounted) return;
     setState(() => _isSavingCard = true);
+    
     try {
       final updated = await _projectService.updateCard(
         _card.id,
         title: newTitle,
         description: newDesc,
       );
-      if (updated != null && mounted) {
-        setState(() => _card = updated);
+      
+      if (updated != null) {
+        if (mounted) {
+          setState(() {
+            _card = updated;
+            _isSavingCard = false;
+          });
+        }
+      } else {
+        throw Exception('Server returned null on update');
       }
     } catch (e) {
-      debugPrint('Auto-save error: $e');
-    } finally {
-      if (mounted) setState(() => _isSavingCard = false);
+      debugPrint('Auto-save error (attempt ${retryCount + 1}): $e');
+      
+      if (retryCount < 2) {
+        // Retry with exponential backoff
+        await Future.delayed(Duration(milliseconds: 500 * (retryCount + 1)));
+        return _autoSaveCard(retryCount: retryCount + 1);
+      } else {
+        if (mounted) {
+          setState(() => _isSavingCard = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save changes. Please check your connection.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
     }
   }
 
