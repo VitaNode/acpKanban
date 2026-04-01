@@ -20,12 +20,13 @@ class SessionWebSocketService {
 
   String? _currentCardId;
   bool _isConnected = false;
+  Timer? _heartbeatTimer;
 
   Stream<List<CardMessage>> get messages => _messageController.stream;
   Stream<String> get status => _statusController.stream;
   bool get isConnected => _isConnected;
 
-  Future<bool> connect(String cardId) async {
+  Future<bool> connect(String cardId, {int retryCount = 0}) async {
     if (_channel != null && _currentCardId == cardId && _isConnected) {
       _statusController.add('connected');
       return true;
@@ -42,16 +43,19 @@ class SessionWebSocketService {
       await _channel!.ready;
       _isConnected = true;
       _statusController.add('connected');
+      _startHeartbeat();
 
       _channel!.stream.listen(
         (data) => _handleMessage(data as String),
         onError: (error) {
           _isConnected = false;
           _statusController.add('error: $error');
+          _stopHeartbeat();
         },
         onDone: () {
           _isConnected = false;
           _statusController.add('disconnected');
+          _stopHeartbeat();
         },
       );
 
@@ -60,14 +64,41 @@ class SessionWebSocketService {
     } catch (e) {
       _isConnected = false;
       _statusController.add('connection_failed: $e');
+      
+      if (retryCount < 3) {
+        await Future.delayed(Duration(seconds: 2 * (retryCount + 1)));
+        return connect(cardId, retryCount: retryCount + 1);
+      }
       return false;
     }
   }
 
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (_isConnected && _channel != null) {
+        try {
+          _channel!.sink.add(jsonEncode({'type': 'ping'}));
+        } catch (e) {
+          _isConnected = false;
+          _statusController.add('disconnected');
+          _stopHeartbeat();
+        }
+      }
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
   Future<void> _requestHistory() async {
-    _channel?.sink.add(jsonEncode({
-      'type': 'get_history',
-    }));
+    if (_channel != null && _isConnected) {
+      _channel?.sink.add(jsonEncode({
+        'type': 'get_history',
+      }));
+    }
   }
 
   void _handleMessage(String data) {
@@ -88,6 +119,7 @@ class SessionWebSocketService {
           _requestHistory();
           break;
         case 'pong':
+          // Heartbeat received
           break;
       }
     } catch (e) {
@@ -98,7 +130,7 @@ class SessionWebSocketService {
   Future<void> sendMessage(String role, String content,
       {Map<String, dynamic>? metadata}) async {
     if (_channel == null || !_isConnected) {
-      return;
+      throw Exception('Not connected to WebSocket');
     }
 
     _channel!.sink.add(jsonEncode({
@@ -110,6 +142,7 @@ class SessionWebSocketService {
   }
 
   Future<void> disconnect() async {
+    _stopHeartbeat();
     if (_channel != null) {
       await _channel!.sink.close();
       _channel = null;
@@ -119,13 +152,7 @@ class SessionWebSocketService {
     _statusController.add('disconnected');
   }
 
-  // Note: dispose() is generally not called for singletons during app life,
-  // but keeping it here for completeness/testing.
   void dispose() {
     disconnect();
-    // In a singleton, we might NOT want to close these if we expect the service to live forever.
-    // However, if we're shutting down the app or re-initializing, it's good to have.
-    // _messageController.close();
-    // _statusController.close();
   }
 }

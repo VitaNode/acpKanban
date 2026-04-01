@@ -176,15 +176,21 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
 
-    // Add optimistic user message
+    final originalMessages = List<CardMessage>.from(_messages);
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+
+    // Add optimistic user message (Immutable update)
     setState(() {
-      _messages.add(CardMessage(
-        id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
-        cardId: _card.id,
-        role: 'user',
-        content: text,
-        createdAt: DateTime.now().toIso8601String(),
-      ));
+      _messages = [
+        ..._messages,
+        CardMessage(
+          id: tempId,
+          cardId: _card.id,
+          role: 'user',
+          content: text,
+          createdAt: DateTime.now().toIso8601String(),
+        )
+      ];
       _chatController.clear();
       _isLoadingMessages = true;
     });
@@ -212,6 +218,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       }
     } catch (e) {
       debugPrint('Send message error: $e');
+      // Rollback on failure
+      if (mounted) {
+        setState(() {
+          _messages = originalMessages;
+          _isLoadingMessages = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send message. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoadingMessages = false);
     }
