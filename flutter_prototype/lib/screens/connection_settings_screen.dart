@@ -334,7 +334,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             hintText: '192.168.1.100',
             border: OutlineInputBorder(),
           ),
-          keyboardType: TextInputType.number,
+          keyboardType: TextInputType.text,
+          autocorrect: false,
+          enableSuggestions: false,
         ),
         const SizedBox(height: 12),
         TextField(
@@ -356,8 +358,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             border: OutlineInputBorder(),
           ),
           keyboardType: TextInputType.number,
-          onChanged: (v) =>
-              setState(() => _apiPort = int.tryParse(v) ?? 8000),
+          onChanged: (v) => setState(() => _apiPort = int.tryParse(v) ?? 8000),
         ),
       ],
     );
@@ -379,6 +380,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             hintText: '35.211.219.123 or mybot.siliconpulse.cc',
             border: OutlineInputBorder(),
           ),
+          keyboardType: TextInputType.text,
+          autocorrect: false,
+          enableSuggestions: false,
         ),
         const SizedBox(height: 12),
         TextField(
