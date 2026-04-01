@@ -85,7 +85,13 @@ class ACPProtocolAdapter:
         response = await self.acp.request("initialize", acp_params)
         return response.get("result", {})
 
-    async def chat_message(self, message: str, card_id: str = None) -> Dict[str, Any]:
+    async def chat_message(
+        self,
+        message: str,
+        card_id: str = None,
+        card_title: str = None,
+        card_description: str = None,
+    ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
         """
@@ -98,33 +104,14 @@ class ACPProtocolAdapter:
             await self._create_session()
             self.log(f"Session created: {self._session_id}")
 
-        # Get or create session history for this card
-        session_history = self._sessions.get(card_id, []) if card_id else []
-
-        # Optimize prompt: provide direct path to database to stop AI from searching everything
-        prompt_context = ""
-        if session_history:
-            context_summary = "\n".join(
-                [
-                    f"{msg['role']}: {msg['content'][:100]}..."
-                    for msg in session_history[-5:]
-                ]
-            )
-            prompt_context = f"\n对话历史:\n{context_summary}\n"
-
-        optimized_prompt = f"""
-{prompt_context}
-用户消息: {message}
-
-请优先从以下位置获取数据:
-- 数据库: ./Project/mybot/kanban.db (tasks 表)
-- 当前目录: {self._workspace_cwd}
-
-注意: 
-1. 如果用户要求列出任务，请直接查询上述 SQLite 数据库。
-2. 除非绝对必要，否则不要进行全盘文件搜索。
-3. 请以简洁的 JSON 数组格式返回任务数据。
-"""
+        # Build minimal prompt: card title + description + user message only
+        prompt_parts = []
+        if card_title:
+            prompt_parts.append(f"Card: {card_title}")
+        if card_description:
+            prompt_parts.append(f"Description: {card_description}")
+        prompt_parts.append(f"User: {message}")
+        user_prompt = "\n".join(prompt_parts)
 
         # 1. Setup notification listener
         listener_id = str(uuid.uuid4())
@@ -164,13 +151,13 @@ class ACPProtocolAdapter:
                 except Exception:
                     break
 
-        # 2. Send request with optimized prompt and wait
+        # 2. Send request with minimal prompt (no system prompt, no history)
         prompt_task = asyncio.create_task(
             self.acp.request(
                 "session/prompt",
                 {
                     "sessionId": self._session_id,
-                    "prompt": [self._build_prompt_item(optimized_prompt)],
+                    "prompt": [self._build_prompt_item(user_prompt)],
                 },
             )
         )
@@ -272,9 +259,12 @@ class ACPProtocolAdapter:
             method == "session/prompt" and "message" in params
         ):
             # Handle both custom chat/message and simplified session/prompt
-            # Pass card_id for session isolation
+            # Pass card_id, card_title, card_description for context
             return await self.chat_message(
-                params.get("message", ""), card_id=params.get("card_id")
+                params.get("message", ""),
+                card_id=params.get("card_id"),
+                card_title=params.get("card_title"),
+                card_description=params.get("card_description"),
             )
         elif method == "health":
             return await self.health(params)

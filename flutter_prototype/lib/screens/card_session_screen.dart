@@ -117,10 +117,12 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
           if (widget.acpClient != null &&
               widget.acpClient!.activeMode != ConnectionPath.none) {
             // Path 2: Route through local bridge via ACPClient
-            final response = await widget.acpClient!.sendRequest(
-                'chat/message', {
+            final response =
+                await widget.acpClient!.sendRequest('chat/message', {
               'message': text,
               'card_id': widget.card.id,
+              'card_title': widget.card.title,
+              'card_description': widget.card.description,
             });
 
             final aiMessage =
@@ -130,7 +132,8 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
                 widget.card.id, 'assistant', aiMessage);
           } else {
             // Path 3: Direct to cloud server
-            await _projectService.addSessionMessage(widget.card.id, 'user', text);
+            await _projectService.addSessionMessage(
+                widget.card.id, 'user', text);
           }
           await _loadSession();
         } catch (e) {
