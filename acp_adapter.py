@@ -94,6 +94,7 @@ class ACPProtocolAdapter:
     ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
+        Sends only the user message — no system prompt, no card context.
         """
         self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id})")
         self._current_card_id = card_id
@@ -103,15 +104,6 @@ class ACPProtocolAdapter:
             self.log("Creating new session...")
             await self._create_session()
             self.log(f"Session created: {self._session_id}")
-
-        # Build minimal prompt: card title + description + user message only
-        prompt_parts = []
-        if card_title:
-            prompt_parts.append(f"Card: {card_title}")
-        if card_description:
-            prompt_parts.append(f"Description: {card_description}")
-        prompt_parts.append(f"User: {message}")
-        user_prompt = "\n".join(prompt_parts)
 
         # 1. Setup notification listener
         listener_id = str(uuid.uuid4())
@@ -157,7 +149,7 @@ class ACPProtocolAdapter:
                 "session/prompt",
                 {
                     "sessionId": self._session_id,
-                    "prompt": [self._build_prompt_item(user_prompt)],
+                    "prompt": [self._build_prompt_item(message)],
                 },
             )
         )

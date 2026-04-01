@@ -121,8 +121,6 @@ class _CardSessionScreenState extends State<CardSessionScreen> {
                 await widget.acpClient!.sendRequest('chat/message', {
               'message': text,
               'card_id': widget.card.id,
-              'card_title': widget.card.title,
-              'card_description': widget.card.description,
             });
 
             final aiMessage =
