@@ -462,34 +462,30 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: KeyboardListener(
-                focusNode: FocusNode(),
-                onKeyEvent: (event) {
-                  if (event is KeyDownEvent &&
-                      event.logicalKey == LogicalKeyboardKey.enter &&
-                      !HardwareKeyboard.instance.isShiftPressed) {
+              child: TextField(
+                controller: _chatController,
+                focusNode: _chatFocusNode,
+                maxLines: 5,
+                minLines: 1,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Ask AI Agent (Shift+Enter for newline)...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+                onSubmitted: (value) {
+                  if (!HardwareKeyboard.instance.isShiftPressed) {
                     _sendMessage();
                   }
                 },
-                child: TextField(
-                  controller: _chatController,
-                  focusNode: _chatFocusNode,
-                  maxLines: 5,
-                  minLines: 1,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  style: const TextStyle(fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'Ask AI Agent (Shift+Enter for newline)...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[100],
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  ),
-                ),
               ),
             ),
             const SizedBox(width: 8),
