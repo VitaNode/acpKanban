@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_card.dart';
+import '../utils/date_formatter.dart';
 
 class KanbanCardWidget extends StatelessWidget {
   final KanbanCard card;
@@ -72,7 +73,7 @@ class KanbanCardWidget extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _formatDate(card.updatedAt),
+                        DateFormatter.formatShortDate(card.updatedAt),
                         style: TextStyle(fontSize: 10, color: Colors.grey[500]),
                       ),
                       Icon(Icons.more_horiz, size: 16, color: Colors.grey[400]),
@@ -126,11 +127,5 @@ class KanbanCardWidget extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatDate(String dateStr) {
-    final dt = DateTime.tryParse(dateStr);
-    if (dt == null) return '';
-    return '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }

@@ -19,6 +19,8 @@ class KanbanCard {
     this.sessionCount = 0,
   });
 
+  String get shortId => id.length >= 8 ? id.substring(0, 8) : id;
+
   factory KanbanCard.fromJson(Map<String, dynamic> json) {
     return KanbanCard(
       id: json['id']?.toString() ?? '',

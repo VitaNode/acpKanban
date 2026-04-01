@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/card_message.dart';
+import '../utils/date_formatter.dart';
+import '../constants/app_constants.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
@@ -29,7 +31,7 @@ class MessageBubble extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isUser ? Colors.indigo : Colors.white,
+                color: isUser ? AppConstants.primaryColor : Colors.white,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
                   topRight: const Radius.circular(16),
@@ -73,10 +75,10 @@ class MessageBubble extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (!isUser) ...[
-          const Icon(Icons.smart_toy, size: 14, color: Colors.indigo),
+          const Icon(Icons.smart_toy, size: 14, color: AppConstants.primaryColor),
           const SizedBox(width: 4),
           const Text('AI Agent', 
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppConstants.primaryColor)),
         ],
         if (isUser) ...[
           const Text('You', 
@@ -86,7 +88,7 @@ class MessageBubble extends StatelessWidget {
         ],
         const SizedBox(width: 8),
         Text(
-          _formatTime(message.createdAt),
+          DateFormatter.formatTimeOnly(message.createdAt),
           style: const TextStyle(fontSize: 10, color: Colors.grey),
         ),
       ],
@@ -110,7 +112,7 @@ class MessageBubble extends StatelessWidget {
           style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.blueGrey),
         ),
         subtitle: Text(
-          _formatTime(message.createdAt),
+          DateFormatter.formatTimeOnly(message.createdAt),
           style: const TextStyle(fontSize: 10, color: Colors.grey),
         ),
         children: [
@@ -155,11 +157,5 @@ class MessageBubble extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _formatTime(String dateStr) {
-    final dt = DateTime.tryParse(dateStr);
-    if (dt == null) return '';
-    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }

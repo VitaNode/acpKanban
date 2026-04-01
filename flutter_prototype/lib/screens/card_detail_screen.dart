@@ -7,6 +7,8 @@ import '../services/session_websocket_service.dart';
 import '../services/acp_client.dart';
 import '../services/smart_connect.dart';
 import '../widgets/message_bubble.dart';
+import '../utils/date_formatter.dart';
+import '../constants/app_constants.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
@@ -55,7 +57,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   void _setupListeners() {
-    // Listen for WebSocket messages
     _wsService.messages.listen((msgs) {
       if (mounted) {
         setState(() {
@@ -66,21 +67,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       }
     });
 
-    // Listen for WebSocket status
     _wsService.status.listen((status) {
       if (mounted) {
         setState(() => _wsConnected = status == 'connected');
       }
     });
 
-    // Setup auto-save listeners for title and description
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
   }
 
   void _onCardInfoChanged() {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+    _debounceTimer = Timer(AppConstants.autoSaveDebounce, () {
       _autoSaveCard();
     });
   }
@@ -116,8 +115,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       debugPrint('Auto-save error (attempt ${retryCount + 1}): $e');
       
       if (retryCount < 2) {
-        // Retry with exponential backoff
-        await Future.delayed(Duration(milliseconds: 500 * (retryCount + 1)));
+        await Future.delayed(AppConstants.retryDelayBase * (retryCount + 1));
         return _autoSaveCard(retryCount: retryCount + 1);
       } else {
         if (mounted) {
@@ -125,7 +123,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Failed to save changes. Please check your connection.'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppConstants.errorColor,
               duration: Duration(seconds: 2),
             ),
           );
@@ -165,7 +163,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
+          duration: AppConstants.animationDuration,
           curve: Curves.easeOut,
         );
       }
@@ -177,14 +175,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (text.isEmpty) return;
 
     final originalMessages = List<CardMessage>.from(_messages);
-    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Add optimistic user message (Immutable update)
     setState(() {
       _messages = [
         ..._messages,
         CardMessage(
-          id: tempId,
+          id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
           cardId: _card.id,
           role: 'user',
           content: text,
@@ -200,7 +196,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (_wsConnected) {
         await _wsService.sendMessage('user', text);
       } else {
-        // Path 2 or Path 3
         if (widget.acpClient != null && widget.acpClient!.activeMode != ConnectionPath.none) {
           final response = await widget.acpClient!.sendRequest('chat/message', {
             'message': text,
@@ -218,7 +213,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       }
     } catch (e) {
       debugPrint('Send message error: $e');
-      // Rollback on failure
       if (mounted) {
         setState(() {
           _messages = originalMessages;
@@ -227,7 +221,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Failed to send message. Please try again.'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppConstants.errorColor,
           ),
         );
       }
@@ -242,23 +236,11 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _titleController.removeListener(_onCardInfoChanged);
     _descriptionController.removeListener(_onCardInfoChanged);
     
-    _wsService.disconnect();
-    _wsService.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
     _chatController.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  String _formatDateTime(String dateTimeStr) {
-    try {
-      final dt = DateTime.parse(dateTimeStr);
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return dateTimeStr;
-    }
   }
 
   @override
@@ -296,11 +278,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           Expanded(
             child: SingleChildScrollView(
               controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: AppConstants.horizontalPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- Header: Editable Title ---
                   TextField(
                     controller: _titleController,
                     style: const TextStyle(
@@ -317,7 +298,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     maxLines: null,
                   ),
                   
-                  // --- Header: Editable Description ---
                   TextField(
                     controller: _descriptionController,
                     style: TextStyle(
@@ -336,7 +316,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   
                   const SizedBox(height: 12),
                   
-                  // --- Metadata Bar (Weakened) ---
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     decoration: BoxDecoration(
@@ -347,9 +326,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     ),
                     child: Row(
                       children: [
-                        _buildSmallMeta('#${_card.id.substring(0, 8)}'),
+                        _buildSmallMeta('#${_card.shortId}'),
                         _buildDot(),
-                        _buildSmallMeta('Created ${_formatDateTime(_card.createdAt)}'),
+                        _buildSmallMeta('Created ${DateFormatter.formatFull(_card.createdAt)}'),
                         _buildDot(),
                         _buildSmallMeta('${_card.sessionCount} Messages'),
                       ],
@@ -358,18 +337,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   
                   const SizedBox(height: 24),
                   
-                  // --- Conversation Thread ---
-                  if (_messages.isEmpty && !_isLoadingMessages)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 40),
-                        child: Text(
-                          'No discussion yet.\nAsk the AI Agent for help with this task.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey[400], fontSize: 13),
-                        ),
-                      ),
-                    )
+                  if (_isLoadingMessages && _messages.isEmpty)
+                    _buildSkeletonLoading()
+                  else if (_messages.isEmpty)
+                    _buildEmptyState()
                   else
                     ListView.builder(
                       shrinkWrap: true,
@@ -380,17 +351,59 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       },
                     ),
                   
-                  const SizedBox(height: 100), // Space for input area
+                  const SizedBox(height: 100),
                 ],
               ),
             ),
           ),
           
-          if (_isLoadingMessages) const LinearProgressIndicator(minHeight: 2),
+          if (_isLoadingMessages && _messages.isNotEmpty) 
+            const LinearProgressIndicator(minHeight: 2),
           
-          // --- Persistent Input Area ---
           _buildInputArea(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoading() {
+    return Column(
+      children: List.generate(3, (index) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(width: 32, height: 32, decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle)),
+            const SizedBox(width: 12),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(width: 80, height: 10, color: Colors.grey[100]),
+                const SizedBox(height: 8),
+                Container(width: double.infinity, height: 40, decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(8))),
+              ],
+            )),
+          ],
+        ),
+      )),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Column(
+          children: [
+            Icon(Icons.chat_bubble_outline, size: 40, color: Colors.grey[200]),
+            const SizedBox(height: 16),
+            Text(
+              'No discussion yet.\nAsk the AI Agent for help with this task.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -398,10 +411,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   Widget _buildSmallMeta(String text) {
     return Text(
       text,
-      style: TextStyle(
-        fontSize: 11,
-        color: Colors.grey[500],
-        fontFamily: 'monospace',
+      style: AppConstants.metadataStyle.copyWith(
+        color: AppConstants.metadataColor,
       ),
     );
   }
@@ -409,7 +420,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   Widget _buildDot() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Icon(Icons.circle, size: 3, color: Colors.grey[300]),
+      child: Icon(Icons.circle, size: 3, color: AppConstants.metadataIconColor),
     );
   }
 
@@ -452,7 +463,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               onPressed: _isLoadingMessages ? null : _sendMessage,
               icon: Icon(
                 Icons.send_rounded,
-                color: _isLoadingMessages ? Colors.grey : Colors.indigo,
+                color: _isLoadingMessages ? Colors.grey : AppConstants.primaryColor,
               ),
             ),
           ],
