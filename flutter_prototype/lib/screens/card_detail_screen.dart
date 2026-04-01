@@ -1,18 +1,25 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/kanban_card.dart';
+import '../models/card_message.dart';
 import '../services/project_service.dart';
-import 'card_session_screen.dart';
+import '../services/session_websocket_service.dart';
+import '../services/acp_client.dart';
+import '../services/smart_connect.dart';
+import '../widgets/message_bubble.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
   final String projectId;
   final String? workspacePath;
+  final ACPClient? acpClient;
 
   const CardDetailScreen({
     super.key,
     required this.card,
     required this.projectId,
     this.workspacePath,
+    this.acpClient,
   });
 
   @override
@@ -20,11 +27,21 @@ class CardDetailScreen extends StatefulWidget {
 }
 
 class _CardDetailScreenState extends State<CardDetailScreen> {
+  final _projectService = ProjectService();
+  final _wsService = SessionWebSocketService();
+  
   late TextEditingController _titleController;
   late TextEditingController _descriptionController;
+  final _chatController = TextEditingController();
+  final _scrollController = ScrollController();
+  
   late KanbanCard _card;
-  bool _isEditing = false;
-  bool _isSaving = false;
+  List<CardMessage> _messages = [];
+  bool _isLoadingMessages = false;
+  bool _wsConnected = false;
+  bool _isSavingCard = false;
+  
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -32,76 +49,162 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _card = widget.card;
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
+    
+    _initWebSocket();
+    _setupListeners();
+  }
+
+  void _setupListeners() {
+    // Listen for WebSocket messages
+    _wsService.messages.listen((msgs) {
+      if (mounted) {
+        setState(() {
+          _messages = msgs;
+          _isLoadingMessages = false;
+        });
+        _scrollToBottom();
+      }
+    });
+
+    // Listen for WebSocket status
+    _wsService.status.listen((status) {
+      if (mounted) {
+        setState(() => _wsConnected = status == 'connected');
+      }
+    });
+
+    // Setup auto-save listeners for title and description
+    _titleController.addListener(_onCardInfoChanged);
+    _descriptionController.addListener(_onCardInfoChanged);
+  }
+
+  void _onCardInfoChanged() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 1000), () {
+      _autoSaveCard();
+    });
+  }
+
+  Future<void> _autoSaveCard() async {
+    final newTitle = _titleController.text.trim();
+    final newDesc = _descriptionController.text.trim();
+    
+    if (newTitle.isEmpty) return;
+    if (newTitle == _card.title && newDesc == _card.description) return;
+
+    setState(() => _isSavingCard = true);
+    try {
+      final updated = await _projectService.updateCard(
+        _card.id,
+        title: newTitle,
+        description: newDesc,
+      );
+      if (updated != null && mounted) {
+        setState(() => _card = updated);
+      }
+    } catch (e) {
+      debugPrint('Auto-save error: $e');
+    } finally {
+      if (mounted) setState(() => _isSavingCard = false);
+    }
+  }
+
+  Future<void> _initWebSocket() async {
+    setState(() => _isLoadingMessages = true);
+    final connected = await _wsService.connect(_card.id);
+    if (!connected && mounted) {
+      await _loadSessionHistory();
+    }
+  }
+
+  Future<void> _loadSessionHistory() async {
+    setState(() => _isLoadingMessages = true);
+    try {
+      final response = await _projectService.getSessionHistory(_card.id);
+      if (response != null && mounted) {
+        final List<dynamic> msgData = response['messages'] ?? [];
+        setState(() {
+          _messages = msgData.map((m) => CardMessage.fromJson(m)).toList();
+          _isLoadingMessages = false;
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      debugPrint('Load session history error: $e');
+      if (mounted) setState(() => _isLoadingMessages = false);
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _chatController.text.trim();
+    if (text.isEmpty) return;
+
+    // Add optimistic user message
+    setState(() {
+      _messages.add(CardMessage(
+        id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+        cardId: _card.id,
+        role: 'user',
+        content: text,
+        createdAt: DateTime.now().toIso8601String(),
+      ));
+      _chatController.clear();
+      _isLoadingMessages = true;
+    });
+    _scrollToBottom();
+
+    try {
+      if (_wsConnected) {
+        await _wsService.sendMessage('user', text);
+      } else {
+        // Path 2 or Path 3
+        if (widget.acpClient != null && widget.acpClient!.activeMode != ConnectionPath.none) {
+          final response = await widget.acpClient!.sendRequest('chat/message', {
+            'message': text,
+            'card_id': _card.id,
+            'card_title': _card.title,
+            'card_description': _card.description,
+          });
+          
+          final aiMessage = response['result']?['message'] ?? 'No response';
+          await _projectService.addSessionMessage(_card.id, 'assistant', aiMessage);
+        } else {
+          await _projectService.addSessionMessage(_card.id, 'user', text);
+        }
+        await _loadSessionHistory();
+      }
+    } catch (e) {
+      debugPrint('Send message error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingMessages = false);
+    }
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _titleController.removeListener(_onCardInfoChanged);
+    _descriptionController.removeListener(_onCardInfoChanged);
+    
+    _wsService.disconnect();
+    _wsService.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
+    _chatController.dispose();
+    _scrollController.dispose();
     super.dispose();
-  }
-
-  Future<void> _saveCard() async {
-    if (_titleController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Title cannot be empty')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSaving = true;
-    });
-
-    try {
-      final projectService = ProjectService();
-      final updated = await projectService.updateCard(
-        _card.id,
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
-      );
-
-      if (updated != null && mounted) {
-        setState(() {
-          _card = updated;
-          _isEditing = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Card updated successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update card: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
-    }
-  }
-
-  void _openSession() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CardSessionScreen(
-          card: _card,
-          acpClient: null,
-          workspacePath: widget.workspacePath,
-        ),
-      ),
-    );
   }
 
   String _formatDateTime(String dateTimeStr) {
@@ -117,210 +220,200 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(_isEditing ? 'Edit Card' : 'Card Details'),
+        title: const Text('Task Hub'),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
         actions: [
-          if (!_isEditing) ...[
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () => setState(() => _isEditing = true),
-              tooltip: 'Edit',
+          if (_isSavingCard)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
             ),
-            IconButton(
-              icon: const Icon(Icons.chat_bubble_outline),
-              onPressed: _openSession,
-              tooltip: 'Open Session',
-            ),
-          ] else ...[
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _isEditing = false;
-                  _titleController.text = _card.title;
-                  _descriptionController.text = _card.description;
-                });
-              },
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: _isSaving ? null : _saveCard,
-              child: _isSaving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save'),
-            ),
-          ],
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              _loadSessionHistory();
+              _autoSaveCard();
+            },
+          ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Card Info Card
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildInfoRow(
-                      icon: Icons.tag,
-                      label: 'ID',
-                      value: _card.id,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildInfoRow(
-                      icon: Icons.calendar_today,
-                      label: 'Created',
-                      value: _formatDateTime(_card.createdAt),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildInfoRow(
-                      icon: Icons.update,
-                      label: 'Updated',
-                      value: _formatDateTime(_card.updatedAt),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildInfoRow(
-                      icon: Icons.chat,
-                      label: 'Sessions',
-                      value: '${_card.sessionCount}',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Title Section
-            const Text(
-              'Title',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _isEditing
-                ? TextField(
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- Header: Editable Title ---
+                  TextField(
                     controller: _titleController,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5,
+                    ),
                     decoration: const InputDecoration(
-                      hintText: 'Enter card title',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
+                      hintText: 'Card Title',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 8),
                     ),
                     maxLines: null,
-                    autofocus: true,
-                  )
-                : Text(
-                    _card.title,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
                   ),
-            const SizedBox(height: 24),
-            // Description Section
-            const Text(
-              'Description',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _isEditing
-                ? TextField(
+                  
+                  // --- Header: Editable Description ---
+                  TextField(
                     controller: _descriptionController,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.grey[700],
+                      height: 1.5,
+                    ),
                     decoration: const InputDecoration(
-                      hintText: 'Enter card description (optional)',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
+                      hintText: 'Add a more detailed description...',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 8),
                     ),
-                    maxLines: 6,
-                    minLines: 3,
-                  )
-                : Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                    maxLines: null,
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // --- Metadata Bar (Weakened) ---
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _card.description.isEmpty
-                          ? 'No description'
-                          : _card.description,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: _card.description.isEmpty
-                            ? Colors.grey[500]
-                            : Colors.black87,
+                      border: Border(
+                        top: BorderSide(color: Colors.grey[100]!),
+                        bottom: BorderSide(color: Colors.grey[100]!),
                       ),
                     ),
+                    child: Row(
+                      children: [
+                        _buildSmallMeta('#${_card.id.substring(0, 8)}'),
+                        _buildDot(),
+                        _buildSmallMeta('Created ${_formatDateTime(_card.createdAt)}'),
+                        _buildDot(),
+                        _buildSmallMeta('${_card.sessionCount} Messages'),
+                      ],
+                    ),
                   ),
-            const SizedBox(height: 32),
-            // Open Session Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _openSession,
-                icon: const Icon(Icons.chat_bubble),
-                label: const Text('Open Session'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // --- Conversation Thread ---
+                  if (_messages.isEmpty && !_isLoadingMessages)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40),
+                        child: Text(
+                          'No discussion yet.\nAsk the AI Agent for help with this task.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[400], fontSize: 13),
+                        ),
+                      ),
+                    )
+                  else
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        return MessageBubble(message: _messages[index]);
+                      },
+                    ),
+                  
+                  const SizedBox(height: 100), // Space for input area
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          
+          if (_isLoadingMessages) const LinearProgressIndicator(minHeight: 2),
+          
+          // --- Persistent Input Area ---
+          _buildInputArea(),
+        ],
       ),
     );
   }
 
-  Widget _buildInfoRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: Colors.grey[600]),
-        const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w500,
+  Widget _buildSmallMeta(String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 11,
+        color: Colors.grey[500],
+        fontFamily: 'monospace',
+      ),
+    );
+  }
+
+  Widget _buildDot() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Icon(Icons.circle, size: 3, color: Colors.grey[300]),
+    );
+  }
+
+  Widget _buildInputArea() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey[200]!)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
           ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _chatController,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Ask AI Agent about this task...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+                onSubmitted: (_) => _sendMessage(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: _isLoadingMessages ? null : _sendMessage,
+              icon: Icon(
+                Icons.send_rounded,
+                color: _isLoadingMessages ? Colors.grey : Colors.indigo,
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontSize: 13),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

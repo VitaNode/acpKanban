@@ -296,17 +296,18 @@ class ACPServer:
             if card:
                 project_id = card.get("project_id")
 
-        system_content = self._get_system_prompt(project_id)
-
+        # Get session history - isolates by card_id
         history = self._get_session(card_id) if card_id else []
 
-        if not history or history[0]["role"] != "system":
-            history.insert(0, {"role": "system", "content": system_content})
-        else:
-            history[0]["content"] = system_content
+        # Blank Prompt Strategy: Only inject system context if history is empty
+        if not history:
+            system_content = self._get_system_prompt(project_id)
+            history.append({"role": "system", "content": system_content})
+            self.log(f"Injected initial system context for session {card_id}")
 
-        MAX_HISTORY = 20
+        MAX_HISTORY = 40 # Increased history for long-running sessions
         if len(history) > MAX_HISTORY:
+            # Keep system prompt at index 0, and last N messages
             history = [history[0]] + history[-(MAX_HISTORY - 1) :]
 
         history.append({"role": "user", "content": user_text})

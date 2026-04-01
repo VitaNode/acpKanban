@@ -9,7 +9,6 @@ import 'models/kanban_card.dart';
 import 'models/kanban_column.dart';
 import 'models/project.dart';
 import 'screens/connection_settings_screen.dart';
-import 'screens/card_session_screen.dart';
 import 'screens/card_detail_screen.dart';
 import 'widgets/project_selector.dart';
 import 'widgets/kanban_column_widget.dart';
@@ -51,7 +50,6 @@ class _MainScreenState extends State<MainScreen> {
   List<KanbanCard> _cards = [];
   List<TimelineEvent> _timelineEvents = [];
   List<ProjectAgentStatus> _agentStatuses = [];
-  bool _isLoading = false;
   String? _userId;
 
   // Project state
@@ -81,7 +79,6 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _initApp() async {
-    setState(() => _isLoading = true);
     try {
       final configManager = await ConnectionConfigManager.getInstance();
       final savedConfig = await configManager.loadConfig();
@@ -98,8 +95,6 @@ class _MainScreenState extends State<MainScreen> {
       await _loadProjects();
     } catch (e) {
       debugPrint('Init Error: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -694,6 +689,7 @@ class _MainScreenState extends State<MainScreen> {
                     card: card,
                     projectId: _currentProject!.id,
                     workspacePath: _currentProject?.workspacePath,
+                    acpClient: _acpClient,
                   ),
                 ),
               ).then((_) {
@@ -702,16 +698,18 @@ class _MainScreenState extends State<MainScreen> {
               });
             },
             onCardSessionTap: (card) {
+              // Now both taps go to the same Unified Task Hub
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => CardSessionScreen(
-                      card: card,
-                      acpClient: _acpClient,
-                      workspacePath: _currentProject?.workspacePath),
+                  builder: (context) => CardDetailScreen(
+                    card: card,
+                    projectId: _currentProject!.id,
+                    workspacePath: _currentProject?.workspacePath,
+                    acpClient: _acpClient,
+                  ),
                 ),
               ).then((_) {
-                // Refresh when returning from session
                 KanbanRefreshService().markNeedsRefresh();
               });
             },
