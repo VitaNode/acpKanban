@@ -115,14 +115,9 @@ class UnifiedBridge:
         if "method" not in data:
             return  # This is a response, not a notification
 
-        # DEBUG: Log ALL notification methods
-        logger.debug(f"NOTIFICATION method: {data.get('method')}")
-
         # Filter verbose notifications
         if data.get("method") == "session/update":
             update_type = data.get("params", {}).get("update", {}).get("sessionUpdate")
-            # DEBUG: Log ALL notification types to identify OpenClaw's message format
-            logger.debug(f"NOTIFICATION session/update type: {update_type}")
             # Skip thought chunks - they're too verbose for mobile
             if update_type in ["agent_thought_chunk"]:
                 return  # Skip
