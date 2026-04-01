@@ -100,6 +100,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     // Loop retry instead of recursion
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
+        final updated = await _projectService.updateCard(
           _card.id,
           title: newTitle,
           description: newDesc,
@@ -118,7 +119,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           throw Exception('Server returned null on update');
         }
       } catch (e) {
-        lastException = e as Exception;
         debugPrint('Auto-save error (attempt ${attempt + 1}): $e');
         if (attempt < 2) {
           await Future.delayed(AppConstants.retryDelayBase * (attempt + 1));

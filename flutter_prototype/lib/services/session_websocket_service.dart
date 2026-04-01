@@ -21,12 +21,16 @@ class SessionWebSocketService {
   String? _currentCardId;
   bool _isConnected = false;
   Timer? _heartbeatTimer;
+  Timer? _reconnectTimer;
+  int _reconnectCount = 0;
+  static const int _maxReconnectAttempts = 5;
 
   Stream<List<CardMessage>> get messages => _messageController.stream;
   Stream<String> get status => _statusController.stream;
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
+    // If already connecting to the same card, ignore
     if (_channel != null && _currentCardId == cardId && _isConnected) {
       _statusController.add('connected');
       return true;
@@ -35,6 +39,7 @@ class SessionWebSocketService {
     // Clear old messages if switching cards
     if (_currentCardId != cardId) {
       _messageController.add([]);
+      _reconnectCount = 0; // Reset count on manual switch
     }
 
     await disconnect();
@@ -47,6 +52,7 @@ class SessionWebSocketService {
 
       await _channel!.ready;
       _isConnected = true;
+      _reconnectCount = 0; // Reset on success
       _statusController.add('connected');
       _startHeartbeat();
 
@@ -72,6 +78,7 @@ class SessionWebSocketService {
       _isConnected = false;
       _statusController.add('connection_failed: $e');
       
+      // Initial connection retry (manual/first-time)
       if (retryCount < 3) {
         await Future.delayed(Duration(seconds: 2 * (retryCount + 1)));
         return connect(cardId, retryCount: retryCount + 1);
@@ -81,12 +88,17 @@ class SessionWebSocketService {
   }
 
   void _reconnectIfNecessary() {
-    if (_currentCardId != null) {
-      Timer(const Duration(seconds: 5), () {
+    _reconnectTimer?.cancel();
+    if (_currentCardId != null && _reconnectCount < _maxReconnectAttempts) {
+      _reconnectCount++;
+      _statusController.add('reconnecting');
+      _reconnectTimer = Timer(Duration(seconds: 5 * _reconnectCount), () {
         if (!_isConnected && _currentCardId != null) {
           connect(_currentCardId!);
         }
       });
+    } else if (_reconnectCount >= _maxReconnectAttempts) {
+      _statusController.add('max_reconnect_reached');
     }
   }
 
@@ -161,11 +173,11 @@ class SessionWebSocketService {
 
   Future<void> disconnect() async {
     _stopHeartbeat();
+    _reconnectTimer?.cancel();
     if (_channel != null) {
       await _channel!.sink.close();
       _channel = null;
     }
-    // We don't clear _currentCardId here because we might need it for reconnect
     _isConnected = false;
     _statusController.add('disconnected');
   }
