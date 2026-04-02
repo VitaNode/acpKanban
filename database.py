@@ -27,7 +27,8 @@ class KanbanDB:
         self.db_path = db_path
         self.pool_size = pool_size
         self._pool = Queue(maxsize=pool_size)
-        self._async_pool = None  # asyncio.Queue for async operations
+        self._async_pool = None
+        self._async_lock = asyncio.Lock()
         self._column_locks = {}  # Per-project locks for column/card operations
         self._locks_lock = threading.Lock()
         self._initialized = True
@@ -56,7 +57,6 @@ class KanbanDB:
                 self._load_extensions(conn)
                 self._async_pool.put_nowait(conn)
         return self._async_pool
-        return conn
 
     def _load_extensions(self, conn):
         import logging

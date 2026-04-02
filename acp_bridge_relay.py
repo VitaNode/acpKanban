@@ -409,11 +409,36 @@ class UnifiedBridge:
                                 session.acp_session_id = new_session_id
                                 session.needs_recovery = False
                                 logger.info(
-                                    f"Persisted session_id for card {card_id}: {new_session_id}"
+                                    f"Persisted session_id for card {card_id}: {new_session_id[:8]}..."
                                 )
                     except Exception as e:
                         logger.error(f"Session error for card {card_id}: {e}")
-                        response_result = {"error": {"code": -32603, "message": str(e)}}
+                        error_msg = str(e)
+                        if (
+                            "authentication" in error_msg.lower()
+                            or "auth" in error_msg.lower()
+                        ):
+                            response_result = {
+                                "error": {"code": -32001, "message": error_msg}
+                            }
+                        elif (
+                            "timeout" in error_msg.lower()
+                            or "network" in error_msg.lower()
+                        ):
+                            response_result = {
+                                "error": {"code": -32002, "message": error_msg}
+                            }
+                        elif (
+                            "session" in error_msg.lower()
+                            and "expired" in error_msg.lower()
+                        ):
+                            response_result = {
+                                "error": {"code": -32003, "message": error_msg}
+                            }
+                        else:
+                            response_result = {
+                                "error": {"code": -32603, "message": error_msg}
+                            }
                 else:
                     try:
                         if self.sessions:
