@@ -55,6 +55,7 @@ def format_card_response(card: dict) -> dict:
         "position": card.get("position", 0),
         "session_count": card.get("session_count", 0),
         "acp_session_id": card.get("acp_session_id"),
+        "acp_provider_id": card.get("acp_provider_id"),
         "created_at": card.get("created_at"),
         "updated_at": card.get("updated_at"),
         "column_name": card.get("column_name"),

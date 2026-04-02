@@ -59,6 +59,11 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoadingProjects = false;
   bool _isLoadingTimeline = false;
 
+  // Provider state
+  List<ACPProvider> _providers = [];
+  String _defaultProviderId = 'gemini';
+  String? _lastSelectedProviderId;
+
   // View state
   String _currentView = 'board';
 
@@ -93,14 +98,39 @@ class _MainScreenState extends State<MainScreen> {
 
       // Load projects after connection
       await _loadProjects();
+      await _loadProviders();
     } catch (e) {
       debugPrint('Init Error: $e');
+    }
+  }
+
+  Future<void> _loadProviders() async {
+    try {
+      final data = await _projectService.getProviders();
+      if (data != null) {
+        final List<dynamic> providersJson = data['providers'] ?? [];
+        final configManager = await ConnectionConfigManager.getInstance();
+        final lastProvider = configManager.getLastProvider();
+        setState(() {
+          _providers =
+              providersJson.map((p) => ACPProvider.fromJson(p)).toList();
+          _defaultProviderId = data['default_provider'] ?? 'gemini';
+          _lastSelectedProviderId = lastProvider;
+        });
+        debugPrint(
+            'Loaded ${_providers.length} providers, default: $_defaultProviderId, last: $_lastSelectedProviderId');
+      }
+    } catch (e) {
+      debugPrint('Load providers error: $e');
     }
   }
 
   Future<void> _addCard(KanbanColumn column) async {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
+    String selectedProviderId = _lastSelectedProviderId ?? _defaultProviderId;
+
+    final showProviderSelector = _providers.length > 1;
 
     final result = await showDialog<Map<String, String>>(
       context: context,
@@ -131,6 +161,35 @@ class _MainScreenState extends State<MainScreen> {
                 maxLines: 4,
                 minLines: 2,
               ),
+              if (showProviderSelector) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: selectedProviderId,
+                  decoration: const InputDecoration(
+                    labelText: 'AI Provider',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _providers.map((p) {
+                    return DropdownMenuItem(
+                      value: p.id,
+                      child: Row(
+                        children: [
+                          Icon(
+                            _getProviderIcon(p.icon),
+                            size: 18,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(p.name),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) selectedProviderId = value;
+                  },
+                ),
+              ],
             ],
           ),
         ),
@@ -149,6 +208,7 @@ class _MainScreenState extends State<MainScreen> {
                 Navigator.pop(context, {
                   'title': titleController.text.trim(),
                   'description': descriptionController.text.trim(),
+                  'provider_id': selectedProviderId,
                 });
               },
               child: const Text('Add')),
@@ -161,10 +221,29 @@ class _MainScreenState extends State<MainScreen> {
         column.id,
         result['title']!,
         description: result['description'],
+        acpProviderId: result['provider_id'],
       );
       if (card != null && _currentProject != null) {
+        final configManager = await ConnectionConfigManager.getInstance();
+        configManager.setLastProvider(result['provider_id']!);
+        setState(() {
+          _lastSelectedProviderId = result['provider_id'];
+        });
         await _loadProjectData(_currentProject!.id);
       }
+    }
+  }
+
+  IconData _getProviderIcon(String icon) {
+    switch (icon) {
+      case 'bolt':
+        return Icons.bolt;
+      case 'code':
+        return Icons.code;
+      case 'smart_toy':
+        return Icons.smart_toy;
+      default:
+        return Icons.smart_toy;
     }
   }
 

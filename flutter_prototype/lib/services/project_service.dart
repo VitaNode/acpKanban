@@ -194,12 +194,13 @@ class ProjectService {
   }
 
   Future<KanbanCard?> createCard(String columnId, String title,
-      {String? description}) async {
+      {String? description, String? acpProviderId}) async {
     try {
       final response = await _post('/api/cards', {
         'column_id': columnId,
         'title': title,
         if (description != null) 'description': description,
+        if (acpProviderId != null) 'acp_provider_id': acpProviderId,
       });
       if (response.statusCode == 201) {
         return KanbanCard.fromJson(jsonDecode(response.body));
@@ -207,6 +208,19 @@ class ProjectService {
       return null;
     } catch (e) {
       debugPrint('createCard error: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getProviders() async {
+    try {
+      final response = await _get('/api/providers');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getProviders error: $e');
       return null;
     }
   }

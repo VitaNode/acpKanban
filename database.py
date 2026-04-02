@@ -339,6 +339,29 @@ class KanbanDB:
                     (datetime.now().isoformat(),),
                 )
                 conn.commit()
+
+            if current_version < 5:
+                cursor.execute(
+                    "SELECT name FROM pragma_table_info('cards') WHERE name='acp_provider_id'"
+                )
+                if not cursor.fetchone():
+                    cursor.execute("ALTER TABLE cards ADD COLUMN acp_provider_id TEXT")
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_cards_provider ON cards(acp_provider_id)"
+                    )
+
+                default_provider = self._load_default_provider()
+                if default_provider:
+                    cursor.execute(
+                        "UPDATE cards SET acp_provider_id = ? WHERE acp_provider_id IS NULL",
+                        (default_provider,),
+                    )
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (5, ?)",
+                    (datetime.now().isoformat(),),
+                )
+                conn.commit()
         finally:
             conn.close()
 
@@ -788,6 +811,37 @@ class KanbanDB:
                 (session_id, card_id),
             )
             return True
+
+    def update_card_provider(self, card_id: str, provider_id: str) -> bool:
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE cards SET acp_provider_id = ? WHERE id = ?",
+                (provider_id, card_id),
+            )
+            return True
+
+    def get_card_provider(self, card_id: str) -> Optional[str]:
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT acp_provider_id FROM cards WHERE id = ?", (card_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            return None
+
+    def _load_default_provider(self) -> Optional[str]:
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "acp_config.json"
+        )
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+            return config.get("default_provider")
+        except Exception:
+            return None
 
     def delete_card(self, card_id: str):
         now = datetime.now().isoformat()

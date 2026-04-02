@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+import os
+import json
 from api.models import (
     CardCreateRequest,
     CardUpdateRequest,
@@ -26,6 +28,17 @@ from api.dependencies import (
 router = APIRouter(prefix="/api", tags=["cards"])
 
 
+def _load_config():
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "acp_config.json"
+    )
+    try:
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"default_provider": "gemini", "providers": []}
+
+
 @router.post("/cards", response_model=CardResponse, status_code=201)
 async def create_card(request: CardCreateRequest):
     """
@@ -36,15 +49,28 @@ async def create_card(request: CardCreateRequest):
     validate_column_exists(request.column_id, db)
 
     try:
+        provider_id = request.acp_provider_id
+        if not provider_id:
+            config = _load_config()
+            provider_id = config.get("default_provider", "gemini")
+
+        providers = {p["id"]: p for p in _load_config().get("providers", [])}
+        if provider_id not in providers:
+            raise HTTPError(400, f"Unknown provider: {provider_id}")
+
         card_id = db.create_card(
             column_id=request.column_id,
             title=request.title,
             description=request.description or "",
         )
+        db.update_card_provider(card_id, provider_id)
+
         card = db.get_card(card_id)
         if not card:
             raise HTTPError(500, "Failed to create card")
         return format_card_response(card)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPError(400, str(e))
 

@@ -8,11 +8,25 @@ class CardCreateRequest(BaseModel):
     column_id: str = Field(..., min_length=1, max_length=50)
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(default="", max_length=5000)
+    acp_provider_id: Optional[str] = Field(None, max_length=50)
 
 
 class CardUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=5000)
+
+
+class ProviderInfo(BaseModel):
+    id: str
+    name: str
+    command: List[str]
+    supports_yolo: bool = False
+    icon: str = "smart_toy"
+
+
+class ProviderListResponse(BaseModel):
+    providers: List[ProviderInfo]
+    default_provider: str
 
 
 class CardMoveRequest(BaseModel):
@@ -41,6 +55,7 @@ class CardResponse(BaseModel):
     position: int
     session_count: int
     acp_session_id: Optional[str] = None
+    acp_provider_id: Optional[str] = None
     created_at: str
     updated_at: str
     column_name: Optional[str] = None

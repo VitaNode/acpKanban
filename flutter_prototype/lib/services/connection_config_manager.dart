@@ -111,6 +111,16 @@ class ConnectionConfigManager {
     }
   }
 
+  /// 保存上次选择的 ACP Provider
+  Future<void> setLastProvider(String providerId) async {
+    await _prefs?.setString('last_acp_provider', providerId);
+  }
+
+  /// 获取上次选择的 ACP Provider
+  String? getLastProvider() {
+    return _prefs?.getString('last_acp_provider');
+  }
+
   /// 测试连接
   Future<ConnectionTestResult> testConnection(
       ConnectionConfig config, String userId) async {

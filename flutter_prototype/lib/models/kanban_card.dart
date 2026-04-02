@@ -8,6 +8,7 @@ class KanbanCard {
   final String updatedAt;
   final int sessionCount;
   final String? acpSessionId;
+  final String? acpProviderId;
 
   KanbanCard({
     required this.id,
@@ -19,6 +20,7 @@ class KanbanCard {
     required this.updatedAt,
     this.sessionCount = 0,
     this.acpSessionId,
+    this.acpProviderId,
   });
 
   String get shortId => id.length >= 8 ? id.substring(0, 8) : id;
@@ -34,6 +36,7 @@ class KanbanCard {
       updatedAt: json['updated_at'] ?? DateTime.now().toIso8601String(),
       sessionCount: json['session_count'] ?? 0,
       acpSessionId: json['acp_session_id'],
+      acpProviderId: json['acp_provider_id'],
     );
   }
 
@@ -47,6 +50,7 @@ class KanbanCard {
       'created_at': createdAt,
       'updated_at': updatedAt,
       if (acpSessionId != null) 'acp_session_id': acpSessionId,
+      if (acpProviderId != null) 'acp_provider_id': acpProviderId,
     };
   }
 
@@ -58,6 +62,7 @@ class KanbanCard {
     int? sessionCount,
     String? updatedAt,
     String? acpSessionId,
+    String? acpProviderId,
   }) {
     return KanbanCard(
       id: id,
@@ -69,6 +74,33 @@ class KanbanCard {
       updatedAt: updatedAt ?? DateTime.now().toIso8601String(),
       sessionCount: sessionCount ?? this.sessionCount,
       acpSessionId: acpSessionId ?? this.acpSessionId,
+      acpProviderId: acpProviderId ?? this.acpProviderId,
+    );
+  }
+}
+
+class ACPProvider {
+  final String id;
+  final String name;
+  final List<String> command;
+  final bool supportsYolo;
+  final String icon;
+
+  ACPProvider({
+    required this.id,
+    required this.name,
+    required this.command,
+    this.supportsYolo = false,
+    this.icon = 'smart_toy',
+  });
+
+  factory ACPProvider.fromJson(Map<String, dynamic> json) {
+    return ACPProvider(
+      id: json['id'] ?? '',
+      name: json['name'] ?? '',
+      command: List<String>.from(json['command'] ?? []),
+      supportsYolo: json['supports_yolo'] ?? false,
+      icon: json['icon'] ?? 'smart_toy',
     );
   }
 }
