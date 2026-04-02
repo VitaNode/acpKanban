@@ -48,14 +48,16 @@ class KanbanDB:
         conn.execute("PRAGMA journal_mode = WAL")
         return conn
 
-    def _ensure_async_pool(self):
-        """Lazily create asyncio.Queue for async operations."""
+    async def _ensure_async_pool(self):
+        """Lazily create asyncio.Queue for async operations with thread-safe initialization."""
         if self._async_pool is None:
-            self._async_pool = asyncio.Queue(maxsize=self.pool_size)
-            for _ in range(self.pool_size):
-                conn = self._create_new_connection()
-                self._load_extensions(conn)
-                self._async_pool.put_nowait(conn)
+            async with self._async_lock:
+                if self._async_pool is None:
+                    self._async_pool = asyncio.Queue(maxsize=self.pool_size)
+                    for _ in range(self.pool_size):
+                        conn = self._create_new_connection()
+                        self._load_extensions(conn)
+                        await self._async_pool.put(conn)
         return self._async_pool
 
     def _load_extensions(self, conn):
