@@ -22,12 +22,14 @@ class KanbanDB:
                 cls._instance = super(KanbanDB, cls).__new__(cls)
             return cls._instance
 
-    def __init__(self, db_path="kanban.db", pool_size=5):
+    def __init__(self, db_path="kanban.db", pool_size=None):
         if hasattr(self, "_initialized"):
             return
+        import os
+
+        self.pool_size = pool_size or int(os.getenv("KANBAN_DB_POOL_SIZE", "5"))
         self.db_path = db_path
-        self.pool_size = pool_size
-        self._pool = Queue(maxsize=pool_size)
+        self._pool = Queue(maxsize=self.pool_size)
         self._async_pool = None
         self._async_lock = asyncio.Lock()
         self._column_locks = {}  # Per-project locks for column/card operations
