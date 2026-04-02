@@ -138,7 +138,7 @@ class UnifiedBridge:
             from database import KanbanDB
 
             db = KanbanDB()
-            card = db.get_card(card_id)
+            card = await asyncio.to_thread(db.get_card, card_id)
 
             if not card:
                 raise ValueError(f"Card {card_id} not found in database")
@@ -152,9 +152,13 @@ class UnifiedBridge:
                     f"Card {card_id} has no provider, using default: {provider_id}"
                 )
 
-            cursor = db.get_column(card["column_id"])
+            cursor = await asyncio.to_thread(db.get_column, card["column_id"])
             project_id = cursor.get("project_id") if cursor else None
-            project = db.get_project(project_id) if project_id else None
+            project = (
+                await asyncio.to_thread(db.get_project, project_id)
+                if project_id
+                else None
+            )
             workspace_path = project.get("workspace_path") if project else None
 
             if not workspace_path:
@@ -393,7 +397,9 @@ class UnifiedBridge:
                                 from database import KanbanDB
 
                                 db = KanbanDB()
-                                db.update_card_session_id(card_id, new_session_id)
+                                await asyncio.to_thread(
+                                    db.update_card_session_id, card_id, new_session_id
+                                )
                                 session.acp_session_id = new_session_id
                                 session.needs_recovery = False
                                 logger.info(
