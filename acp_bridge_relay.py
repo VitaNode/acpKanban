@@ -191,6 +191,14 @@ class UnifiedBridge:
 
             adapter = ACPProtocolAdapter(acp_client, workspace_cwd=workspace_path)
 
+            async def persist_callback(card_id: str, session_id: str):
+                from database import KanbanDB
+
+                db = KanbanDB()
+                await asyncio.to_thread(db.update_card_session_id, card_id, session_id)
+
+            adapter._persist_session_callback = persist_callback
+
             session = SessionContext(
                 card_id=card_id,
                 provider_id=provider_id,

@@ -16,7 +16,7 @@ import json
 import uuid
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 
 class ACPProtocolAdapter:
@@ -37,10 +37,10 @@ class ACPProtocolAdapter:
         """
         self.acp = acp_client
         self._workspace_cwd = workspace_cwd or str(Path.home())
-        # Mapping: {card_id: sessionId} - One session per card for isolation
         self._card_sessions = {}
-        self._history = {}  # {card_id: [message_history]}
+        self._history = {}
         self._current_card_id: Optional[str] = None
+        self._persist_session_callback: Optional[Callable] = None
 
     def log(self, message: str):
         """Log a message."""
@@ -119,8 +119,16 @@ class ACPProtocolAdapter:
 
             if not session_id:
                 self.log(f"Creating new session for card: {sid_key}")
+
+                async def on_session_created(new_session_id: str):
+                    self.log(f"Immediately persisting session_id: {new_session_id}")
+                    if self._persist_session_callback:
+                        await self._persist_session_callback(sid_key, new_session_id)
+
                 session_id = await self._create_session(
-                    workspace_path=workspace_path, card_id=sid_key
+                    workspace_path=workspace_path,
+                    card_id=sid_key,
+                    on_session_created=on_session_created,
                 )
                 self.log(f"Session created: {session_id}")
 
@@ -211,7 +219,10 @@ class ACPProtocolAdapter:
         return response.get("result", {"status": "healthy"})
 
     async def _create_session(
-        self, workspace_path: str = None, card_id: str = None
+        self,
+        workspace_path: str = None,
+        card_id: str = None,
+        on_session_created: Callable[[str], Any] = None,
     ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
 
@@ -220,8 +231,6 @@ class ACPProtocolAdapter:
             "mcpServers": [],
         }
 
-        # OpenClaw requires _meta.sessionKey to bind the ACP session
-        # Gemini CLI and others ignore this field safely
         if card_id:
             params["_meta"] = {"sessionKey": f"agent:main:kanban:{card_id}"}
 
@@ -231,6 +240,10 @@ class ACPProtocolAdapter:
             raise Exception(f"Session creation failed: {response['error']}")
 
         session_id = response.get("result", {}).get("sessionId")
+
+        if on_session_created:
+            await on_session_created(session_id)
+
         self._workspace_cwd = project_cwd
         return session_id
 
