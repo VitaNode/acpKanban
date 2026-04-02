@@ -83,18 +83,24 @@ class UnifiedBridge:
         try:
             with open(CONFIG_PATH, "r") as f:
                 config = json.load(f)
-            logger.info(
-                f"Loaded ACP config: {len(config.get('providers', []))} providers"
-            )
+            providers = config.get("providers", [])
+            if not providers:
+                logger.error(
+                    f"No providers defined in {CONFIG_PATH}. "
+                    "Bridge cannot start without at least one provider."
+                )
+                raise RuntimeError("acp_config.json must define at least one provider")
+            logger.info(f"Loaded ACP config: {len(providers)} providers")
             return config
-        except Exception as e:
-            logger.warning(f"Failed to load {CONFIG_PATH}: {e}, using defaults")
-            return {
-                "providers": [],
-                "default_provider": "gemini",
-                "session_idle_timeout_minutes": 30,
-                "max_sessions": 10,
-            }
+        except FileNotFoundError:
+            logger.error(
+                f"Config file not found: {CONFIG_PATH}. "
+                "Create acp_config.json with at least one provider."
+            )
+            raise
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in {CONFIG_PATH}: {e}")
+            raise
 
     def _get_provider_config(self, provider_id: str) -> dict:
         for p in self.config.get("providers", []):

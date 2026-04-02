@@ -30,8 +30,9 @@ router = APIRouter(prefix="/api", tags=["cards"])
 
 def _load_config():
     config_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "acp_config.json"
+        os.path.dirname(os.path.abspath(__file__)), "..", "acp_config.json"
     )
+    config_path = os.path.normpath(config_path)
     try:
         with open(config_path, "r") as f:
             return json.load(f)

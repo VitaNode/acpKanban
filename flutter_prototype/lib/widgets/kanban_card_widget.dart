@@ -44,6 +44,8 @@ class KanbanCardWidget extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
+                if (card.acpProviderId != null)
+                  _buildProviderBadge(card.acpProviderId!),
                 InkWell(
                   onTap: onSessionTap,
                   borderRadius: BorderRadius.circular(10),
@@ -126,6 +128,37 @@ class KanbanCardWidget extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProviderBadge(String providerId) {
+    IconData icon;
+    Color color;
+    switch (providerId) {
+      case 'gemini':
+        icon = Icons.bolt;
+        color = Colors.blue;
+        break;
+      case 'qwen':
+        icon = Icons.code;
+        color = Colors.orange;
+        break;
+      case 'openclaw':
+        icon = Icons.smart_toy;
+        color = Colors.green;
+        break;
+      default:
+        icon = Icons.smart_toy;
+        color = Colors.grey;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      margin: const EdgeInsets.only(right: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(icon, size: 14, color: color),
     );
   }
 }
