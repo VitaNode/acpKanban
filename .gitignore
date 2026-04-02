@@ -3,3 +3,6 @@ venv/
 __pycache__/
 *.pyc
 project_notes.md
+.DS_Store
+*.log
+.vscode/
