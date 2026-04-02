@@ -3,6 +3,7 @@ import uuid
 import json
 import asyncio
 from datetime import datetime
+from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 import threading
 from queue import Queue, Empty
@@ -144,6 +145,7 @@ class KanbanDB:
         else:
             self._pool.put(conn)
 
+    @asynccontextmanager
     async def get_async_connection(self):
         """
         Async context manager for database connections.
