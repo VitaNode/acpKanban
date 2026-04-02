@@ -126,10 +126,8 @@ class UnifiedBridge:
             session.last_active = time.time()
             return session
 
-        if card_id not in self._session_locks:
-            self._session_locks[card_id] = asyncio.Lock()
-
-        async with self._session_locks[card_id]:
+        lock = self._session_locks.setdefault(card_id, asyncio.Lock())
+        async with lock:
             session = self.sessions.get(card_id)
             if session and session.is_alive() and not session.needs_recovery:
                 session.last_active = time.time()
