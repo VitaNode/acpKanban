@@ -289,18 +289,22 @@ class ACPProtocolAdapter:
             self.log(f"Session load exception: {e}")
             return None, str(e)
 
-    async def _validate_session(self, session_id: str) -> bool:
+    async def _validate_session(
+        self, session_id: str, require_history: bool = False
+    ) -> bool:
         """
-        Validate if session still has content.
-        Returns True if session is valid (has messages), False otherwise.
+        Validate session.
+        If require_history is False, only check if session exists (not error).
         """
         try:
             response = await self.acp.request("session/info", {"sessionId": session_id})
             if "error" in response:
                 return False
-            result = response.get("result", {})
-            history = result.get("history", [])
-            return len(history) > 0
+            if require_history:
+                result = response.get("result", {})
+                history = result.get("history", [])
+                return len(history) > 0
+            return True
         except Exception as e:
             self.log(f"Session validation exception: {e}")
             return False
