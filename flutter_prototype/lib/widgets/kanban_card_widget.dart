@@ -147,6 +147,10 @@ class KanbanCardWidget extends StatelessWidget {
         icon = Icons.smart_toy;
         color = Colors.green;
         break;
+      case 'opencode':
+        icon = Icons.search;
+        color = Colors.purple;
+        break;
       default:
         icon = Icons.smart_toy;
         color = Colors.grey;

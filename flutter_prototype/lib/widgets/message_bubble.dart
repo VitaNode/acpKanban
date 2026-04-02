@@ -6,8 +6,15 @@ import '../constants/app_constants.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
+  final String? providerId;
+  final String? providerName;
 
-  const MessageBubble({super.key, required this.message});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.providerId,
+    this.providerName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -55,9 +62,8 @@ class MessageBubble extends StatelessWidget {
                     fontSize: 14,
                   ),
                   code: TextStyle(
-                    backgroundColor: isUser 
-                        ? Colors.indigo[700] 
-                        : Colors.grey[100],
+                    backgroundColor:
+                        isUser ? Colors.indigo[700] : Colors.grey[100],
                     fontFamily: 'monospace',
                     fontSize: 12,
                   ),
@@ -75,14 +81,20 @@ class MessageBubble extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (!isUser) ...[
-          const Icon(Icons.smart_toy, size: 14, color: AppConstants.primaryColor),
+          Icon(_getProviderIcon(), size: 14, color: AppConstants.primaryColor),
           const SizedBox(width: 4),
-          const Text('AI Agent', 
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppConstants.primaryColor)),
+          Text(_getProviderName(),
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AppConstants.primaryColor)),
         ],
         if (isUser) ...[
-          const Text('You', 
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const Text('You',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey)),
           const SizedBox(width: 4),
           const Icon(Icons.person, size: 14, color: Colors.grey),
         ],
@@ -93,6 +105,20 @@ class MessageBubble extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  IconData _getProviderIcon() {
+    final iconMap = {
+      'gemini': Icons.bolt,
+      'qwen': Icons.code,
+      'openclaw': Icons.smart_toy,
+      'opencode': Icons.search,
+    };
+    return iconMap[providerId] ?? Icons.smart_toy;
+  }
+
+  String _getProviderName() {
+    return providerName ?? 'AI Agent';
   }
 
   Widget _buildToolLog(BuildContext context) {
@@ -109,7 +135,8 @@ class MessageBubble extends StatelessWidget {
         leading: const Icon(Icons.terminal, size: 16, color: Colors.blueGrey),
         title: Text(
           'Tool Execution: ${message.metadata?['name'] ?? "Unknown"}',
-          style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.blueGrey),
+          style: const TextStyle(
+              fontSize: 12, fontFamily: 'monospace', color: Colors.blueGrey),
         ),
         subtitle: Text(
           DateFormatter.formatTimeOnly(message.createdAt),
@@ -124,12 +151,16 @@ class MessageBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (message.metadata?['arguments'] != null) ...[
-                  const Text('Arguments:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  const Text('Arguments:',
+                      style:
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   _buildCodeBlock(message.metadata!['arguments'].toString()),
                   const SizedBox(height: 8),
                 ],
-                const Text('Result:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                const Text('Result:',
+                    style:
+                        TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 _buildCodeBlock(message.content),
               ],

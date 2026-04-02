@@ -396,7 +396,11 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
-                        return MessageBubble(message: _messages[index]);
+                        return MessageBubble(
+                          message: _messages[index],
+                          providerId: _card.acpProviderId,
+                          providerName: _getProviderDisplayName(),
+                        );
                       },
                     ),
                   const SizedBox(height: 100),
@@ -481,6 +485,16 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Icon(Icons.circle, size: 3, color: AppConstants.metadataIconColor),
     );
+  }
+
+  String _getProviderDisplayName() {
+    final nameMap = {
+      'gemini': 'Gemini CLI',
+      'qwen': 'Qwen Code',
+      'openclaw': 'OpenClaw',
+      'opencode': 'OpenCode',
+    };
+    return nameMap[_card.acpProviderId] ?? 'AI Agent';
   }
 
   Widget _buildSessionIdChip() {
