@@ -109,7 +109,14 @@ class ACPProtocolAdapter:
                     card_id=sid_key,
                 )
                 if session_id:
-                    self.log(f"Session loaded: {session_id}")
+                    is_valid = await self._validate_session(session_id)
+                    if not is_valid:
+                        self.log(
+                            f"Session {session_id} is empty or invalid, creating new one"
+                        )
+                        session_id = None
+                    else:
+                        self.log(f"Session loaded: {session_id}")
                 elif error_reason == "workspace_mismatch":
                     self.log(f"Workspace mismatch, clearing old session data")
                     self._card_sessions.pop(sid_key, None)
@@ -281,6 +288,22 @@ class ACPProtocolAdapter:
         except Exception as e:
             self.log(f"Session load exception: {e}")
             return None, str(e)
+
+    async def _validate_session(self, session_id: str) -> bool:
+        """
+        Validate if session still has content.
+        Returns True if session is valid (has messages), False otherwise.
+        """
+        try:
+            response = await self.acp.request("session/info", {"sessionId": session_id})
+            if "error" in response:
+                return False
+            result = response.get("result", {})
+            history = result.get("history", [])
+            return len(history) > 0
+        except Exception as e:
+            self.log(f"Session validation exception: {e}")
+            return False
 
     def set_workspace(self, workspace_path: str):
         """
