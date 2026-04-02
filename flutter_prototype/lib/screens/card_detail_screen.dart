@@ -264,6 +264,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 const SnackBar(content: Text('Failed to persist session ID')),
               );
             }
+          } else if (mounted && response['result'] != null) {
+            debugPrint('[CardDetail] Session ID is null, session may not have been created');
           }
         }
 
