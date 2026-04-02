@@ -7,6 +7,7 @@ class KanbanCard {
   final String createdAt;
   final String updatedAt;
   final int sessionCount;
+  final String? acpSessionId;
 
   KanbanCard({
     required this.id,
@@ -17,6 +18,7 @@ class KanbanCard {
     required this.createdAt,
     required this.updatedAt,
     this.sessionCount = 0,
+    this.acpSessionId,
   });
 
   String get shortId => id.length >= 8 ? id.substring(0, 8) : id;
@@ -31,6 +33,7 @@ class KanbanCard {
       createdAt: json['created_at'] ?? DateTime.now().toIso8601String(),
       updatedAt: json['updated_at'] ?? DateTime.now().toIso8601String(),
       sessionCount: json['session_count'] ?? 0,
+      acpSessionId: json['acp_session_id'],
     );
   }
 
@@ -43,6 +46,7 @@ class KanbanCard {
       'position': position,
       'created_at': createdAt,
       'updated_at': updatedAt,
+      if (acpSessionId != null) 'acp_session_id': acpSessionId,
     };
   }
 
@@ -53,6 +57,7 @@ class KanbanCard {
     int? position,
     int? sessionCount,
     String? updatedAt,
+    String? acpSessionId,
   }) {
     return KanbanCard(
       id: id,
@@ -63,6 +68,7 @@ class KanbanCard {
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now().toIso8601String(),
       sessionCount: sessionCount ?? this.sessionCount,
+      acpSessionId: acpSessionId ?? this.acpSessionId,
     );
   }
 }

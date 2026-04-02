@@ -79,27 +79,48 @@ class ACPProtocolAdapter:
         message: str,
         card_id: str = None,
         workspace_path: str = None,
+        acp_session_id: str = None,
     ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
         Uses a unique sessionId per card_id to ensure session isolation.
         Sends only the raw user message — no system prompt, no card context.
+
+        Args:
+            message: The user message to send
+            card_id: Card identifier for session tracking
+            workspace_path: Working directory for the session
+            acp_session_id: Previously saved session ID (from DB), may be None
         """
         self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id})")
 
         # Use 'default' if card_id is missing
         sid_key = card_id or "default"
 
-        # 1. Get or create sessionId for this card
-        if sid_key not in self._card_sessions:
-            self.log(f"Creating new session for card: {sid_key}")
-            session_id = await self._create_session(
-                workspace_path=workspace_path, card_id=sid_key
-            )
-            self._card_sessions[sid_key] = session_id
-            self.log(f"Session created: {session_id}")
+        # 1. Get or restore sessionId for this card
+        session_id = self._card_sessions.get(sid_key)
 
-        session_id = self._card_sessions[sid_key]
+        if not session_id:
+            if acp_session_id:
+                self.log(f"Attempting to load saved session: {acp_session_id}")
+                session_id = await self._load_session(
+                    session_id=acp_session_id,
+                    workspace_path=workspace_path,
+                    card_id=sid_key,
+                )
+                if session_id:
+                    self.log(f"Session loaded: {session_id}")
+                else:
+                    self.log(f"Load failed, creating new session")
+
+            if not session_id:
+                self.log(f"Creating new session for card: {sid_key}")
+                session_id = await self._create_session(
+                    workspace_path=workspace_path, card_id=sid_key
+                )
+                self.log(f"Session created: {session_id}")
+
+            self._card_sessions[sid_key] = session_id
 
         # 2. Setup notification listener
         listener_id = str(uuid.uuid4())
@@ -170,7 +191,7 @@ class ACPProtocolAdapter:
         self._history[sid_key].append({"role": "user", "content": message})
         self._history[sid_key].append({"role": "assistant", "content": final_message})
 
-        return {"message": final_message}
+        return {"message": final_message, "session_id": session_id}
 
     async def health(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -208,6 +229,34 @@ class ACPProtocolAdapter:
         session_id = response.get("result", {}).get("sessionId")
         self._workspace_cwd = project_cwd
         return session_id
+
+    async def _load_session(
+        self, session_id: str, workspace_path: str = None, card_id: str = None
+    ) -> Optional[str]:
+        """
+        Try to load an existing session via session/load.
+        Returns session_id on success, None on failure.
+        """
+        project_cwd = workspace_path or self._workspace_cwd
+
+        try:
+            response = await self.acp.request(
+                "session/load",
+                {
+                    "sessionId": session_id,
+                    "cwd": project_cwd,
+                    "mcpServers": [],
+                },
+            )
+
+            if "error" in response:
+                self.log(f"Session load error: {response['error']}")
+                return None
+
+            return session_id
+        except Exception as e:
+            self.log(f"Session load exception: {e}")
+            return None
 
     def set_workspace(self, workspace_path: str):
         """

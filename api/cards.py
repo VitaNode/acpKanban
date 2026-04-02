@@ -127,6 +127,29 @@ async def move_card(card_id: str, request: CardMoveRequest):
         raise HTTPError(400, str(e))
 
 
+@router.put("/cards/{card_id}/acp-session", response_model=dict)
+async def update_card_acp_session(card_id: str, request: dict):
+    """
+    Update the ACP session ID associated with a card.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    session_id = request.get("session_id")
+    if not session_id:
+        raise HTTPError(400, "session_id is required")
+
+    try:
+        db.update_card_session_id(card_id, session_id)
+        card = db.get_card(card_id)
+        return {
+            "card_id": card_id,
+            "acp_session_id": card.get("acp_session_id"),
+        }
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
 @router.get("/cards/{card_id}/session", response_model=SessionHistoryResponse)
 async def get_session_history(
     card_id: str,

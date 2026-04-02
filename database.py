@@ -323,6 +323,22 @@ class KanbanDB:
                     (datetime.now().isoformat(),),
                 )
                 conn.commit()
+
+            if current_version < 4:
+                cursor.execute(
+                    "SELECT name FROM pragma_table_info('cards') WHERE name='acp_session_id'"
+                )
+                if not cursor.fetchone():
+                    cursor.execute("ALTER TABLE cards ADD COLUMN acp_session_id TEXT")
+                    cursor.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_cards_acp_session ON cards(acp_session_id)"
+                    )
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (4, ?)",
+                    (datetime.now().isoformat(),),
+                )
+                conn.commit()
         finally:
             conn.close()
 
@@ -764,6 +780,14 @@ class KanbanDB:
                     import logging
 
                     logging.warning(f"Failed to insert timeline event: {e}")
+
+    def update_card_session_id(self, card_id: str, session_id: str) -> bool:
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE cards SET acp_session_id = ? WHERE id = ?",
+                (session_id, card_id),
+            )
+            return True
 
     def delete_card(self, card_id: str):
         now = datetime.now().isoformat()

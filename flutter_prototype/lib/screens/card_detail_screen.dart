@@ -177,6 +177,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Future<void> _loadSessionId() async {
+    if (_card.acpSessionId != null) {
+      setState(() => _sessionId = _card.acpSessionId);
+      debugPrint('[CardDetail] Session ID from card: $_sessionId');
+      return;
+    }
+
     debugPrint(
         '[CardDetail] Loading session ID for card: ${_card.id}, acpClient: ${widget.acpClient}, activeMode: ${widget.acpClient?.activeMode}');
     try {
@@ -243,13 +249,22 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
             'card_id': _card.id,
             'card_title': _card.title,
             'card_description': _card.description,
-            'workspace_path':
-                widget.workspacePath, // Explicitly pass workspace path
+            'workspace_path': widget.workspacePath,
+            'acp_session_id': _card.acpSessionId,
           });
 
           final aiMessage = response['result']?['message'] ?? 'No response';
           await _projectService.addSessionMessage(
               _card.id, 'assistant', aiMessage);
+
+          final newSessionId = response['result']?['session_id'];
+          if (newSessionId != null && mounted) {
+            setState(() {
+              _sessionId = newSessionId;
+              _card = _card.copyWith(acpSessionId: newSessionId);
+            });
+            debugPrint('[CardDetail] Session ID updated: $newSessionId');
+          }
         }
 
         await _loadSessionHistory();
