@@ -255,6 +255,18 @@ class ProjectService {
     }
   }
 
+  Future<bool> updateCardSessionId(String cardId, String sessionId) async {
+    try {
+      final response = await _put('/api/cards/$cardId/acp-session', {
+        'session_id': sessionId,
+      });
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('updateCardSessionId error: $e');
+      return false;
+    }
+  }
+
   Future<KanbanCard?> updateCard(String cardId,
       {String? title, String? description}) async {
     try {

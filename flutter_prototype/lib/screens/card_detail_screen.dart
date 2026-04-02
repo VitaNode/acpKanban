@@ -179,21 +179,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   Future<void> _loadSessionId() async {
     if (_card.acpSessionId != null) {
       setState(() => _sessionId = _card.acpSessionId);
-      debugPrint('[CardDetail] Session ID from card: $_sessionId');
-      return;
-    }
-
-    debugPrint(
-        '[CardDetail] Loading session ID for card: ${_card.id}, acpClient: ${widget.acpClient}, activeMode: ${widget.acpClient?.activeMode}');
-    try {
-      final sessionId = await widget.acpClient?.getSessionId(_card.id);
-      debugPrint('[CardDetail] getSessionId result: $sessionId');
-      if (mounted && sessionId != null) {
-        setState(() => _sessionId = sessionId['session_id']);
-        debugPrint('[CardDetail] Session ID set to: $_sessionId');
-      }
-    } catch (e) {
-      debugPrint('[CardDetail] Load session ID error: $e');
+      debugPrint('[CardDetail] Session ID restored: $_sessionId');
+    } else {
+      debugPrint('[CardDetail] No saved session for card: ${_card.id}');
     }
   }
 
@@ -264,6 +252,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               _card = _card.copyWith(acpSessionId: newSessionId);
             });
             debugPrint('[CardDetail] Session ID updated: $newSessionId');
+            _projectService.updateCardSessionId(_card.id, newSessionId);
           }
         }
 

@@ -216,17 +216,6 @@ class ACPClient {
     }
   }
 
-  Future<Map<String, dynamic>> getSessionId(String cardId) async {
-    if (_channel == null || activeMode == ConnectionPath.none)
-      throw Exception('Not connected');
-
-    final response = await sendRequest('session/get_id', {'card_id': cardId});
-    if (response.containsKey('result')) {
-      return response['result'];
-    }
-    return {'card_id': cardId, 'session_id': null, 'has_session': false};
-  }
-
   Future<String> sendMessage(String message) async {
     // Gemini CLI uses 'session/prompt'
     try {

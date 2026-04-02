@@ -293,8 +293,6 @@ class ACPProtocolAdapter:
             )
         elif method == "health":
             return await self.health(params)
-        elif method == "session/get_id":
-            return self.get_session_info(params.get("card_id"))
         else:
             # Standard ACP method or unknown - forward directly and wait for response
             response = await self.acp.request(method, params)
@@ -302,19 +300,6 @@ class ACPProtocolAdapter:
                 # Return error dict, caller should check for this
                 return {"error": response["error"]}
             return response.get("result", {})
-
-    def get_session_id(self, card_id: str = "default") -> Optional[str]:
-        """Get sessionId for a specific card."""
-        return self._card_sessions.get(card_id)
-
-    def get_session_info(self, card_id: str = None) -> Dict[str, Any]:
-        """Get session info for a card, including sessionId and status."""
-        sid = self._card_sessions.get(card_id) if card_id else None
-        return {
-            "card_id": card_id,
-            "session_id": sid,
-            "has_session": sid is not None,
-        }
 
     def reset_session(self, card_id: str = None):
         """Reset session ID to force creation of new session. If card_id is provided, only reset that card."""
