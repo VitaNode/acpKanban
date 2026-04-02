@@ -103,15 +103,19 @@ class ACPProtocolAdapter:
         if not session_id:
             if acp_session_id:
                 self.log(f"Attempting to load saved session: {acp_session_id}")
-                session_id = await self._load_session(
+                session_id, error_reason = await self._load_session(
                     session_id=acp_session_id,
                     workspace_path=workspace_path,
                     card_id=sid_key,
                 )
                 if session_id:
                     self.log(f"Session loaded: {session_id}")
+                elif error_reason == "workspace_mismatch":
+                    self.log(f"Workspace mismatch, clearing old session data")
+                    self._card_sessions.pop(sid_key, None)
+                    self._history.pop(sid_key, None)
                 else:
-                    self.log(f"Load failed, creating new session")
+                    self.log(f"Load failed ({error_reason}), creating new session")
 
             if not session_id:
                 self.log(f"Creating new session for card: {sid_key}")
@@ -232,10 +236,11 @@ class ACPProtocolAdapter:
 
     async def _load_session(
         self, session_id: str, workspace_path: str = None, card_id: str = None
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], str]:
         """
         Try to load an existing session via session/load.
-        Returns session_id on success, None on failure.
+        Returns (session_id, error_reason) tuple.
+        error_reason is empty string on success.
         """
         project_cwd = workspace_path or self._workspace_cwd
 
@@ -250,13 +255,19 @@ class ACPProtocolAdapter:
             )
 
             if "error" in response:
-                self.log(f"Session load error: {response['error']}")
-                return None
+                error_msg = str(response.get("error", {}))
+                if "workspace" in error_msg.lower() or "cwd" in error_msg.lower():
+                    self.log(
+                        f"Session load failed: workspace mismatch for {session_id}"
+                    )
+                    return None, "workspace_mismatch"
+                self.log(f"Session load error: {error_msg}")
+                return None, "session_not_found"
 
-            return session_id
+            return session_id, ""
         except Exception as e:
             self.log(f"Session load exception: {e}")
-            return None
+            return None, str(e)
 
     def set_workspace(self, workspace_path: str):
         """
