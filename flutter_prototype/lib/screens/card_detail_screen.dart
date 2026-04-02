@@ -247,12 +247,23 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
           final newSessionId = response['result']?['session_id'];
           if (newSessionId != null && mounted) {
+            final oldSessionId = _sessionId;
             setState(() {
               _sessionId = newSessionId;
               _card = _card.copyWith(acpSessionId: newSessionId);
             });
             debugPrint('[CardDetail] Session ID updated: $newSessionId');
-            _projectService.updateCardSessionId(_card.id, newSessionId);
+            
+            final success = await _projectService.updateCardSessionId(_card.id, newSessionId);
+            if (!success && mounted) {
+              setState(() {
+                _sessionId = oldSessionId;
+                _card = _card.copyWith(acpSessionId: oldSessionId);
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Failed to persist session ID')),
+              );
+            }
           }
         }
 
