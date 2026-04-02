@@ -1,6 +1,7 @@
 import sqlite3
 import uuid
 import json
+import asyncio
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import threading
@@ -26,12 +27,8 @@ class KanbanDB:
         self.db_path = db_path
         self.pool_size = pool_size
         self._pool = Queue(maxsize=pool_size)
+        self._async_pool = None  # asyncio.Queue for async operations
         self._column_locks = {}  # Per-project locks for column/card operations
-        # Locking strategy:
-        # 1. Per-project locks prevent concurrent modifications to the same project
-        # 2. Each project has its own lock object, allowing parallel operations across projects
-        # 3. Cross-project moves are rejected at the application level before locking
-        # 4. SQLite's IMMEDIATE transactions provide additional row-level safety
         self._locks_lock = threading.Lock()
         self._initialized = True
 
@@ -48,6 +45,17 @@ class KanbanDB:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
+    def _ensure_async_pool(self):
+        """Lazily create asyncio.Queue for async operations."""
+        if self._async_pool is None:
+            self._async_pool = asyncio.Queue(maxsize=self.pool_size)
+            for _ in range(self.pool_size):
+                conn = self._create_new_connection()
+                self._load_extensions(conn)
+                self._async_pool.put_nowait(conn)
+        return self._async_pool
         return conn
 
     def _load_extensions(self, conn):
@@ -133,6 +141,48 @@ class KanbanDB:
             conn.close()
         else:
             self._pool.put(conn)
+
+    async def get_async_connection(self):
+        """
+        Async context manager for database connections.
+        Uses asyncio.Queue to avoid blocking the event loop.
+        """
+        pool = self._ensure_async_pool()
+        conn = None
+        try:
+            conn = await asyncio.wait_for(pool.get(), timeout=2.0)
+        except asyncio.TimeoutError:
+            conn = self._create_new_connection()
+            self._load_extensions(conn)
+
+        conn.execute("PRAGMA foreign_keys = ON")
+
+        try:
+            yield conn
+            if conn:
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            raise e
+        finally:
+            if conn:
+                try:
+                    if not pool.full():
+                        pool.put_nowait(conn)
+                    else:
+                        conn.close()
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
     def close_all(self):
         print(f"[*] Closing {self._pool.qsize()} database connections...")
