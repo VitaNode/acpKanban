@@ -188,14 +188,7 @@ class UnifiedBridge:
             await acp_client.start()
 
             adapter = ACPProtocolAdapter(acp_client, workspace_cwd=workspace_path)
-
-            async def persist_callback(card_id: str, session_id: str):
-                from database import KanbanDB
-
-                db = KanbanDB()
-                await asyncio.to_thread(db.update_card_session_id, card_id, session_id)
-
-            adapter._persist_session_callback = persist_callback
+            adapter._persist_session_callback = self._make_persist_callback(card_id)
 
             session = SessionContext(
                 card_id=card_id,
@@ -237,6 +230,17 @@ class UnifiedBridge:
             await self.on_acp_message(data, card_id)
 
         return handler
+
+    def _make_persist_callback(self, card_id: str):
+        """Create a persist callback for a specific card_id to avoid closure leaks."""
+
+        async def callback(session_id: str):
+            from database import KanbanDB
+
+            db = KanbanDB()
+            await asyncio.to_thread(db.update_card_session_id, card_id, session_id)
+
+        return callback
 
     async def start(self):
         logger.info(f"Starting Unified Bridge for User: {self.user_id}")
