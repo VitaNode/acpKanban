@@ -32,14 +32,8 @@ class KanbanDB:
         self._pool = Queue(maxsize=self.pool_size)
         self._async_pool = None
         self._async_lock = asyncio.Lock()
-        self._column_locks = {}  # Per-project locks for column/card operations
-        self._locks_lock = threading.Lock()
-        self._initialized = True
 
-        self.init_db()
-        self.migrate()
-
-        for _ in range(pool_size):
+        for _ in range(self.pool_size):
             conn = self._create_new_connection()
             self._load_extensions(conn)
             self._pool.put(conn)
@@ -153,7 +147,7 @@ class KanbanDB:
         Async context manager for database connections.
         Uses asyncio.Queue to avoid blocking the event loop.
         """
-        pool = self._ensure_async_pool()
+        pool = await self._ensure_async_pool()
         conn = None
         try:
             conn = await asyncio.wait_for(pool.get(), timeout=2.0)
