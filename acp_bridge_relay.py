@@ -27,12 +27,23 @@ CONFIG_PATH = Path(__file__).parent / "acp_config.json"
 class SessionContext:
     """Holds ACP client and adapter for a specific card."""
 
-    def __init__(self, card_id: str, provider_id: str, acp_client, adapter):
+    def __init__(
+        self,
+        card_id: str,
+        provider_id: str,
+        acp_client,
+        adapter,
+        acp_session_id: str = None,
+        workspace_path: str = None,
+    ):
         self.card_id = card_id
         self.provider_id = provider_id
         self.acp_client = acp_client
         self.adapter = adapter
         self.last_active = time.time()
+        self.acp_session_id = acp_session_id
+        self.workspace_path = workspace_path
+        self.needs_recovery = False
 
     def is_alive(self) -> bool:
         return (
@@ -110,42 +121,49 @@ class UnifiedBridge:
 
     async def _get_or_create_session(self, card_id: str) -> SessionContext:
         """Get existing session or create new one, with lock protection."""
-        # Check if session exists and is alive
         session = self.sessions.get(card_id)
-        if session and session.is_alive():
+        if session and session.is_alive() and not session.needs_recovery:
             session.last_active = time.time()
             return session
 
-        # Acquire lock for this card_id
         if card_id not in self._session_locks:
             self._session_locks[card_id] = asyncio.Lock()
 
         async with self._session_locks[card_id]:
-            # Double-check after acquiring lock
             session = self.sessions.get(card_id)
-            if session and session.is_alive():
+            if session and session.is_alive() and not session.needs_recovery:
                 session.last_active = time.time()
                 return session
 
-            # Get provider_id from database
             from database import KanbanDB
 
             db = KanbanDB()
-            provider_id = db.get_card_provider(card_id)
+            card = db.get_card(card_id)
+
+            if not card:
+                raise ValueError(f"Card {card_id} not found in database")
+
+            provider_id = card.get("acp_provider_id")
+            acp_session_id = card.get("acp_session_id")
 
             if not provider_id:
-                # Fallback: use default or --command
                 provider_id = self.config.get("default_provider", "gemini")
                 logger.warning(
                     f"Card {card_id} has no provider, using default: {provider_id}"
                 )
 
-            # Get provider command
+            cursor = db.get_column(card["column_id"])
+            project_id = cursor.get("project_id") if cursor else None
+            project = db.get_project(project_id) if project_id else None
+            workspace_path = project.get("workspace_path") if project else None
+
+            if not workspace_path:
+                workspace_path = self._workspace_cwd
+
             try:
                 provider_cfg = self._get_provider_config(provider_id)
                 command = provider_cfg["command"]
             except ValueError:
-                # Provider not in config, try fallback command
                 if self._fallback_command:
                     command = self._fallback_command
                     logger.warning(
@@ -156,12 +174,10 @@ class UnifiedBridge:
                         f"Provider '{provider_id}' not found and no fallback command"
                     )
 
-            # LRU eviction if at max sessions
             max_sessions = self.config.get("max_sessions", 10)
             if len(self.sessions) >= max_sessions:
                 await self._evict_idle_session()
 
-            # Create new session
             logger.info(
                 f"Creating new ACP session for card {card_id} with provider {provider_id}"
             )
@@ -169,9 +185,16 @@ class UnifiedBridge:
             acp_client.add_handler(self._make_acp_message_handler(card_id))
             await acp_client.start()
 
-            adapter = ACPProtocolAdapter(acp_client, workspace_cwd=self._workspace_cwd)
+            adapter = ACPProtocolAdapter(acp_client, workspace_cwd=workspace_path)
 
-            session = SessionContext(card_id, provider_id, acp_client, adapter)
+            session = SessionContext(
+                card_id=card_id,
+                provider_id=provider_id,
+                acp_client=acp_client,
+                adapter=adapter,
+                acp_session_id=acp_session_id,
+                workspace_path=workspace_path,
+            )
             self.sessions[card_id] = session
             logger.info(f"Session created for card {card_id}: {provider_id}")
 
@@ -347,30 +370,43 @@ class UnifiedBridge:
             params = data.get("params", {})
             request_id = data.get("id")
 
-            # Handle requests through the adapter
             if request_id is not None:
-                # Determine card_id from params
                 card_id = params.get("card_id")
 
                 if card_id and method in ("chat/message", "session/prompt"):
-                    # Dynamic session management
                     try:
                         session = await self._get_or_create_session(card_id)
+                        params_with_recovery = dict(params)
+                        params_with_recovery["acp_session_id"] = session.acp_session_id
+                        params_with_recovery["workspace_path"] = session.workspace_path
+
                         response_result = await session.adapter.handle_request(
-                            method, params
+                            method, params_with_recovery
                         )
+
+                        if (
+                            isinstance(response_result, dict)
+                            and "session_id" in response_result
+                        ):
+                            new_session_id = response_result["session_id"]
+                            if new_session_id != session.acp_session_id:
+                                from database import KanbanDB
+
+                                db = KanbanDB()
+                                db.update_card_session_id(card_id, new_session_id)
+                                session.acp_session_id = new_session_id
+                                session.needs_recovery = False
+                                logger.info(
+                                    f"Persisted session_id for card {card_id}: {new_session_id}"
+                                )
                     except Exception as e:
                         logger.error(f"Session error for card {card_id}: {e}")
                         response_result = {"error": {"code": -32603, "message": str(e)}}
                 else:
-                    # Non-card requests (initialize, health, etc.) - use any available session
-                    # or create a temporary one with default provider
                     try:
                         if self.sessions:
-                            # Use first available session
                             session = next(iter(self.sessions.values()))
                         else:
-                            # Create a temporary session for non-card requests
                             session = await self._get_or_create_session("_default")
                         response_result = await session.adapter.handle_request(
                             method, params
@@ -398,15 +434,18 @@ class UnifiedBridge:
                 return
 
             # Handle notifications (no ID) - forward to appropriate session
-            if card_id and card_id in self.sessions:
-                session = self.sessions[card_id]
+            card_id_for_notification = params.get("card_id")
+            if card_id_for_notification and card_id_for_notification in self.sessions:
+                session = self.sessions[card_id_for_notification]
                 if session.is_alive():
                     payload = (json.dumps(data) + "\n").encode()
                     session.acp_client.process.stdin.write(payload)
                     await session.acp_client.process.stdin.drain()
                     logger.info(f"-> Forwarded notification to ACP: {method}")
                 else:
-                    logger.error(f"ACP Process not running for card {card_id}.")
+                    logger.error(
+                        f"ACP Process not running for card {card_id_for_notification}."
+                    )
             else:
                 logger.warning(f"No session for notification: {method}")
 
@@ -421,13 +460,16 @@ class UnifiedBridge:
             for card_id, session in list(self.sessions.items()):
                 if not session.is_alive():
                     logger.critical(f"ACP Process died for card {card_id}!")
+                    session.needs_recovery = True
                     dead_cards.append(card_id)
 
-            # Clean up dead sessions
             for card_id in dead_cards:
-                await self._close_session(card_id)
+                try:
+                    await self.sessions[card_id].acp_client.stop()
+                except Exception as e:
+                    logger.warning(f"Error stopping dead process for {card_id}: {e}")
+                logger.info(f"Marked session for card {card_id} as needs_recovery")
 
-            # LRU cleanup
             timeout = self.config.get("session_idle_timeout_minutes", 30) * 60
             now = time.time()
             for card_id, session in list(self.sessions.items()):

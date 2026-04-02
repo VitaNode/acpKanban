@@ -276,7 +276,7 @@ class ACPProtocolAdapter:
 
         Args:
             method: RPC method name (e.g., "chat/message", "initialize")
-            params: Method parameters (may include card_id for session isolation)
+            params: Method parameters (may include card_id, acp_session_id, workspace_path)
 
         Returns:
             Response result dictionary
@@ -290,14 +290,13 @@ class ACPProtocolAdapter:
                 params.get("message", ""),
                 card_id=params.get("card_id"),
                 workspace_path=params.get("workspace_path"),
+                acp_session_id=params.get("acp_session_id"),
             )
         elif method == "health":
             return await self.health(params)
         else:
-            # Standard ACP method or unknown - forward directly and wait for response
             response = await self.acp.request(method, params)
             if "error" in response:
-                # Return error dict, caller should check for this
                 return {"error": response["error"]}
             return response.get("result", {})
 
