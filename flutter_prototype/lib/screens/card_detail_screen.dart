@@ -325,6 +325,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
     // Handle via WebSocket if connected
     if (_wsConnected) {
+      // Set processing state for WebSocket mode too
+      setState(() {
+        _toolCalls = [];
+        _expandedToolCalls = {};
+        _isAgentProcessing = true;
+        _isWaitingForPermission = false;
+      });
+      
       _wsService.sendMessage('user', text).catchError((e) {
         debugPrint('WebSocket send error: $e');
         if (mounted) {
