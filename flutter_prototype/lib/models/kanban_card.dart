@@ -7,6 +7,9 @@ class KanbanCard {
   final String createdAt;
   final String updatedAt;
   final int sessionCount;
+  final String status;
+  final String? completedAt;
+  final String? parentId;
   final String? acpSessionId;
   final String? acpProviderId;
 
@@ -19,11 +22,15 @@ class KanbanCard {
     required this.createdAt,
     required this.updatedAt,
     this.sessionCount = 0,
+    this.status = 'active',
+    this.completedAt,
+    this.parentId,
     this.acpSessionId,
     this.acpProviderId,
   });
 
   String get shortId => id.length >= 8 ? id.substring(0, 8) : id;
+  bool get isCompleted => status == 'completed';
 
   factory KanbanCard.fromJson(Map<String, dynamic> json) {
     return KanbanCard(
@@ -35,6 +42,9 @@ class KanbanCard {
       createdAt: json['created_at'] ?? DateTime.now().toIso8601String(),
       updatedAt: json['updated_at'] ?? DateTime.now().toIso8601String(),
       sessionCount: json['session_count'] ?? 0,
+      status: json['status'] ?? 'active',
+      completedAt: json['completed_at'],
+      parentId: json['parent_id'],
       acpSessionId: json['acp_session_id'],
       acpProviderId: json['acp_provider_id'],
     );
@@ -49,6 +59,9 @@ class KanbanCard {
       'position': position,
       'created_at': createdAt,
       'updated_at': updatedAt,
+      'status': status,
+      if (completedAt != null) 'completed_at': completedAt,
+      if (parentId != null) 'parent_id': parentId,
       if (acpSessionId != null) 'acp_session_id': acpSessionId,
       if (acpProviderId != null) 'acp_provider_id': acpProviderId,
     };
@@ -60,6 +73,8 @@ class KanbanCard {
     String? description,
     int? position,
     int? sessionCount,
+    String? status,
+    String? completedAt,
     String? updatedAt,
     String? acpSessionId,
     String? acpProviderId,
@@ -73,6 +88,9 @@ class KanbanCard {
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now().toIso8601String(),
       sessionCount: sessionCount ?? this.sessionCount,
+      status: status ?? this.status,
+      completedAt: completedAt ?? this.completedAt,
+      parentId: parentId,
       acpSessionId: acpSessionId ?? this.acpSessionId,
       acpProviderId: acpProviderId ?? this.acpProviderId,
     );

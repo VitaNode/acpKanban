@@ -275,14 +275,18 @@ async def complete_card(card_id: str, background_tasks: BackgroundTasks):
     Mark a card as completed and trigger summary generation.
     """
     db = get_db()
-    validate_card_exists(card_id, db)
+    card = validate_card_exists(card_id, db)
+
+    # Avoid redundant processing if already completed
+    if card.get("status") == "completed":
+        return format_card_response(card)
 
     try:
         db.complete_card(card_id)
         background_tasks.add_task(generate_card_summary_task, card_id)
 
-        card = db.get_card(card_id)
-        return format_card_response(card)
+        updated_card = db.get_card(card_id)
+        return format_card_response(updated_card)
     except Exception as e:
         raise HTTPError(400, str(e))
 
@@ -297,8 +301,8 @@ async def uncomplete_card(card_id: str):
 
     try:
         db.uncomplete_card(card_id)
-        card = db.get_card(card_id)
-        return format_card_response(card)
+        updated_card = db.get_card(card_id)
+        return format_card_response(updated_card)
     except Exception as e:
         raise HTTPError(400, str(e))
 
@@ -314,5 +318,38 @@ async def get_card_summary(card_id: str):
     summary = db.get_summary(card_id)
     if not summary:
         raise HTTPError(404, "Summary not found for this card")
-    
+
     return summary
+
+
+@router.get("/cards/{card_id}/related", response_model=CardListResponse)
+async def get_related_cards(
+    card_id: str,
+    limit: int = Query(5, ge=1, le=20),
+):
+    """
+    Get related cards based on summary embedding similarity.
+    """
+    db = get_db()
+    card = validate_card_exists(card_id, db)
+
+    summary_obj = db.get_summary(card_id)
+    if not summary_obj:
+        # If no summary, try semantic search with card title/description
+        from embedding import embedding_service
+        emb = embedding_service.compute_card_embedding(card['title'], card.get('description', ''))
+    else:
+        from embedding import embedding_service
+        emb = embedding_service.get_embedding(summary_obj['summary'])
+
+    if not emb:
+        return {"cards": [], "total": 0}
+
+    related = db.search_cards_semantic(emb, project_id=card.get('project_id'), limit=limit + 1)
+    # Filter out current card
+    filtered_related = [c for c in related if c['id'] != card_id][:limit]
+
+    return {
+        "cards": [format_card_response(c) for c in filtered_related],
+        "total": len(filtered_related),
+    }

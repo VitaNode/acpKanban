@@ -86,10 +86,12 @@ class EmbeddingService:
         )
         return self.get_embedding(combined_text)
 
-    def generate_summary(self, title: str, messages: List[dict]) -> Optional[str]:
+    def generate_summary(self, title: str, messages: List[dict], model: str = None) -> Optional[str]:
         if not self.client:
             return None
 
+        model = model or os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
+        
         logs = "\n".join(
             [
                 f"[{msg.get('role', 'unknown')}] {msg.get('content', '')}"
@@ -115,7 +117,7 @@ Provide a concise summary (max 300 words).
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Or any other model you prefer
+                model=model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that summarizes technical tasks."},
                     {"role": "user", "content": prompt}
@@ -124,7 +126,7 @@ Provide a concise summary (max 300 words).
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"[!] Summary generation error: {e}")
+            print(f"[!] Summary generation error with model {model}: {e}")
             return None
 
 

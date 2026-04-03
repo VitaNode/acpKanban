@@ -215,6 +215,56 @@ class ProjectService {
     }
   }
 
+  Future<KanbanCard?> completeCard(String cardId) async {
+    try {
+      final response = await _patch('/api/cards/$cardId/complete', {});
+      if (response.statusCode == 200) {
+        return KanbanCard.fromJson(jsonDecode(response.body));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('completeCard error: $e');
+      return null;
+    }
+  }
+
+  Future<KanbanCard?> uncompleteCard(String cardId) async {
+    try {
+      final response = await _patch('/api/cards/$cardId/uncomplete', {});
+      if (response.statusCode == 200) {
+        return KanbanCard.fromJson(jsonDecode(response.body));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('uncompleteCard error: $e');
+      return null;
+    }
+  }
+
+  Future<bool> deleteCard(String cardId) async {
+    try {
+      final response = await _delete('/api/cards/$cardId');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('deleteCard error: $e');
+      return false;
+    }
+  }
+
+  Future<List<KanbanCard>> getRelatedCards(String cardId) async {
+    try {
+      final response = await _get('/api/cards/$cardId/related');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
+        return data.map((c) => KanbanCard.fromJson(c)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('getRelatedCards error: $e');
+      return [];
+    }
+  }
+
   Future<Map<String, dynamic>?> getProviders() async {
     try {
       final response = await _get('/api/providers');

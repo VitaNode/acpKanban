@@ -832,17 +832,17 @@ class _MainScreenState extends State<MainScreen> {
                     acpClient: _acpClient,
                     providers: _providers,
                   ),
-                  ),
-                  ).then((_) {
-                  // Refresh when returning from card detail
-                  KanbanRefreshService().markNeedsRefresh();
-                  });
-                  },
-                  onCardSessionTap: (card) {
-                  // Now both taps go to the same Unified Task Hub
-                  Navigator.push(
-                  context,
-                  MaterialPageRoute(
+                ),
+              ).then((_) {
+                // Refresh when returning from card detail
+                KanbanRefreshService().markNeedsRefresh();
+              });
+            },
+            onCardSessionTap: (card) {
+              // Now both taps go to the same Unified Task Hub
+              Navigator.push(
+                context,
+                MaterialPageRoute(
                   builder: (context) => CardDetailScreen(
                     card: card,
                     projectId: _currentProject!.id,
@@ -850,12 +850,60 @@ class _MainScreenState extends State<MainScreen> {
                     acpClient: _acpClient,
                     providers: _providers,
                   ),
-                  ),              ).then((_) {
+                ),
+              ).then((_) {
                 KanbanRefreshService().markNeedsRefresh();
               });
             },
             onAddCard: () => _addCard(column),
             onCardMoved: _onCardMoved,
+            onCardComplete: (card) async {
+              final updated = await _projectService.completeCard(card.id);
+              if (updated != null) {
+                _loadProjectData(_currentProject!.id);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Card "${card.title}" completed')),
+                  );
+                }
+              }
+            },
+            onCardUncomplete: (card) async {
+              final updated = await _projectService.uncompleteCard(card.id);
+              if (updated != null) {
+                _loadProjectData(_currentProject!.id);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Card "${card.title}" reactivated')),
+                  );
+                }
+              }
+            },
+            onCardDelete: (card) async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Delete Card'),
+                  content: Text('Are you sure you want to delete "${card.title}"?'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+                  ],
+                ),
+              );
+
+              if (confirmed == true) {
+                final success = await _projectService.deleteCard(card.id);
+                if (success) {
+                  _loadProjectData(_currentProject!.id);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Card "${card.title}" deleted')),
+                    );
+                  }
+                }
+              }
+            },
           );
         },
       ),

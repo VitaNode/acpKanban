@@ -882,10 +882,25 @@ class KanbanDB:
                     logging.warning(f"Failed to insert timeline event: {e}")
                 # 上下文管理器会自动 COMMIT
 
-    def get_cards_by_column(self, column_id: str) -> List[Dict]:
+    def get_cards_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]:
+        with self.get_connection() as conn:
+            if include_completed:
+                cursor = conn.execute(
+                    "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? ORDER BY c.position",
+                    (column_id,),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? AND status = 'active' ORDER BY c.position",
+                    (column_id,),
+                )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_completed_cards_by_column(self, column_id: str) -> List[Dict]:
+        """Get only completed cards for a column."""
         with self.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? ORDER BY c.position",
+                "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? AND status = 'completed' ORDER BY completed_at DESC",
                 (column_id,),
             )
             return [dict(row) for row in cursor.fetchall()]
@@ -1020,22 +1035,60 @@ class KanbanDB:
             return None
 
     def complete_card(self, card_id: str):
-        """Mark a card as completed."""
+        """Mark a card as completed and record timeline event."""
         now = datetime.now().isoformat()
         with self.get_connection() as conn:
+            # Get project_id for timeline
+            cursor = conn.execute(
+                "SELECT col.project_id, c.title FROM cards c JOIN columns col ON col.id = c.column_id WHERE c.id = ?",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            project_id = row[0] if row else None
+            title = row[1] if row else "Unknown Card"
+
             conn.execute(
                 "UPDATE cards SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?",
                 (now, now, card_id),
             )
 
+            if project_id:
+                try:
+                    conn.execute(
+                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        (project_id, card_id, "card_completed", f"Card '{title}' marked as completed", now),
+                    )
+                except Exception as e:
+                    import logging
+                    logging.warning(f"Failed to record timeline for card completion: {e}")
+
     def uncomplete_card(self, card_id: str):
-        """Mark a card as active again."""
+        """Mark a card as active again and record timeline event."""
         now = datetime.now().isoformat()
         with self.get_connection() as conn:
+            # Get project_id for timeline
+            cursor = conn.execute(
+                "SELECT col.project_id, c.title FROM cards c JOIN columns col ON col.id = c.column_id WHERE c.id = ?",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            project_id = row[0] if row else None
+            title = row[1] if row else "Unknown Card"
+
             conn.execute(
                 "UPDATE cards SET status = 'active', completed_at = NULL, updated_at = ? WHERE id = ?",
                 (now, card_id),
             )
+
+            if project_id:
+                try:
+                    conn.execute(
+                        "INSERT INTO project_timeline (project_id, card_id, event_type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+                        (project_id, card_id, "card_reactivated", f"Card '{title}' moved back to active", now),
+                    )
+                except Exception as e:
+                    import logging
+                    logging.warning(f"Failed to record timeline for card reactivation: {e}")
 
     def delete_card(self, card_id: str):
         now = datetime.now().isoformat()
@@ -1345,12 +1398,25 @@ class KanbanDB:
             )
 
     def save_summary(self, card_id: str, summary: str):
+        """Save summary with incremental logic if it already exists."""
         now = datetime.now().isoformat()
         with self.get_connection() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO summaries (card_id, summary, updated_at) VALUES (?, ?, ?)",
-                (card_id, summary, now),
-            )
+            cursor = conn.execute("SELECT summary FROM summaries WHERE card_id = ?", (card_id,))
+            row = cursor.fetchone()
+
+            if row:
+                old_summary = row[0]
+                if summary not in old_summary:  # Avoid duplicate identical summaries
+                    combined = f"{old_summary}\n\n--- Updated {now[:16]} ---\n{summary}"
+                    conn.execute(
+                        "UPDATE summaries SET summary = ?, updated_at = ? WHERE card_id = ?",
+                        (combined, now, card_id),
+                    )
+            else:
+                conn.execute(
+                    "INSERT INTO summaries (card_id, summary, updated_at) VALUES (?, ?, ?)",
+                    (card_id, summary, now),
+                )
 
     def get_summary(self, card_id: str) -> Optional[Dict]:
         with self.get_connection() as conn:

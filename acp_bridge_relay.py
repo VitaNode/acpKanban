@@ -457,7 +457,18 @@ class UnifiedBridge:
                             # Store system agent config for cloud tasks (summaries/embeddings)
                             if "systemConfig" in params:
                                 self.system_config = params["systemConfig"]
-                                logger.info("Received system configuration from client")
+                                logger.info(f"Received system configuration from client: {list(self.system_config.keys())}")
+                                
+                                # Sync to environment variables for background tasks (Issue 10)
+                                if "api_key" in self.system_config:
+                                    os.environ["KANBAN_API_KEY"] = self.system_config["api_key"]
+                                if "base_url" in self.system_config:
+                                    os.environ["KANBAN_BASE_URL"] = self.system_config["base_url"]
+                                if "summary_model" in self.system_config:
+                                    os.environ["SUMMARY_MODEL"] = self.system_config["summary_model"]
+                                if "embedding_model" in self.system_config:
+                                    os.environ["EMBEDDING_MODEL"] = self.system_config["embedding_model"]
+
                                 from database import KanbanDB
                                 db = KanbanDB()
                                 await asyncio.to_thread(db.set_setting, "system_config", self.system_config)
