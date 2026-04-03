@@ -109,14 +109,7 @@ class ACPProtocolAdapter:
                     card_id=sid_key,
                 )
                 if session_id:
-                    is_valid = await self._validate_session(session_id)
-                    if not is_valid:
-                        self.log(
-                            f"Session {session_id} is empty or invalid, creating new one"
-                        )
-                        session_id = None
-                    else:
-                        self.log(f"Session loaded: {session_id}")
+                    self.log(f"Session loaded: {session_id}")
                 elif error_reason == "workspace_mismatch":
                     self.log(f"Workspace mismatch, clearing old session data")
                     self._card_sessions.pop(sid_key, None)
@@ -141,11 +134,34 @@ class ACPProtocolAdapter:
 
             self._card_sessions[sid_key] = session_id
 
-        # 2. Setup notification listener
+        # 2. Setup notification listener - queue created BEFORE prompt
         listener_id = str(uuid.uuid4())
         queue = self.acp.listen(listener_id)
         collected_text = []
 
+        # 3. Send request with only the user message
+        prompt_task = asyncio.create_task(
+            self.acp.request(
+                "session/prompt",
+                {
+                    "sessionId": session_id,
+                    "prompt": [self._build_prompt_item(message)],
+                },
+            )
+        )
+
+        # Wait briefly for prompt_task to actually send the request
+        # before we start collecting notifications
+        await asyncio.sleep(0.1)
+
+        # Clear any stale notifications from session/load history replay
+        while not queue.empty():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        # 4. Collect notifications AFTER session/prompt was sent
         async def collect_notifications():
             while True:
                 try:
@@ -175,17 +191,6 @@ class ACPProtocolAdapter:
                         break
                 except Exception:
                     break
-
-        # 3. Send request with only the user message
-        prompt_task = asyncio.create_task(
-            self.acp.request(
-                "session/prompt",
-                {
-                    "sessionId": session_id,
-                    "prompt": [self._build_prompt_item(message)],
-                },
-            )
-        )
 
         # 5. Run notification collection
         await collect_notifications()
@@ -289,26 +294,6 @@ class ACPProtocolAdapter:
         except Exception as e:
             self.log(f"Session load exception: {e}")
             return None, str(e)
-
-    async def _validate_session(
-        self, session_id: str, require_history: bool = False
-    ) -> bool:
-        """
-        Validate session.
-        If require_history is False, only check if session exists (not error).
-        """
-        try:
-            response = await self.acp.request("session/info", {"sessionId": session_id})
-            if "error" in response:
-                return False
-            if require_history:
-                result = response.get("result", {})
-                history = result.get("history", [])
-                return len(history) > 0
-            return True
-        except Exception as e:
-            self.log(f"Session validation exception: {e}")
-            return False
 
     def set_workspace(self, workspace_path: str):
         """

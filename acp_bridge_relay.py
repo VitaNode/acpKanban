@@ -35,6 +35,7 @@ class SessionContext:
         adapter,
         acp_session_id: str = None,
         workspace_path: str = None,
+        supports_yolo: bool = False,
     ):
         self.card_id = card_id
         self.provider_id = provider_id
@@ -44,6 +45,7 @@ class SessionContext:
         self.acp_session_id = acp_session_id
         self.workspace_path = workspace_path
         self.needs_recovery = False
+        self.supports_yolo = supports_yolo
 
     def is_alive(self) -> bool:
         return (
@@ -71,6 +73,7 @@ class UnifiedBridge:
         self.config = self._load_config()
         self.sessions = {}  # card_id -> SessionContext
         self._session_locks = {}  # card_id -> asyncio.Lock
+        self._loading_sessions = set()  # card_ids currently loading sessions
         self.local_discovery = LocalDiscovery(user_id)
 
         # ECDH pair for initial handshake (load from storage or generate new)
@@ -164,10 +167,12 @@ class UnifiedBridge:
 
             try:
                 provider_cfg = self._get_provider_config(provider_id)
-                command = provider_cfg["command"]
+                command = list(provider_cfg["command"])  # Copy to avoid mutating original
+                supports_yolo = provider_cfg.get("supports_yolo", False)
             except ValueError:
                 if self._fallback_command:
-                    command = self._fallback_command
+                    command = list(self._fallback_command)
+                    supports_yolo = False
                     logger.warning(
                         f"Provider '{provider_id}' not in config, using fallback command"
                     )
@@ -176,15 +181,26 @@ class UnifiedBridge:
                         f"Provider '{provider_id}' not found and no fallback command"
                     )
 
+            # Add yolo flag for Gemini CLI (--approval-mode=yolo)
+            if supports_yolo and provider_id == "gemini":
+                if "--approval-mode=yolo" not in command:
+                    command.extend(["--approval-mode", "yolo"])
+                    logger.info(f"Added --approval-mode=yolo to Gemini CLI command")
+
             max_sessions = self.config.get("max_sessions", 10)
             if len(self.sessions) >= max_sessions:
                 await self._evict_idle_session()
 
             logger.info(
-                f"Creating new ACP session for card {card_id} with provider {provider_id}"
+                f"Creating new ACP session for card {card_id} with provider {provider_id} (yolo={supports_yolo})"
             )
             acp_client = ACPClient(command=command, name=f"ACP-{provider_id}")
             acp_client.add_handler(self._make_acp_message_handler(card_id))
+
+            # Add auto-approve handler for yolo-enabled providers
+            if supports_yolo:
+                acp_client.add_handler(self._make_yolo_auto_approve_handler(acp_client))
+
             await acp_client.start()
 
             adapter = ACPProtocolAdapter(acp_client, workspace_cwd=workspace_path)
@@ -197,6 +213,7 @@ class UnifiedBridge:
                 adapter=adapter,
                 acp_session_id=acp_session_id,
                 workspace_path=workspace_path,
+                supports_yolo=supports_yolo,
             )
             self.sessions[card_id] = session
             logger.info(f"Session created for card {card_id}: {provider_id}")
@@ -228,6 +245,31 @@ class UnifiedBridge:
 
         async def handler(data):
             await self.on_acp_message(data, card_id)
+
+        return handler
+
+    def _make_yolo_auto_approve_handler(self, acp_client):
+        """Create a handler that auto-approves permission requests for yolo mode."""
+
+        async def handler(data):
+            method = data.get("method")
+            msg_id = data.get("id")
+
+            # Auto-approve session/request_permission requests
+            if method == "session/request_permission" and msg_id is not None:
+                logger.info(f"[YOLO] Auto-approving permission request: {msg_id}")
+                try:
+                    await acp_client.respond(
+                        msg_id,
+                        result={
+                            "outcome": {
+                                "outcome": "selected",
+                                "optionId": "allow_once"
+                            }
+                        }
+                    )
+                except Exception as e:
+                    logger.error(f"[YOLO] Failed to auto-approve: {e}")
 
         return handler
 
@@ -295,6 +337,10 @@ class UnifiedBridge:
         """
         # Filter: Only forward notifications, not responses
         if "method" not in data:
+            return
+
+        # Filter history replay notifications - don't forward during session load
+        if card_id and card_id in self._loading_sessions:
             return
 
         # Filter verbose notifications
@@ -395,9 +441,14 @@ class UnifiedBridge:
                         params_with_recovery["acp_session_id"] = session.acp_session_id
                         params_with_recovery["workspace_path"] = session.workspace_path
 
-                        response_result = await session.adapter.handle_request(
-                            method, params_with_recovery
-                        )
+                        # Mark as loading to filter out history replay notifications
+                        self._loading_sessions.add(card_id)
+                        try:
+                            response_result = await session.adapter.handle_request(
+                                method, params_with_recovery
+                            )
+                        finally:
+                            self._loading_sessions.discard(card_id)
 
                         if (
                             isinstance(response_result, dict)
