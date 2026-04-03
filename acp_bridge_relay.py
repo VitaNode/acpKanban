@@ -234,10 +234,11 @@ class UnifiedBridge:
     def _make_persist_callback(self, card_id: str):
         """Create a persist callback for a specific card_id to avoid closure leaks."""
 
-        async def callback(session_id: str):
+        async def callback(cid: str, session_id: str):
             from database import KanbanDB
 
             db = KanbanDB()
+            # Use the card_id from the outer scope to ensure integrity
             await asyncio.to_thread(db.update_card_session_id, card_id, session_id)
 
         return callback
@@ -453,14 +454,24 @@ class UnifiedBridge:
                 else:
                     try:
                         if self.sessions:
+                            # Use the first available session for global requests if already running
                             session = next(iter(self.sessions.values()))
+                            response_result = await session.adapter.handle_request(
+                                method, params
+                            )
+                        elif method == "initialize":
+                            # Special case: return bridge's info if no card session started yet
+                            # This satisfies the initial handshake from Flutter
+                            response_result = {
+                                "protocolVersion": 1,
+                                "capabilities": {"chat": True},
+                                "serverInfo": {"name": "Unified-Bridge", "version": "1.0.0"}
+                            }
                         else:
-                            session = await self._get_or_create_session("_default")
-                        response_result = await session.adapter.handle_request(
-                            method, params
-                        )
+                            # For other methods without card_id, return error if no session exists
+                            raise ValueError(f"Method {method} requires card_id or an active session")
                     except Exception as e:
-                        logger.error(f"Adapter error for {method}: {e}")
+                        logger.error(f"Bridge error for {method}: {e}")
                         response_result = {"error": {"code": -32603, "message": str(e)}}
 
                 # Build response envelope

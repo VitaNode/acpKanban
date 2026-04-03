@@ -52,7 +52,7 @@ class ProjectService {
     }
   }
 
-  Future<bool> updateProject(String projectId,
+  Future<Project?> updateProject(String projectId,
       {String? name, String? workspacePath}) async {
     try {
       final body = <String, dynamic>{};
@@ -60,10 +60,13 @@ class ProjectService {
       if (workspacePath != null) body['workspace_path'] = workspacePath;
 
       final response = await _put('/api/projects/$projectId', body);
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        return Project.fromJson(jsonDecode(response.body));
+      }
+      return null;
     } catch (e) {
       debugPrint('updateProject error: $e');
-      return false;
+      return null;
     }
   }
 

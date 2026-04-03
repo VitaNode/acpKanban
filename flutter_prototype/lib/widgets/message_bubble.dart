@@ -3,17 +3,20 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/card_message.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
+import '../utils/icon_util.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
   final String? providerId;
   final String? providerName;
+  final String? providerIcon;
 
   const MessageBubble({
     super.key,
     required this.message,
     this.providerId,
     this.providerName,
+    this.providerIcon,
   });
 
   @override
@@ -108,13 +111,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   IconData _getProviderIcon() {
-    final iconMap = {
-      'gemini': Icons.bolt,
-      'qwen': Icons.code,
-      'openclaw': Icons.smart_toy,
-      'opencode': Icons.search,
-    };
-    return iconMap[providerId] ?? Icons.smart_toy;
+    return IconUtil.getProviderIcon(providerIcon);
   }
 
   String _getProviderName() {

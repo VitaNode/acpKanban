@@ -149,7 +149,8 @@ class ACPProtocolAdapter:
         async def collect_notifications():
             while True:
                 try:
-                    data = await asyncio.wait_for(queue.get(), timeout=0.1)
+                    # Increased timeout from 0.1 to 0.5 to reduce CPU load when idle
+                    data = await asyncio.wait_for(queue.get(), timeout=0.5)
                     if data.get("method") == "session/update":
                         update = data.get("params", {}).get("update", {})
                         content = update.get("content", {})

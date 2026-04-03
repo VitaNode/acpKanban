@@ -45,10 +45,11 @@ class ACPClient:
                 del self.pending_requests[k]
 
     async def _read_stdout(self):
-        while self._running and self.process and not self.process.stdout.at_eof():
+        while self._running and self.process:
             try:
                 line = await self.process.stdout.readline()
                 if not line:
+                    self.logger.info("Stdout EOF reached")
                     break
                 
                 # Some CLIs might print non-JSON noise before or after JSON-RPC
@@ -66,17 +67,22 @@ class ACPClient:
                 break
             except Exception as e:
                 self.logger.error(f"Error reading stdout: {e}")
+                await asyncio.sleep(0.1) # Prevent tight loop on error
 
     async def _read_stderr(self):
-        while self._running and self.process and not self.process.stderr.at_eof():
+        while self._running and self.process:
             try:
                 line = await self.process.stderr.readline()
-                if line:
-                    self.logger.debug(f"CLI Stderr: {line.decode().strip()}")
+                if not line:
+                    self.logger.info("Stderr EOF reached")
+                    break
+                
+                self.logger.debug(f"CLI Stderr: {line.decode().strip()}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"Error reading stderr: {e}")
+                await asyncio.sleep(0.1) # Prevent tight loop on error
 
     async def _handle_message(self, data: Dict[str, Any]):
         self.logger.debug(f"RECV: {data}")

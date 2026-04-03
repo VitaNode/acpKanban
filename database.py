@@ -32,6 +32,10 @@ class KanbanDB:
         self._pool = Queue(maxsize=self.pool_size)
         self._async_pool = None
         self._async_lock = asyncio.Lock()
+        
+        # Lock management for thread-safe column/card operations
+        self._locks_lock = threading.Lock()
+        self._column_locks = {}
 
         for _ in range(self.pool_size):
             conn = self._create_new_connection()
@@ -59,28 +63,59 @@ class KanbanDB:
 
     def _load_extensions(self, conn):
         import logging
+        import os
 
         logger = logging.getLogger(__name__)
 
         try:
             conn.enable_load_extension(True)
+            
+            # Expanded search paths for sqlite-vec
             extension_paths = [
                 "vec0",
                 "/usr/local/lib/vec0.so",
                 "/usr/local/lib/vec0.dylib",
                 "./lib/vec0.so",
                 "./lib/vec0.dylib",
-                "/usr/local/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-x64/vec0.dylib",
+                # Common npm installation paths
+                os.path.expanduser("~/.npm-global/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-arm64/vec0.dylib"),
+                os.path.expanduser("~/.npm-global/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-x64/vec0.dylib"),
                 "/usr/local/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-arm64/vec0.dylib",
+                "/usr/local/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-x64/vec0.dylib",
+                # Homebrew/System paths
+                "/opt/homebrew/lib/vec0.dylib",
+                "/opt/homebrew/lib/vec0.so",
             ]
+            
             for path in extension_paths:
-                try:
-                    conn.execute(f"SELECT load_extension('{path}')")
-                    logger.info(f"Loaded sqlite-vec from {path}")
-                    return
-                except Exception:
-                    continue
-            logger.warning("sqlite-vec extension not found. Semantic search disabled.")
+                if not path.startswith("/") and not path.startswith("./"):
+                    # For system libraries like "vec0"
+                    try:
+                        conn.execute(f"SELECT load_extension('{path}')")
+                        logger.info(f"Loaded sqlite-vec from system path: {path}")
+                        return
+                    except Exception:
+                        continue
+                
+                if os.path.exists(path):
+                    try:
+                        conn.execute(f"SELECT load_extension('{path}')")
+                        logger.info(f"Loaded sqlite-vec from: {path}")
+                        return
+                    except Exception as e:
+                        logger.debug(f"Found {path} but failed to load: {e}")
+                        continue
+            
+            # Final attempt: try standard library name
+            try:
+                conn.execute("SELECT load_extension('vec0')")
+                logger.info("Loaded sqlite-vec using default name")
+            except Exception:
+                # If we've reached here, it's really not found. 
+                # Log only once to avoid spamming the logs.
+                if not hasattr(self, "_vec_warning_shown"):
+                    logger.warning("sqlite-vec extension not found. Semantic search disabled.")
+                    self._vec_warning_shown = True
         except Exception as e:
             logger.warning(f"Failed to load sqlite-vec: {e}")
 
@@ -480,7 +515,40 @@ class KanbanDB:
 
     def delete_project(self, project_id: str):
         with self.get_connection() as conn:
-            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            # Explicitly enable foreign keys for this connection
+            conn.execute("PRAGMA foreign_keys = ON")
+            # Use IMMEDIATE transaction to lock the database during deletion
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                # 0. Log deletion for audit purposes
+                import logging
+                logger = logging.getLogger(__name__)
+                cursor = conn.execute(
+                    "SELECT name FROM projects WHERE id = ?", (project_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    logger.info(f"Project deleted: '{row[0]}' (ID: {project_id})")
+                else:
+                    logger.warning(f"Attempted to delete non-existent project (ID: {project_id})")
+
+                # 1. Clean up project-specific status first
+                conn.execute(
+                    "DELETE FROM project_agent_status WHERE project_id = ?",
+                    (project_id,),
+                )
+
+                # 2. Delete the project (cascades to columns, cards, sessions, timeline, summaries)
+                result = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+                if result.rowcount == 0:
+                    conn.rollback()
+                    return
+
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise e
 
     def get_project_agent_status(self, project_id: str) -> Optional[Dict]:
         with self.get_connection() as conn:

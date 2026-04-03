@@ -6,6 +6,7 @@ class ProjectSelector extends StatelessWidget {
   final List<Project> projects;
   final Function(Project) onProjectSelected;
   final VoidCallback onCreateProject;
+  final VoidCallback? onManageProjects;
   final bool isLoading;
 
   const ProjectSelector({
@@ -14,6 +15,7 @@ class ProjectSelector extends StatelessWidget {
     required this.projects,
     required this.onProjectSelected,
     required this.onCreateProject,
+    this.onManageProjects,
     this.isLoading = false,
   });
 
@@ -104,6 +106,17 @@ class ProjectSelector extends StatelessWidget {
             )),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
+          value: '_manage_',
+          child: Row(
+            children: [
+              Icon(Icons.settings_suggest, color: Theme.of(context).primaryColor),
+              const SizedBox(width: 12),
+              const Text('Manage Projects...'),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
           value: '_create_',
           child: Row(
             children: [
@@ -117,6 +130,8 @@ class ProjectSelector extends StatelessWidget {
       onSelected: (value) {
         if (value == '_create_') {
           onCreateProject();
+        } else if (value == '_manage_') {
+          if (onManageProjects != null) onManageProjects!();
         } else {
           final project = projects.firstWhere((p) => p.id == value);
           onProjectSelected(project);

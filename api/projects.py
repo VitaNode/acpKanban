@@ -336,11 +336,11 @@ async def reorder_columns(project_id: str, request: ColumnReorderRequest):
 async def switch_project(project_id: str):
     """
     Switch to a project. Returns complete project data for UI refresh.
-    This should be called when user switches projects to refresh context.
     """
     db = get_db()
     project = validate_project_exists(project_id, db)
 
+    # 1. Get card count and project details in one go (already done)
     with db.get_connection() as conn:
         cursor = conn.execute(
             "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",
@@ -349,18 +349,35 @@ async def switch_project(project_id: str):
         row = cursor.fetchone()
         card_count = row[0] if row else 0
 
+    # 2. Get all columns and all cards for the project in TWO queries instead of N+1
     columns = db.get_columns(project_id)
+    
+    # Get all cards for all columns in this project
+    with db.get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT c.*, col.name as column_name 
+            FROM cards c 
+            JOIN columns col ON c.column_id = col.id 
+            WHERE col.project_id = ? 
+            ORDER BY c.position ASC
+            """,
+            (project_id,),
+        )
+        all_cards = [dict(row) for row in cursor.fetchall()]
 
+    # 3. Map cards to columns in memory
     column_data = []
     for col in columns:
-        cards = db.get_cards_by_column(col["id"])
+        col_id = col["id"]
+        col_cards = [c for c in all_cards if c["column_id"] == col_id]
         column_data.append(
             {
-                "id": col["id"],
+                "id": col_id,
                 "name": col["name"],
                 "position": col["position"],
                 "color": col["color"],
-                "card_count": col.get("card_count", 0),
+                "card_count": len(col_cards),
                 "cards": [
                     {
                         "id": c["id"],
@@ -369,7 +386,7 @@ async def switch_project(project_id: str):
                         "position": c["position"],
                         "session_count": c.get("session_count", 0),
                     }
-                    for c in cards
+                    for c in col_cards
                 ],
             }
         )

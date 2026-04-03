@@ -10,12 +10,14 @@ import '../services/smart_connect.dart';
 import '../widgets/message_bubble.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
+import '../utils/icon_util.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
   final String projectId;
   final String? workspacePath;
   final ACPClient? acpClient;
+  final List<ACPProvider> providers;
 
   const CardDetailScreen({
     super.key,
@@ -23,6 +25,7 @@ class CardDetailScreen extends StatefulWidget {
     required this.projectId,
     this.workspacePath,
     this.acpClient,
+    this.providers = const [],
   });
 
   @override
@@ -409,10 +412,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
+                        final provider = _getProviderInfo();
                         return MessageBubble(
                           message: _messages[index],
                           providerId: _card.acpProviderId,
-                          providerName: _getProviderDisplayName(),
+                          providerName: provider?.name ?? 'AI Agent',
+                          providerIcon: provider?.icon,
                         );
                       },
                     ),
@@ -427,6 +432,16 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ],
       ),
     );
+  }
+
+  ACPProvider? _getProviderInfo() {
+    if (_card.acpProviderId == null || widget.providers.isEmpty) return null;
+    try {
+      return widget.providers
+          .firstWhere((p) => p.id == _card.acpProviderId);
+    } catch (e) {
+      return null;
+    }
   }
 
   Widget _buildSkeletonLoading() {
@@ -498,16 +513,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Icon(Icons.circle, size: 3, color: AppConstants.metadataIconColor),
     );
-  }
-
-  String _getProviderDisplayName() {
-    final nameMap = {
-      'gemini': 'Gemini CLI',
-      'qwen': 'Qwen Code',
-      'openclaw': 'OpenClaw',
-      'opencode': 'OpenCode',
-    };
-    return nameMap[_card.acpProviderId] ?? 'AI Agent';
   }
 
   Widget _buildSessionIdChip() {

@@ -11,11 +11,13 @@ import 'models/project.dart';
 import 'screens/connection_settings_screen.dart';
 import 'screens/card_detail_screen.dart';
 import 'widgets/project_selector.dart';
+import 'widgets/project_management_dialog.dart';
 import 'widgets/kanban_column_widget.dart';
 import 'widgets/column_manager_dialog.dart';
 import 'widgets/timeline_view.dart';
 import 'widgets/status_summary_widget.dart';
 import 'models/timeline_event.dart';
+import 'utils/icon_util.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -96,9 +98,11 @@ class _MainScreenState extends State<MainScreen> {
       await _acpClient.smartConnect(acpConfig);
       await _acpClient.initialize();
 
-      // Load projects after connection
-      await _loadProjects();
-      await _loadProviders();
+      // Load projects and providers in parallel to avoid blocking UI
+      await Future.wait([
+        _loadProjects(),
+        _loadProviders(),
+      ]);
     } catch (e) {
       debugPrint('Init Error: $e');
     }
@@ -111,14 +115,16 @@ class _MainScreenState extends State<MainScreen> {
         final List<dynamic> providersJson = data['providers'] ?? [];
         final configManager = await ConnectionConfigManager.getInstance();
         final lastProvider = configManager.getLastProvider();
-        setState(() {
-          _providers =
-              providersJson.map((p) => ACPProvider.fromJson(p)).toList();
-          _defaultProviderId = data['default_provider'] ?? 'gemini';
-          _lastSelectedProviderId = lastProvider;
-        });
-        debugPrint(
-            'Loaded ${_providers.length} providers, default: $_defaultProviderId, last: $_lastSelectedProviderId');
+        if (mounted) {
+          setState(() {
+            _providers =
+                providersJson.map((p) => ACPProvider.fromJson(p)).toList();
+            _defaultProviderId = data['default_provider'] ?? 'gemini';
+            _lastSelectedProviderId = lastProvider;
+          });
+          debugPrint(
+              'Loaded ${_providers.length} providers, default: $_defaultProviderId, last: $_lastSelectedProviderId');
+        }
       }
     } catch (e) {
       debugPrint('Load providers error: $e');
@@ -129,6 +135,11 @@ class _MainScreenState extends State<MainScreen> {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
     String selectedProviderId = _lastSelectedProviderId ?? _defaultProviderId;
+
+    // If _providers is still loading, try loading it now
+    if (_providers.isEmpty) {
+      await _loadProviders();
+    }
 
     final showProviderSelector = _providers.length > 1;
 
@@ -175,7 +186,7 @@ class _MainScreenState extends State<MainScreen> {
                       child: Row(
                         children: [
                           Icon(
-                            _getProviderIcon(p.icon),
+                            IconUtil.getProviderIcon(p.icon),
                             size: 18,
                             color: Theme.of(context).primaryColor,
                           ),
@@ -226,40 +237,25 @@ class _MainScreenState extends State<MainScreen> {
       if (card != null && _currentProject != null) {
         final configManager = await ConnectionConfigManager.getInstance();
         configManager.setLastProvider(result['provider_id']!);
-        setState(() {
-          _lastSelectedProviderId = result['provider_id'];
-        });
-        await _loadProjectData(_currentProject!.id);
+        if (mounted) {
+          setState(() {
+            _lastSelectedProviderId = result['provider_id'];
+          });
+          await _loadProjectData(_currentProject!.id);
+        }
       }
     }
-  }
-
-  IconData _getProviderIcon(String icon) {
-    final iconMap = {
-      'bolt': Icons.bolt,
-      'code': Icons.code,
-      'smart_toy': Icons.smart_toy,
-      'search': Icons.search,
-      'settings': Icons.settings,
-      'build': Icons.build,
-      'terminal': Icons.terminal,
-      'extension': Icons.extension,
-      'auto_awesome': Icons.auto_awesome,
-      'psychology': Icons.psychology,
-      'rocket_launch': Icons.rocket_launch,
-      'memory': Icons.memory,
-      'hub': Icons.hub,
-      'api': Icons.api,
-      'cloud': Icons.cloud,
-      'devices': Icons.devices,
-    };
-    return iconMap[icon] ?? Icons.smart_toy;
   }
 
   Future<void> _loadProjects() async {
     setState(() => _isLoadingProjects = true);
     try {
       final projects = await _projectService.getProjects();
+      projects.sort((a, b) {
+        final aTime = DateTime.tryParse(a.updatedAt) ?? DateTime(0);
+        final bTime = DateTime.tryParse(b.updatedAt) ?? DateTime(0);
+        return bTime.compareTo(aTime);
+      });
       if (mounted) {
         setState(() {
           _projects = projects;
@@ -453,6 +449,76 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> _handleProjectUpdate(
+      Project project, String name, String? path) async {
+    // Check for unique name (excluding current project)
+    final isDuplicate = _projects.any(
+        (p) => p.name.toLowerCase() == name.toLowerCase() && p.id != project.id);
+
+    if (isDuplicate) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Project name must be unique')),
+      );
+      return;
+    }
+
+    final updatedProject = await _projectService.updateProject(
+      project.id,
+      name: name,
+      workspacePath: path,
+    );
+    if (updatedProject != null && mounted) {
+      setState(() {
+        final index = _projects.indexWhere((p) => p.id == project.id);
+        if (index != -1) {
+          _projects[index] = updatedProject;
+          if (_currentProject?.id == project.id) {
+            _currentProject = updatedProject;
+          }
+        }
+        // Re-sort after update
+        _projects.sort((a, b) {
+          final aTime = DateTime.tryParse(a.updatedAt) ?? DateTime(0);
+          final bTime = DateTime.tryParse(b.updatedAt) ?? DateTime(0);
+          return bTime.compareTo(aTime);
+        });
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Project "${project.name}" updated')),
+      );
+    }
+  }
+
+  void _showProjectManager() {
+    showDialog(
+      context: context,
+      builder: (context) => ProjectManagementDialog(
+        projects: _projects,
+        currentProject: _currentProject,
+        onUpdate: (project, name, path) => _handleProjectUpdate(project, name, path),
+        onDelete: (project) async {
+          final success = await _projectService.deleteProject(project.id);
+          if (success && mounted) {
+            final isCurrent = _currentProject?.id == project.id;
+            setState(() {
+              _projects.removeWhere((p) => p.id == project.id);
+              if (isCurrent) {
+                _currentProject = null;
+                _columns = [];
+                _cards = [];
+                _timelineEvents = [];
+              }
+            });
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Project "${project.name}" deleted')),
+            );
+          }
+        },
+      ),
+    );
+  }
+
   void _showColumnManager() {
     if (_currentProject == null) return;
     showDialog(
@@ -519,26 +585,11 @@ class _MainScreenState extends State<MainScreen> {
               onPressed: _showColumnManager,
             ),
             IconButton(
-              icon: const Icon(Icons.folder_open),
-              tooltip:
-                  'Workspace: ${_currentProject?.workspacePath ?? "Not set"}',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        'Workspace: ${_currentProject?.workspacePath ?? "Not set"}'),
-                  ),
-                );
-              },
+              icon: const Icon(Icons.settings_suggest_outlined),
+              tooltip: 'Manage Projects',
+              onPressed: _showProjectManager,
             ),
           ],
-          IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: () {
-                if (_currentProject != null) {
-                  _loadProjectData(_currentProject!.id);
-                }
-              }),
         ],
       ),
       drawer: _buildDrawer(),
@@ -553,6 +604,7 @@ class _MainScreenState extends State<MainScreen> {
                 projects: _projects,
                 onProjectSelected: _switchProject,
                 onCreateProject: _showCreateProjectDialog,
+                onManageProjects: _showProjectManager,
                 isLoading: _isLoadingProjects,
               ),
             ),
@@ -778,26 +830,27 @@ class _MainScreenState extends State<MainScreen> {
                     projectId: _currentProject!.id,
                     workspacePath: _currentProject?.workspacePath,
                     acpClient: _acpClient,
+                    providers: _providers,
                   ),
-                ),
-              ).then((_) {
-                // Refresh when returning from card detail
-                KanbanRefreshService().markNeedsRefresh();
-              });
-            },
-            onCardSessionTap: (card) {
-              // Now both taps go to the same Unified Task Hub
-              Navigator.push(
-                context,
-                MaterialPageRoute(
+                  ),
+                  ).then((_) {
+                  // Refresh when returning from card detail
+                  KanbanRefreshService().markNeedsRefresh();
+                  });
+                  },
+                  onCardSessionTap: (card) {
+                  // Now both taps go to the same Unified Task Hub
+                  Navigator.push(
+                  context,
+                  MaterialPageRoute(
                   builder: (context) => CardDetailScreen(
                     card: card,
                     projectId: _currentProject!.id,
                     workspacePath: _currentProject?.workspacePath,
                     acpClient: _acpClient,
+                    providers: _providers,
                   ),
-                ),
-              ).then((_) {
+                  ),              ).then((_) {
                 KanbanRefreshService().markNeedsRefresh();
               });
             },
