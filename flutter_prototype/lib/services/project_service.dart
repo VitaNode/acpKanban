@@ -178,9 +178,9 @@ class ProjectService {
     }
   }
 
-  Future<List<KanbanCard>> getCardsByColumn(String columnId) async {
+  Future<List<KanbanCard>> getCardsByColumn(String columnId, {bool includeCompleted = false}) async {
     try {
-      final response = await _get('/api/columns/$columnId/cards');
+      final response = await _get('/api/columns/$columnId/cards?include_completed=$includeCompleted');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
         return data.map((c) {

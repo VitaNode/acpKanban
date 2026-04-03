@@ -39,6 +39,11 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
     final activeCards = widget.cards.where((c) => c.status == 'active').toList();
     final completedCards = widget.cards.where((c) => c.status == 'completed').toList();
 
+    debugPrint('Column ${widget.column.name}: total=${widget.cards.length}, active=${activeCards.length}, completed=${completedCards.length}');
+    for (var c in widget.cards) {
+      debugPrint('  - Card: ${c.title}, status: ${c.status}');
+    }
+
     return Container(
       width: 280,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),

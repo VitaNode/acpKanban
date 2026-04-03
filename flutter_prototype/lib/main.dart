@@ -287,7 +287,11 @@ class _MainScreenState extends State<MainScreen> {
       columns.sort((a, b) => a.position.compareTo(b.position));
       final List<KanbanCard> allCards = [];
       for (var col in columns) {
-        final cards = await _projectService.getCardsByColumn(col.id);
+        final cards = await _projectService.getCardsByColumn(col.id, includeCompleted: true);
+        debugPrint('Fetched ${cards.length} cards for column ${col.name}');
+        for (var c in cards) {
+          debugPrint('  - Card: ${c.title}, status: ${c.status}');
+        }
         allCards.addAll(cards);
       }
       if (mounted) {

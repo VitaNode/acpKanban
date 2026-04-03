@@ -303,7 +303,7 @@ async def delete_column(
         raise HTTPError(404, "Column not found")
 
     # Check if column has cards
-    cards = db.get_cards_by_column(column_id)
+    cards = db.get_cards_by_column(column_id, include_completed=True)
     if cards and not move_to_column_id:
         raise HTTPError(
             400,
@@ -399,7 +399,12 @@ async def switch_project(project_id: str):
                         "title": c["title"],
                         "description": c.get("description", ""),
                         "position": c["position"],
+                        "status": c.get("status", "active"),
+                        "completed_at": c.get("completed_at"),
+                        "parent_id": c.get("parent_id"),
                         "session_count": c.get("session_count", 0),
+                        "created_at": c["created_at"],
+                        "updated_at": c["updated_at"],
                     }
                     for c in col_cards
                 ],

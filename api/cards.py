@@ -250,6 +250,7 @@ async def get_project_timeline(
 @router.get("/columns/{column_id}/cards", response_model=CardListResponse)
 async def get_cards_by_column(
     column_id: str,
+    include_completed: bool = Query(False),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -259,7 +260,7 @@ async def get_cards_by_column(
     db = get_db()
     validate_column_exists(column_id, db)
 
-    cards = db.get_cards_by_column(column_id)
+    cards = db.get_cards_by_column(column_id, include_completed=include_completed)
     total = len(cards)
     cards = cards[offset : offset + limit]
 
