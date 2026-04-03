@@ -83,12 +83,12 @@ class UnifiedBridge:
             E2EEManager.save_key_pair(user_id, self.private_key, self.public_key_hex)
             logger.info(f"Generated new ECDH key pair for user: {user_id}")
 
-        # Session key manager (Starts NOT ready)
         self.e2ee = E2EEManager(session_key_hex=session_key)
 
         self.local_clients = set()
         self.relay_ws = None
         self.running = True
+        self.system_config = {}  # Store cloud API settings for summaries/embeddings
 
     def _load_config(self) -> dict:
         try:
@@ -453,6 +453,15 @@ class UnifiedBridge:
                             }
                 else:
                     try:
+                        if method == "initialize":
+                            # Store system agent config for cloud tasks (summaries/embeddings)
+                            if "systemConfig" in params:
+                                self.system_config = params["systemConfig"]
+                                logger.info("Received system configuration from client")
+                                from database import KanbanDB
+                                db = KanbanDB()
+                                await asyncio.to_thread(db.set_setting, "system_config", self.system_config)
+
                         if self.sessions:
                             # Use the first available session for global requests if already running
                             session = next(iter(self.sessions.values()))

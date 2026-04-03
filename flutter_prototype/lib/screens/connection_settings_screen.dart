@@ -32,6 +32,10 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   late TextEditingController _localPortController;
   late TextEditingController _relayPortController;
   late TextEditingController _apiPortController;
+  late TextEditingController _systemBaseUrlController;
+  late TextEditingController _systemApiKeyController;
+  late String _summaryModel;
+  late String _embeddingModel;
 
   late int _relayPort;
   late int _localPort;
@@ -54,6 +58,10 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     _localPortController = TextEditingController(text: '8766');
     _relayPortController = TextEditingController(text: '8766');
     _apiPortController = TextEditingController(text: '8000');
+    _systemBaseUrlController = TextEditingController();
+    _systemApiKeyController = TextEditingController();
+    _summaryModel = 'gpt-4o-mini';
+    _embeddingModel = 'text-embedding-3-small';
     _relayPort = 8766;
     _localPort = 8766;
     _apiPort = 8000;
@@ -73,6 +81,12 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       _localPortController.text = (config.localPort ?? 8766).toString();
       _relayPortController.text = (config.relayPort ?? 8766).toString();
       _apiPortController.text = (config.apiPort ?? 8000).toString();
+      
+      _systemBaseUrlController.text = config.systemConfig.baseUrl ?? '';
+      _systemApiKeyController.text = config.systemConfig.apiKey ?? '';
+      _summaryModel = config.systemConfig.summaryModel;
+      _embeddingModel = config.systemConfig.embeddingModel;
+
       _relayPort = config.relayPort ?? 8766;
       _localPort = config.localPort ?? 8766;
       _apiPort = config.apiPort ?? 8000;
@@ -88,6 +102,8 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     _localPortController.dispose();
     _relayPortController.dispose();
     _apiPortController.dispose();
+    _systemBaseUrlController.dispose();
+    _systemApiKeyController.dispose();
     super.dispose();
   }
 
@@ -133,6 +149,12 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       cloudUrl:
           _cloudUrlController.text.isEmpty ? null : _cloudUrlController.text,
       autoFallback: false,
+      systemConfig: SystemAgentConfig(
+        baseUrl: _systemBaseUrlController.text.isEmpty ? null : _systemBaseUrlController.text,
+        apiKey: _systemApiKeyController.text.isEmpty ? null : _systemApiKeyController.text,
+        summaryModel: _summaryModel,
+        embeddingModel: _embeddingModel,
+      ),
     );
 
     await configManager.saveConfig(config);
@@ -147,7 +169,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
 
       final acpConfig = ACPConfig.fromConnectionConfig(config, widget.userId);
       await widget.acpClient.smartConnect(acpConfig);
-      await widget.acpClient.initialize();
+      await widget.acpClient.initialize(acpConfig.systemConfig);
 
       setState(() {
         _connectionStatus = 'Connected';
@@ -204,6 +226,8 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             _buildModeSelector(),
             const SizedBox(height: 24),
             _buildModeSpecificFields(),
+            const SizedBox(height: 24),
+            _buildSystemAgentFields(),
             const SizedBox(height: 24),
             _buildConnectionStatus(),
             const SizedBox(height: 24),
@@ -425,6 +449,68 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             hintText: 'ws://host:port/direct',
             border: OutlineInputBorder(),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSystemAgentFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'System Agent (Summary & Embedding)',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _systemBaseUrlController,
+          decoration: const InputDecoration(
+            labelText: 'Base URL',
+            hintText: 'https://api.openai.com/v1',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _systemApiKeyController,
+          decoration: const InputDecoration(
+            labelText: 'API Key',
+            hintText: 'sk-...',
+            border: OutlineInputBorder(),
+          ),
+          obscureText: true,
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: _summaryModel,
+          decoration: const InputDecoration(
+            labelText: 'Summary Model',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'gpt-4o-mini', child: Text('gpt-4o-mini')),
+            DropdownMenuItem(value: 'gpt-4o', child: Text('gpt-4o')),
+            DropdownMenuItem(value: 'claude-3-5-sonnet', child: Text('claude-3-5-sonnet')),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _summaryModel = v);
+          },
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: _embeddingModel,
+          decoration: const InputDecoration(
+            labelText: 'Embedding Model',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'text-embedding-3-small', child: Text('text-embedding-3-small')),
+            DropdownMenuItem(value: 'text-embedding-3-large', child: Text('text-embedding-3-large')),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _embeddingModel = v);
+          },
         ),
       ],
     );

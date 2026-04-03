@@ -10,6 +10,53 @@ enum ConnectionMode {
   cloud,
 }
 
+/// 系统代理配置 (摘要与向量化)
+class SystemAgentConfig {
+  final String? baseUrl;
+  final String? apiKey;
+  final String summaryModel;
+  final String embeddingModel;
+
+  const SystemAgentConfig({
+    this.baseUrl,
+    this.apiKey,
+    this.summaryModel = 'gpt-4o-mini',
+    this.embeddingModel = 'text-embedding-3-small',
+  });
+
+  factory SystemAgentConfig.fromJson(Map<String, dynamic> json) {
+    return SystemAgentConfig(
+      baseUrl: json['baseUrl'] as String?,
+      apiKey: json['apiKey'] as String?,
+      summaryModel: json['summaryModel'] as String? ?? 'gpt-4o-mini',
+      embeddingModel: json['embeddingModel'] as String? ?? 'text-embedding-3-small',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'baseUrl': baseUrl,
+      'apiKey': apiKey,
+      'summaryModel': summaryModel,
+      'embeddingModel': embeddingModel,
+    };
+  }
+
+  SystemAgentConfig copyWith({
+    String? baseUrl,
+    String? apiKey,
+    String? summaryModel,
+    String? embeddingModel,
+  }) {
+    return SystemAgentConfig(
+      baseUrl: baseUrl ?? this.baseUrl,
+      apiKey: apiKey ?? this.apiKey,
+      summaryModel: summaryModel ?? this.summaryModel,
+      embeddingModel: embeddingModel ?? this.embeddingModel,
+    );
+  }
+}
+
 /// 连接配置数据模型
 class ConnectionConfig {
   final ConnectionMode preferredMode;
@@ -23,6 +70,7 @@ class ConnectionConfig {
   final bool autoFallback;
   final DateTime? lastUpdated;
   final String? userId;
+  final SystemAgentConfig systemConfig;
 
   const ConnectionConfig({
     this.preferredMode = ConnectionMode.local,
@@ -36,6 +84,7 @@ class ConnectionConfig {
     this.autoFallback = false,
     this.lastUpdated,
     this.userId,
+    this.systemConfig = const SystemAgentConfig(),
   });
 
   /// 创建默认配置
@@ -49,6 +98,7 @@ class ConnectionConfig {
       cloudUrl: 'ws://35.211.219.123:8766/direct',
       autoFallback: false,
       userId: userId,
+      systemConfig: const SystemAgentConfig(),
     );
   }
 
@@ -72,6 +122,9 @@ class ConnectionConfig {
           ? DateTime.parse(json['lastUpdated'] as String)
           : null,
       userId: json['userId'] as String?,
+      systemConfig: json['systemConfig'] != null
+          ? SystemAgentConfig.fromJson(json['systemConfig'] as Map<String, dynamic>)
+          : const SystemAgentConfig(),
     );
   }
 
@@ -89,6 +142,7 @@ class ConnectionConfig {
       'autoFallback': autoFallback,
       'lastUpdated': lastUpdated?.toIso8601String(),
       'userId': userId,
+      'systemConfig': systemConfig.toJson(),
     };
   }
 
@@ -105,6 +159,7 @@ class ConnectionConfig {
     bool? autoFallback,
     DateTime? lastUpdated,
     String? userId,
+    SystemAgentConfig? systemConfig,
   }) {
     return ConnectionConfig(
       preferredMode: preferredMode ?? this.preferredMode,
@@ -118,6 +173,7 @@ class ConnectionConfig {
       autoFallback: autoFallback ?? this.autoFallback,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       userId: userId ?? this.userId,
+      systemConfig: systemConfig ?? this.systemConfig,
     );
   }
 

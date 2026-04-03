@@ -96,7 +96,7 @@ class _MainScreenState extends State<MainScreen> {
         _userId ?? 'test_user',
       );
       await _acpClient.smartConnect(acpConfig);
-      await _acpClient.initialize();
+      await _acpClient.initialize(acpConfig.systemConfig);
 
       // Load projects and providers in parallel to avoid blocking UI
       await Future.wait([

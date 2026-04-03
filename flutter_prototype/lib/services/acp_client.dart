@@ -16,6 +16,7 @@ class ACPConfig {
   final String? relayToken;
   final String? cloudDirectUrl;
   final String? sessionKeyHex;
+  final Map<String, dynamic>? systemConfig;
 
   ACPConfig({
     this.mode = ConnectionMode.local,
@@ -27,6 +28,7 @@ class ACPConfig {
     this.relayToken,
     this.cloudDirectUrl,
     this.sessionKeyHex,
+    this.systemConfig,
   });
 
   factory ACPConfig.fromConnectionConfig(
@@ -40,6 +42,7 @@ class ACPConfig {
       userId: userId,
       relayToken: config.relayToken,
       cloudDirectUrl: config.cloudUrl,
+      systemConfig: config.systemConfig.toJson(),
     );
   }
 }
@@ -203,13 +206,18 @@ class ACPClient {
     return completer.future.timeout(const Duration(seconds: 300));
   }
 
-  Future<void> initialize() async {
+  Future<void> initialize([Map<String, dynamic>? systemConfig]) async {
     try {
       print('[ACP] Sending initialize...');
-      // Short timeout for initialize, proceed even if it fails/times out
-      await sendRequest('initialize', {
+      final params = {
         'clientInfo': {'name': 'KanbanMobile', 'version': '1.5.0'}
-      }).timeout(const Duration(seconds: 60));
+      };
+      if (systemConfig != null) {
+        params['systemConfig'] = systemConfig;
+      }
+      
+      // Short timeout for initialize, proceed even if it fails/times out
+      await sendRequest('initialize', params).timeout(const Duration(seconds: 60));
       print('[ACP] Initialize success');
     } catch (e) {
       print('[ACP] Initialize warning (proceeding anyway): $e');
