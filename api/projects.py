@@ -219,6 +219,21 @@ async def get_columns(project_id: str):
         raise HTTPError(400, str(e))
 
 
+@router.get("/projects/{project_id}/summaries", response_model=list)
+async def get_project_summaries(project_id: str):
+    """
+    Get all summaries for a project.
+    """
+    db = get_db()
+    validate_project_exists(project_id, db)
+
+    try:
+        summaries = db.get_all_summaries(project_id)
+        return summaries
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
 @router.post("/projects/{project_id}/columns", response_model=dict, status_code=201)
 async def create_column(project_id: str, request: ColumnCreateRequest):
     """

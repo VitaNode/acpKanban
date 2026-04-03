@@ -53,6 +53,9 @@ class CardResponse(BaseModel):
     title: str
     description: str
     position: int
+    status: str = "active"
+    completed_at: Optional[str] = None
+    parent_id: Optional[str] = None
     session_count: int
     acp_session_id: Optional[str] = None
     acp_provider_id: Optional[str] = None

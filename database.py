@@ -258,10 +258,35 @@ class KanbanDB:
                 title TEXT NOT NULL,
                 description TEXT,
                 position INTEGER NOT NULL,
+                status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed')),
+                completed_at DATETIME,
+                parent_id TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE
+                FOREIGN KEY (column_id) REFERENCES columns(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES cards(id) ON DELETE SET NULL
             )""")
+
+            # Create indexes for performance and parent-child relationships
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_parent ON cards(parent_id)")
+
+            # Migrations for existing databases
+            try:
+                cursor.execute("ALTER TABLE cards ADD COLUMN status TEXT DEFAULT 'active' CHECK (status IN ('active', 'completed'))")
+            except sqlite3.OperationalError:
+                pass # Already exists
+
+            try:
+                cursor.execute("ALTER TABLE cards ADD COLUMN completed_at DATETIME")
+            except sqlite3.OperationalError:
+                pass # Already exists
+
+            try:
+                cursor.execute("ALTER TABLE cards ADD COLUMN parent_id TEXT")
+            except sqlite3.OperationalError:
+                pass # Already exists
+
 
             cursor.execute("""CREATE TABLE IF NOT EXISTS card_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -301,6 +326,13 @@ class KanbanDB:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
             )""")
+
+            cursor.execute("""CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )""")
+
 
             cursor.execute("""CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY,
@@ -449,6 +481,32 @@ class KanbanDB:
                 conn.commit()
         finally:
             conn.close()
+
+    def set_setting(self, key: str, value: Any):
+        """Set a global setting (stores as JSON string)."""
+        import json
+
+        json_value = json.dumps(value)
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, json_value, now),
+            )
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get a global setting (parses from JSON string)."""
+        import json
+
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    return json.loads(row[0])
+                except Exception:
+                    return row[0]
+            return default
 
     def create_project(self, name: str, workspace_path: str = None) -> str:
         project_id = str(uuid.uuid4())[:8]
@@ -960,6 +1018,24 @@ class KanbanDB:
             return config.get("default_provider")
         except Exception:
             return None
+
+    def complete_card(self, card_id: str):
+        """Mark a card as completed."""
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE cards SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?",
+                (now, now, card_id),
+            )
+
+    def uncomplete_card(self, card_id: str):
+        """Mark a card as active again."""
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE cards SET status = 'active', completed_at = NULL, updated_at = ? WHERE id = ?",
+                (now, card_id),
+            )
 
     def delete_card(self, card_id: str):
         now = datetime.now().isoformat()

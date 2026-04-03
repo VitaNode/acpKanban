@@ -86,5 +86,46 @@ class EmbeddingService:
         )
         return self.get_embedding(combined_text)
 
+    def generate_summary(self, title: str, messages: List[dict]) -> Optional[str]:
+        if not self.client:
+            return None
+
+        logs = "\n".join(
+            [
+                f"[{msg.get('role', 'unknown')}] {msg.get('content', '')}"
+                for msg in messages
+                if msg.get("content")
+            ]
+        )
+
+        prompt = f"""
+You are an expert at summarizing technical discussions and task execution. 
+Summarize the following card development process for card titled "{title}". 
+
+Include:
+1. What was the core problem solved?
+2. What key technical changes were made?
+3. Any important context or technical debt left for the future?
+
+Discussion and execution logs:
+{logs}
+
+Provide a concise summary (max 300 words).
+"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Or any other model you prefer
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that summarizes technical tasks."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"[!] Summary generation error: {e}")
+            return None
+
 
 embedding_service = EmbeddingService()

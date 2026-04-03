@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional
 import os
 import json
@@ -13,6 +13,7 @@ from api.models import (
     SessionHistoryResponse,
     ProjectTimelineResponse,
     TimelineEventResponse,
+    SuccessResponse,
 )
 from api.dependencies import (
     get_db,
@@ -24,6 +25,7 @@ from api.dependencies import (
     format_timeline_event,
     HTTPError,
 )
+from api.tasks import generate_card_summary_task
 
 router = APIRouter(prefix="/api", tags=["cards"])
 
@@ -265,3 +267,52 @@ async def get_cards_by_column(
         "cards": [format_card_response(c) for c in cards],
         "total": total,
     }
+
+
+@router.patch("/cards/{card_id}/complete", response_model=CardResponse)
+async def complete_card(card_id: str, background_tasks: BackgroundTasks):
+    """
+    Mark a card as completed and trigger summary generation.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    try:
+        db.complete_card(card_id)
+        background_tasks.add_task(generate_card_summary_task, card_id)
+
+        card = db.get_card(card_id)
+        return format_card_response(card)
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.patch("/cards/{card_id}/uncomplete", response_model=CardResponse)
+async def uncomplete_card(card_id: str):
+    """
+    Mark a card as active again.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    try:
+        db.uncomplete_card(card_id)
+        card = db.get_card(card_id)
+        return format_card_response(card)
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
+@router.get("/cards/{card_id}/summary", response_model=dict)
+async def get_card_summary(card_id: str):
+    """
+    Get the summary generated for a card.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    summary = db.get_summary(card_id)
+    if not summary:
+        raise HTTPError(404, "Summary not found for this card")
+    
+    return summary
