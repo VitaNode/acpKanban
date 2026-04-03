@@ -112,16 +112,17 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (method == 'session/update') {
         // Handle tool calls
         if (sessionUpdate == 'tool_call') {
-          final toolCall = update['toolCall'] as Map<String, dynamic>? ?? {};
-          final toolCallId = toolCall['id']?.toString() ?? '';
-          final toolName = toolCall['toolName']?.toString() ?? 'Unknown Tool';
-          final input = toolCall['input'] as Map<String, dynamic>? ?? {};
+          final toolCallId = update['id']?.toString() ?? '';
+          final toolName = (update['tool'] ?? update['toolName'] ?? 'Unknown Tool').toString();
+          final title = update['title']?.toString() ?? '';
+          final input = update['input'] as Map<String, dynamic>? ?? {};
 
           setState(() {
             _toolCalls.add({
               'id': toolCallId,
               'name': toolName,
-              'status': 'in_progress',
+              'title': title,
+              'status': update['status'] ?? 'in_progress',
               'input': input,
               'content': '',
               'timestamp': DateTime.now().toIso8601String(),
@@ -132,26 +133,29 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         }
         // Handle tool call updates (completed/failed)
         else if (sessionUpdate == 'tool_call_update') {
-          final toolCallId = update['toolCallId']?.toString() ?? '';
+          final toolCallId = (update['id'] ?? update['toolCallId'] ?? '').toString();
           final status = update['status']?.toString() ?? '';
-          final content = update['content']?.toString() ?? '';
+          // Result can be in 'result', 'content', or 'rawOutput'
+          final result = update['result'] ?? update['content'] ?? update['rawOutput'] ?? '';
           final locations = update['locations'];
+          final error = update['error'];
 
           setState(() {
             final index = _toolCalls.indexWhere((tc) => tc['id'] == toolCallId);
             if (index != -1) {
               _toolCalls[index] = {
                 ..._toolCalls[index],
-                'status': status,
-                'content': content,
+                'status': status == 'completed' ? 'completed' : status == 'failed' ? 'failed' : status,
+                'content': result is String ? result : const JsonEncoder().convert(result),
                 'locations': locations,
+                'error': error,
               };
             }
           });
           _scrollToBottom();
         }
         // Handle permission requests
-        else if (sessionUpdate == 'request_permission' || 
+        else if (sessionUpdate == 'request_permission' ||
                  (update.containsKey('permission') && update['permission'] != null)) {
           setState(() {
             _isWaitingForPermission = true;
