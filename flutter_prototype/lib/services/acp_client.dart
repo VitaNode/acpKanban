@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
 import 'smart_connect.dart';
@@ -114,11 +115,11 @@ class ACPClient {
   }
 
   void _setupStream() {
-    print('[ACP] Setting up stream, E2EE ready: ${_e2ee?.isReady ?? false}');
+    debugPrint('[ACP] Setting up stream, E2EE ready: ${_e2ee?.isReady ?? false}');
     _channel!.stream.listen(
       (message) async {
         try {
-          print(
+          debugPrint(
               '[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
 
           // Defensive decoding: handle both String and direct JSON
@@ -127,29 +128,29 @@ class ACPClient {
             try {
               decoded = jsonDecode(message);
             } catch (e) {
-              print('[ACP] Failed to decode JSON: $e');
+              debugPrint('[ACP] Failed to decode JSON: $e');
               return;
             }
           }
 
           // Ensure we have a Map
           if (decoded is! Map<String, dynamic>) {
-            print('[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
+            debugPrint('[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
             return;
           }
 
           Map<String, dynamic> data = decoded;
-          print('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
+          debugPrint('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
 
           if (_e2ee != null &&
               data.containsKey('method') &&
               data['method'] == 'e2ee/envelope') {
-            print('[ACP] Attempting to decrypt E2EE message...');
+            debugPrint('[ACP] Attempting to decrypt E2EE message...');
             try {
               data = await _e2ee!.unwrap(data);
-              print('[ACP] Decryption successful');
+              debugPrint('[ACP] Decryption successful');
             } catch (e) {
-              print('[ACP] Decryption error: $e');
+              debugPrint('[ACP] Decryption error: $e');
               return;
             }
           }
@@ -271,5 +272,25 @@ class ACPClient {
     _channel = null;
     activeMode = ConnectionPath.none;
     _e2ee = null;
+  }
+
+  /// Cancel a pending request by ID
+  void cancelPendingRequest(String id) {
+    if (_pendingRequests.containsKey(id)) {
+      final completer = _pendingRequests.remove(id);
+      if (completer != null && !completer.isCompleted) {
+        completer.completeError('Request cancelled');
+      }
+      debugPrint('[ACP] Cancelled pending request: $id');
+    }
+  }
+
+  /// Cancel all pending requests
+  void cancelAllPendingRequests() {
+    final ids = List<String>.from(_pendingRequests.keys);
+    for (final id in ids) {
+      cancelPendingRequest(id);
+    }
+    debugPrint('[ACP] Cancelled all ${ids.length} pending requests');
   }
 }

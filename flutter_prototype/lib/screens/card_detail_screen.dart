@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/kanban_card.dart';
@@ -10,7 +11,6 @@ import '../services/smart_connect.dart';
 import '../widgets/message_bubble.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
-import '../utils/icon_util.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
@@ -49,7 +49,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   bool _isSavingCard = false;
   String? _sessionId;
 
+  // Tool call states
+  List<Map<String, dynamic>> _toolCalls = [];
+  Set<String> _expandedToolCalls = {};
+  bool _isAgentProcessing = false;
+  bool _isWaitingForPermission = false;
+
   Timer? _debounceTimer;
+  StreamSubscription<String>? _acpMessageSubscription;
 
   @override
   void initState() {
@@ -81,8 +88,92 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       }
     });
 
+    // Subscribe to ACP streaming messages
+    if (widget.acpClient != null) {
+      _acpMessageSubscription = widget.acpClient!.messages.listen(_handleAcpStreamMessage);
+    }
+
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
+  }
+
+  void _handleAcpStreamMessage(String messageJson) {
+    if (!mounted) return;
+
+    try {
+      final data = jsonDecode(messageJson) as Map<String, dynamic>;
+      final method = data['method'] as String?;
+      final params = data['params'] as Map<String, dynamic>? ?? {};
+      final update = params['update'] as Map<String, dynamic>? ?? {};
+      final sessionUpdate = update['sessionUpdate'] as String?;
+
+      debugPrint('[CardDetail] ACP stream: method=$method, sessionUpdate=$sessionUpdate');
+
+      if (method == 'session/update') {
+        // Handle tool calls
+        if (sessionUpdate == 'tool_call') {
+          final toolCall = update['toolCall'] as Map<String, dynamic>? ?? {};
+          final toolCallId = toolCall['id']?.toString() ?? '';
+          final toolName = toolCall['toolName']?.toString() ?? 'Unknown Tool';
+          final input = toolCall['input'] as Map<String, dynamic>? ?? {};
+
+          setState(() {
+            _toolCalls.add({
+              'id': toolCallId,
+              'name': toolName,
+              'status': 'in_progress',
+              'input': input,
+              'content': '',
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+            _isAgentProcessing = true;
+          });
+          _scrollToBottom();
+        }
+        // Handle tool call updates (completed/failed)
+        else if (sessionUpdate == 'tool_call_update') {
+          final toolCallId = update['toolCallId']?.toString() ?? '';
+          final status = update['status']?.toString() ?? '';
+          final content = update['content']?.toString() ?? '';
+          final locations = update['locations'];
+
+          setState(() {
+            final index = _toolCalls.indexWhere((tc) => tc['id'] == toolCallId);
+            if (index != -1) {
+              _toolCalls[index] = {
+                ..._toolCalls[index],
+                'status': status,
+                'content': content,
+                'locations': locations,
+              };
+            }
+          });
+          _scrollToBottom();
+        }
+        // Handle permission requests
+        else if (sessionUpdate == 'request_permission' || 
+                 (update.containsKey('permission') && update['permission'] != null)) {
+          setState(() {
+            _isWaitingForPermission = true;
+          });
+        }
+      }
+      // Handle usage metadata (indicates processing complete)
+      else if (method == 'session/update' && update.containsKey('usage')) {
+        setState(() {
+          _isAgentProcessing = false;
+          _isWaitingForPermission = false;
+        });
+        // Refresh from DB to get final response
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            _loadSessionHistory();
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[CardDetail] Error handling ACP stream message: $e');
+    }
   }
 
   void _onCardInfoChanged() {
@@ -209,12 +300,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (text.isEmpty) return;
 
     final originalMessages = List<CardMessage>.from(_messages);
+    final userMessageId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
 
+    // Clear tool call states for new message
     setState(() {
       _messages = [
         ..._messages,
         CardMessage(
-          id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
+          id: userMessageId,
           cardId: _card.id,
           role: 'user',
           content: text,
@@ -222,70 +315,85 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         )
       ];
       _chatController.clear();
+      _toolCalls = [];
+      _expandedToolCalls = {};
+      _isAgentProcessing = true;
+      _isWaitingForPermission = false;
       _isLoadingMessages = true;
     });
     _scrollToBottom();
 
-    try {
-      if (_wsConnected) {
-        await _wsService.sendMessage('user', text);
-      } else {
-        // Path 2 or Path 3: Always persist user message to DB first to avoid loss on refresh
-        await _projectService.addSessionMessage(_card.id, 'user', text);
-
-        if (widget.acpClient != null &&
-            widget.acpClient!.activeMode != ConnectionPath.none) {
-          final response = await widget.acpClient!.sendRequest('chat/message', {
-            'message': text,
-            'card_id': _card.id,
-            'card_title': _card.title,
-            'card_description': _card.description,
-            'workspace_path': widget.workspacePath,
-            'acp_session_id': _card.acpSessionId,
+    // Handle via WebSocket if connected
+    if (_wsConnected) {
+      _wsService.sendMessage('user', text).catchError((e) {
+        debugPrint('WebSocket send error: $e');
+        if (mounted) {
+          setState(() {
+            _messages = originalMessages;
+            _isLoadingMessages = false;
+            _isAgentProcessing = false;
           });
-
-          final aiMessage = response['result']?['message'] ?? 'No response';
-          await _projectService.addSessionMessage(
-              _card.id, 'assistant', aiMessage);
-
-          final newSessionId = response['result']?['session_id'];
-          if (newSessionId != null && mounted) {
-            final oldSessionId = _sessionId;
-            setState(() {
-              _sessionId = newSessionId;
-              _card = _card.copyWith(acpSessionId: newSessionId);
-            });
-            debugPrint('[CardDetail] Session ID updated: $newSessionId');
-            
-            final success = await _projectService.updateCardSessionId(_card.id, newSessionId);
-            if (!success && mounted) {
-              setState(() {
-                _sessionId = oldSessionId;
-                _card = _card.copyWith(acpSessionId: oldSessionId);
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Failed to persist session ID')),
-              );
-            }
-          } else if (mounted && response['result'] != null) {
-            debugPrint('[CardDetail] Session ID is null, session may not have been created');
-          }
         }
+      });
+      return;
+    }
 
-        await _loadSessionHistory();
+    // Handle via ACP client (non-blocking)
+    if (widget.acpClient == null || 
+        widget.acpClient!.activeMode == ConnectionPath.none) {
+      // Fallback: just persist to DB
+      await _projectService.addSessionMessage(_card.id, 'user', text);
+      await _loadSessionHistory();
+      return;
+    }
+
+    // Persist user message to DB first
+    await _projectService.addSessionMessage(_card.id, 'user', text);
+
+    // Send request non-blocking
+    widget.acpClient!.sendRequest('chat/message', {
+      'message': text,
+      'card_id': _card.id,
+      'card_title': _card.title,
+      'card_description': _card.description,
+      'workspace_path': widget.workspacePath,
+      'acp_session_id': _card.acpSessionId,
+    }).then((response) async {
+      if (!mounted) return;
+
+      final aiMessage = response['result']?['message'] ?? 'No response';
+      await _projectService.addSessionMessage(_card.id, 'assistant', aiMessage);
+
+      final newSessionId = response['result']?['session_id'];
+      if (newSessionId != null) {
+        final oldSessionId = _sessionId;
+        setState(() {
+          _sessionId = newSessionId;
+          _card = _card.copyWith(acpSessionId: newSessionId);
+        });
+        debugPrint('[CardDetail] Session ID updated: $newSessionId');
+
+        final success = await _projectService.updateCardSessionId(_card.id, newSessionId);
+        if (!success && mounted) {
+          setState(() {
+            _sessionId = oldSessionId;
+            _card = _card.copyWith(acpSessionId: oldSessionId);
+          });
+        }
       }
-    } catch (e) {
-      debugPrint('Send message error: $e');
+
+      // Refresh history
+      await _loadSessionHistory();
+    }).catchError((e) {
+      debugPrint('[CardDetail] Send request error: $e');
       if (mounted) {
         setState(() {
-          _messages = originalMessages;
+          _isAgentProcessing = false;
           _isLoadingMessages = false;
         });
-        _showErrorSnackBar('Failed to send message. Please try again.');
+        // Don't show error here, streaming should have handled state
       }
-    } finally {
-      if (mounted) setState(() => _isLoadingMessages = false);
-    }
+    });
   }
 
   @override
@@ -293,6 +401,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _debounceTimer?.cancel();
     _titleController.removeListener(_onCardInfoChanged);
     _descriptionController.removeListener(_onCardInfoChanged);
+    
+    // Cancel ACP subscription and pending requests
+    _acpMessageSubscription?.cancel();
+    widget.acpClient?.cancelAllPendingRequests();
 
     _titleController.dispose();
     _descriptionController.dispose();
@@ -426,6 +538,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               ),
             ),
           ),
+          // Tool call area
+          if (_toolCalls.isNotEmpty || _isAgentProcessing || _isWaitingForPermission)
+            _buildToolCallArea(),
           if (_isLoadingMessages && _messages.isNotEmpty)
             const LinearProgressIndicator(minHeight: 2),
           _buildInputArea(),
@@ -614,5 +729,293 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildToolCallArea() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: Border(top: BorderSide(color: Colors.grey[200]!)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Permission waiting indicator
+          if (_isWaitingForPermission)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange[200]!),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.orange[600]!),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '等待授权...',
+                      style: TextStyle(
+                        color: Colors.orange[700],
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // Tool calls summary (collapsible)
+          if (_toolCalls.isNotEmpty)
+            _buildToolCallSummary(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolCallSummary() {
+    final completedCount = _toolCalls.where((tc) => tc['status'] == 'completed' || tc['status'] == 'succeeded').length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () {
+            setState(() {
+              if (_expandedToolCalls.isEmpty) {
+                // Expand all
+                _expandedToolCalls = _toolCalls.map((tc) => tc['id'] as String).toSet();
+              } else {
+                // Collapse all
+                _expandedToolCalls = {};
+              }
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.build, size: 16, color: Colors.blue[600]),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${_toolCalls.length} 个工具调用${completedCount > 0 ? '（$completedCount 已完成）' : ''}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                ),
+                Icon(
+                  _expandedToolCalls.isEmpty ? Icons.expand_more : Icons.expand_less,
+                  size: 16,
+                  color: Colors.grey[600],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_expandedToolCalls.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          ..._toolCalls.map((toolCall) => _buildToolCallCard(toolCall)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildToolCallCard(Map<String, dynamic> toolCall) {
+    final isExpanded = _expandedToolCalls.contains(toolCall['id']);
+    final status = toolCall['status'] as String;
+    final name = toolCall['name'] as String;
+    final input = toolCall['input'] as Map<String, dynamic>? ?? {};
+    final content = toolCall['content'] as String? ?? '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedToolCalls.remove(toolCall['id']);
+                } else {
+                  _expandedToolCalls.add(toolCall['id']);
+                }
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: [
+                  // Status indicator
+                  if (status == 'in_progress')
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+                      ),
+                    )
+                  else if (status == 'completed' || status == 'succeeded')
+                    Icon(Icons.check_circle, size: 16, color: Colors.green[600])
+                  else if (status == 'failed')
+                    Icon(Icons.error, size: 16, color: Colors.red[600])
+                  else
+                    Icon(Icons.circle, size: 12, color: Colors.grey[400]),
+                  const SizedBox(width: 8),
+                  // Tool name
+                  Expanded(
+                    child: Text(
+                      _formatToolName(name),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  // Input summary
+                  if (input.isNotEmpty)
+                    Text(
+                      _formatInputSummary(input),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    isExpanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
+                    color: Colors.grey[600],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Expanded content
+          if (isExpanded)
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(8),
+                  bottomRight: Radius.circular(8),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Input parameters
+                  if (input.isNotEmpty) ...[
+                    Text(
+                      '输入参数:',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Text(
+                        const JsonEncoder.withIndent('  ').convert(input),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  // Output content
+                  if (content.isNotEmpty) ...[
+                    Text(
+                      '输出:',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Text(
+                        content.length > 1000 ? '${content.substring(0, 1000)}...' : content,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatToolName(String name) {
+    // Convert camelCase to readable format
+    return name
+        .replaceAllMapped(
+          RegExp(r'([A-Z])'),
+          (match) => ' ${match.group(1)}',
+        )
+        .trim();
+  }
+
+  String _formatInputSummary(Map<String, dynamic> input) {
+    // Show first meaningful value
+    for (final entry in input.entries) {
+      if (entry.value != null && entry.value.toString().isNotEmpty) {
+        final value = entry.value.toString();
+        return value.length > 30 ? '${value.substring(0, 30)}...' : value;
+      }
+    }
+    return '';
   }
 }

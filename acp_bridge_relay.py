@@ -506,10 +506,10 @@ class UnifiedBridge:
                 if original_was_e2ee and self.e2ee.is_ready:
                     response = self.e2ee.wrap_json_rpc(response)
                     await source_ws.send(json.dumps(response))
+                    logger.info(f"-> Sent E2EE response for {method}: {request_id} (has_error={'error' in response_result})")
                 else:
                     await source_ws.send(json.dumps(response))
-
-                logger.info(f"-> Handled {method}: {request_id}")
+                    logger.info(f"-> Sent plaintext response for {method}: {request_id} (has_error={'error' in response_result})")
                 return
 
             # Handle notifications (no ID) - forward to appropriate session
