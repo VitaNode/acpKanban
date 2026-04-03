@@ -413,6 +413,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     // Cancel ACP subscription and pending requests
     _acpMessageSubscription?.cancel();
     widget.acpClient?.cancelAllPendingRequests();
+    
+    // Close WebSocket connection to prevent leak
+    _wsService.disconnect();
 
     _titleController.dispose();
     _descriptionController.dispose();
