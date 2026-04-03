@@ -209,7 +209,7 @@ class ACPClient {
   Future<void> initialize([Map<String, dynamic>? systemConfig]) async {
     try {
       print('[ACP] Sending initialize...');
-      final params = {
+      final Map<String, dynamic> params = {
         'clientInfo': {'name': 'KanbanMobile', 'version': '1.5.0'}
       };
       if (systemConfig != null) {
