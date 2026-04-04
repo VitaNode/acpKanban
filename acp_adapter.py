@@ -103,19 +103,14 @@ class ACPProtocolAdapter:
         if not session_id:
             if acp_session_id:
                 self.log(f"Attempting to load saved session: {acp_session_id}")
-                session_id, error_reason = await self._load_session(
-                    session_id=acp_session_id,
-                    workspace_path=workspace_path,
-                    card_id=sid_key,
-                )
-                if session_id:
-                    self.log(f"Session loaded: {session_id}")
-                elif error_reason == "workspace_mismatch":
-                    self.log(f"Workspace mismatch, clearing old session data")
-                    self._card_sessions.pop(sid_key, None)
-                    self._history.pop(sid_key, None)
-                else:
-                    self.log(f"Load failed ({error_reason}), creating new session")
+                # TEMPORARY: Skip session/load to test if it corrupts session state
+                self.log(f"SKIPPING session/load for debugging, forcing new session")
+                session_id = None
+                # Original session/load code (commented out for testing):
+                # session_id, error_reason = await self._load_session(...)
+                # if session_id: self.log(f"Session loaded: {session_id}")
+                # elif error_reason == "workspace_mismatch": self.log("Workspace mismatch")
+                # else: self.log(f"Load failed ({error_reason})")
 
             if not session_id:
                 self.log(f"Creating new session for card: {sid_key}")
@@ -155,26 +150,36 @@ class ACPProtocolAdapter:
         await asyncio.sleep(0.1)
 
         # Clear any stale notifications from session/load history replay
+        drained = 0
         while not queue.empty():
             try:
                 queue.get_nowait()
+                drained += 1
             except asyncio.QueueEmpty:
                 break
+        if drained > 0:
+            self.log(f"Drained {drained} stale notifications from queue")
 
         # 4. Collect notifications AFTER session/prompt was sent
         # Only extracts text content from content-bearing updates.
         # Metadata updates (session_info_update, available_commands_update) are ignored
         # because they don't have a 'content' field with 'text'.
+        notification_count = 0
         async def collect_notifications():
+            nonlocal notification_count
             while True:
                 try:
                     # Increased timeout from 0.1 to 0.5 to reduce CPU load when idle
                     data = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    notification_count += 1
+                    update_type = data.get("params", {}).get("update", {}).get("sessionUpdate", "unknown")
+                    self.log(f"Notification #{notification_count}: {update_type}")
                     if data.get("method") == "session/update":
                         update = data.get("params", {}).get("update", {})
                         content = update.get("content", {})
                         if isinstance(content, dict) and "text" in content:
                             collected_text.append(content["text"])
+                            self.log(f"Extracted text: {content['text'][:100]}...")
                         elif isinstance(content, list):
                             for item in content:
                                 if (
@@ -191,18 +196,26 @@ class ACPProtocolAdapter:
                                         collected_text.append(c.get("text", ""))
                 except asyncio.TimeoutError:
                     if prompt_task.done():
+                        self.log(f"Prompt task done, stopping collection")
                         break
-                except Exception:
+                except Exception as e:
+                    self.log(f"Collection error: {e}")
                     break
 
         # 5. Run notification collection
+        self.log(f"Starting notification collection for session {session_id}")
         await collect_notifications()
+        self.log(f"Collection done: {notification_count} notifications, {len(collected_text)} text chunks")
         self.acp.stop_listening(listener_id)
 
         try:
             response = await prompt_task
         except Exception as e:
+            self.log(f"Prompt task exception: {e}")
             return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
+
+        self.log(f"Prompt response keys: {list(response.keys())}")
+        self.log(f"Prompt response result: {response.get('result', 'N/A')}")
 
         if "error" in response:
             return {"error": response["error"]}
