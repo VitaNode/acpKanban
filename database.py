@@ -28,7 +28,16 @@ class KanbanDB:
         import os
 
         self.pool_size = pool_size or int(os.getenv("KANBAN_DB_POOL_SIZE", "5"))
-        self.db_path = db_path
+        
+        # Use absolute path for database to avoid issues with CWD in background tasks
+        if not os.path.isabs(db_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.db_path = os.path.join(base_dir, db_path)
+        else:
+            self.db_path = db_path
+            
+        print(f"[*] Database initialized at: {self.db_path}")
+
         self._pool = Queue(maxsize=self.pool_size)
         self._async_pool = None
         self._async_lock = asyncio.Lock()

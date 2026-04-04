@@ -35,6 +35,7 @@ class EmbeddingService:
             try:
                 from database import KanbanDB
                 db = KanbanDB()
+                print(f"[EmbeddingService] Fallback to DB at: {db.db_path}")
                 system_config = db.get_setting("system_config")
                 if system_config:
                     # Handle both snake_case and camelCase
@@ -47,6 +48,8 @@ class EmbeddingService:
                     if not os.getenv("EMBEDDING_MODEL"):
                         embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
                         os.environ["EMBEDDING_MODEL"] = embedding_model
+                else:
+                    print("[EmbeddingService] No system_config found in DB")
             except Exception as e:
                 print(f"[EmbeddingService] Database settings fallback failed: {e}")
 
