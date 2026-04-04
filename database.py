@@ -48,7 +48,6 @@ class KanbanDB:
 
         for _ in range(self.pool_size):
             conn = self._create_new_connection()
-            self._load_extensions(conn)
             self._pool.put(conn)
 
     def _create_new_connection(self):
@@ -56,6 +55,9 @@ class KanbanDB:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        
+        # Load extensions for EVERY connection
+        self._load_extensions(conn)
         return conn
 
     async def _ensure_async_pool(self):
@@ -66,7 +68,6 @@ class KanbanDB:
                     self._async_pool = asyncio.Queue(maxsize=self.pool_size)
                     for _ in range(self.pool_size):
                         conn = self._create_new_connection()
-                        self._load_extensions(conn)
                         await self._async_pool.put(conn)
         return self._async_pool
 
