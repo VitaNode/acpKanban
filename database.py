@@ -1370,17 +1370,16 @@ class KanbanDB:
 
     def upsert_card_embedding(self, card_id: str, embedding: List[float]):
         """Save or update the vector embedding for a card summary."""
-        with self.get_connection() as conn:
-            # Check if vector table exists first (in case extension loading failed)
-            try:
-                # Use json.dumps for the list of floats which vec0 handles
+        try:
+            with self.get_connection() as conn:
                 import json
                 conn.execute(
                     "INSERT OR REPLACE INTO card_vectors (id, embedding) VALUES (?, ?)",
                     (card_id, json.dumps(embedding)),
                 )
-            except sqlite3.OperationalError as e:
-                print(f"[!] upsert_card_embedding failed (no vector table?): {e}")
+        except Exception as e:
+            # We treat this as a non-fatal error to avoid breaking the summary task
+            print(f"[!] upsert_card_embedding skipped: {e}")
 
     def search_cards_semantic(
         self, embedding: List[float], project_id: str = None, limit: int = 5

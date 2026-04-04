@@ -49,14 +49,17 @@ def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 
             # 5. Generate embedding for the summary
             # We skip this only if we already have a vector (implied by success of next step)
-            emb = embedding_service.get_embedding(summary)
-            if emb:
-                db.upsert_card_embedding(card_id, emb)
-                logger.info(f"Embedding generated and saved for card {card_id}")
-            else:
-                logger.warning(f"Failed to generate embedding for card {card_id}")
+            try:
+                emb = embedding_service.get_embedding(summary)
+                if emb:
+                    db.upsert_card_embedding(card_id, emb)
+                    logger.info(f"Embedding generated and saved for card {card_id}")
+                else:
+                    logger.warning(f"Failed to generate embedding for card {card_id}")
+            except Exception as emb_e:
+                logger.error(f"Non-fatal error in embedding step for card {card_id}: {emb_e}")
             
-            return # Success
+            return # Success: Summary was saved, task is complete
                 
         except Exception as e:
             wait_time = 2 ** attempt
