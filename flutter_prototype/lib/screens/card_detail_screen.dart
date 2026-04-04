@@ -256,14 +256,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     });
   }
 
-  Future<void> _initWebSocket() async {
-    setState(() => _isLoadingMessages = true);
-    final connected = await _wsService.connect(_card.id);
-    if (!connected && mounted) {
-      await _loadSessionHistory();
-    }
-  }
-
   Future<void> _loadSessionHistory() async {
     setState(() => _isLoadingMessages = true);
     try {
@@ -429,9 +421,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _acpMessageSubscription?.cancel();
     widget.acpClient?.cancelAllPendingRequests();
     
-    // Close WebSocket connection to prevent leak
-    _wsService.disconnect();
-
     _titleController.dispose();
     _descriptionController.dispose();
     _chatController.dispose();

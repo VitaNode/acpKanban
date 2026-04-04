@@ -297,6 +297,7 @@ class KanbanDB:
                 content TEXT,
                 metadata TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_complete INTEGER DEFAULT 1,
                 FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
             )""")
 
@@ -493,6 +494,21 @@ class KanbanDB:
 
                 conn.execute(
                     "INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (5, ?)",
+                    (datetime.now().isoformat(),),
+                )
+                conn.commit()
+
+            if current_version < 6:
+                cursor.execute(
+                    "SELECT name FROM pragma_table_info('card_sessions') WHERE name='is_complete'"
+                )
+                if not cursor.fetchone():
+                    cursor.execute(
+                        "ALTER TABLE card_sessions ADD COLUMN is_complete INTEGER DEFAULT 1"
+                    )
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_version (version, updated_at) VALUES (6, ?)",
                     (datetime.now().isoformat(),),
                 )
                 conn.commit()
