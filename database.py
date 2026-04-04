@@ -72,55 +72,54 @@ class KanbanDB:
         return self._async_pool
 
     def _load_extensions(self, conn):
-        import logging
         import os
-
-        logger = logging.getLogger(__name__)
+        
+        try:
+            # CRITICAL: Must enable extension loading BEFORE calling any load methods
+            conn.enable_load_extension(True)
+        except Exception as e:
+            print(f"[!] Failed to enable extension loading: {e}")
+            return
 
         # Try to load via the python package first (recommended for pip install sqlite-vec)
         try:
             import sqlite_vec
             sqlite_vec.load(conn)
-            logger.info("Loaded sqlite-vec using python package API")
+            print("[*] Loaded sqlite-vec using python package API")
             return
         except ImportError:
-            logger.debug("sqlite-vec python package not found, trying shared library")
+            pass # Try shared library fallback
         except Exception as e:
-            logger.debug(f"Failed to load sqlite-vec via python API: {e}")
+            print(f"[!] Failed to load sqlite-vec via python API: {e}")
 
-        try:
-            conn.enable_load_extension(True)
-            
-            # Expanded search paths for sqlite-vec shared libraries
-            extension_paths = [
-                "vec0",
-                "/usr/local/lib/vec0.so",
-                "/usr/local/lib/vec0.dylib",
-                "./lib/vec0.so",
-                "./lib/vec0.dylib",
-                os.path.expanduser("~/.npm-global/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-arm64/vec0.dylib"),
-                "/opt/homebrew/lib/vec0.dylib",
-            ]
-            
-            for path in extension_paths:
-                try:
-                    if os.path.isabs(path) or path.startswith("./"):
-                        if os.path.exists(path):
-                            conn.execute(f"SELECT load_extension('{path}')")
-                            logger.info(f"Loaded sqlite-vec from: {path}")
-                            return
-                    else:
+        # Expanded search paths for sqlite-vec shared libraries
+        extension_paths = [
+            "vec0",
+            "/usr/local/lib/vec0.so",
+            "/usr/local/lib/vec0.dylib",
+            "./lib/vec0.so",
+            "./lib/vec0.dylib",
+            os.path.expanduser("~/.npm-global/lib/node_modules/openclaw/node_modules/sqlite-vec-darwin-arm64/vec0.dylib"),
+            "/opt/homebrew/lib/vec0.dylib",
+        ]
+        
+        for path in extension_paths:
+            try:
+                if os.path.isabs(path) or path.startswith("./"):
+                    if os.path.exists(path):
                         conn.execute(f"SELECT load_extension('{path}')")
-                        logger.info(f"Loaded sqlite-vec from system path: {path}")
+                        print(f"[*] Loaded sqlite-vec from: {path}")
                         return
-                except Exception:
-                    continue
-            
-            if not hasattr(self, "_vec_warning_shown"):
-                logger.warning("sqlite-vec extension not found. Semantic search disabled.")
-                self._vec_warning_shown = True
-        except Exception as e:
-            logger.warning(f"Failed to enable extension loading: {e}")
+                else:
+                    conn.execute(f"SELECT load_extension('{path}')")
+                    print(f"[*] Loaded sqlite-vec from system path: {path}")
+                    return
+            except Exception:
+                continue
+        
+        if not hasattr(self, "_vec_warning_shown"):
+            print("[!] sqlite-vec extension not found. Semantic search disabled.")
+            self._vec_warning_shown = True
 
     @contextmanager
     def get_connection(self):
