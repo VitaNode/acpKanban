@@ -599,10 +599,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (providerId == null) return const Icon(Icons.person_outline, size: 14);
     final provider = widget.providers.firstWhere(
       (p) => p.id == providerId,
-      orElse: () => ACPProvider(id: providerId, name: providerId),
+      orElse: () => ACPProvider(
+        id: providerId,
+        name: providerId,
+        command: const [],
+      ),
     );
-    if (provider.icon != null && provider.icon!.isNotEmpty) {
-      return Text(provider.icon!, style: const TextStyle(fontSize: 12));
+    if (provider.icon.isNotEmpty && provider.icon != 'smart_toy') {
+      return Text(provider.icon, style: const TextStyle(fontSize: 12));
     }
     return const Icon(Icons.bolt, size: 14, color: Colors.amber);
   }
