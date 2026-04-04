@@ -1371,6 +1371,9 @@ class KanbanDB:
     def search_cards_semantic(
         self, embedding: List[float], project_id: str = None, limit: int = 5
     ) -> List[Dict]:
+        import json
+        embedding_json = json.dumps(embedding)
+        
         with self.get_connection() as conn:
             try:
                 if project_id:
@@ -1383,7 +1386,7 @@ class KanbanDB:
                         WHERE col.project_id = ?
                         ORDER BY distance LIMIT ?
                     """
-                    cursor = conn.execute(sql, (embedding, project_id, limit))
+                    cursor = conn.execute(sql, (embedding_json, project_id, limit))
                 else:
                     sql = """
                         SELECT c.*, col.name as column_name,
@@ -1393,7 +1396,7 @@ class KanbanDB:
                         JOIN card_vectors ON card_vectors.card_id = c.id
                         ORDER BY distance LIMIT ?
                     """
-                    cursor = conn.execute(sql, (embedding, limit))
+                    cursor = conn.execute(sql, (embedding_json, limit))
                 return [dict(row) for row in cursor.fetchall()]
             except Exception as e:
                 print(f"[!] search_cards_semantic failed: {e}")
