@@ -16,49 +16,80 @@ class EmbeddingService:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, model: str = "text-embedding-3-small", dimensions: int = 1536):
+    def __init__(self, model: str = None, dimensions: int = 1536):
         if self._initialized:
             return
-        self.model = model
+        self.default_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
         self.dimensions = dimensions
-
-        api_key = os.getenv("KANBAN_API_KEY")
-        base_url = os.getenv("KANBAN_BASE_URL", "https://api.openai.com/v1")
-
-        if not api_key or api_key == "your_new_key_here":
-            self.client = None
-        else:
-            self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
-
+        self.client = None
+        self._last_api_key = None
+        self._last_base_url = None
         self._initialized = True
 
-    def is_available(self) -> bool:
-        return self.client is not None
+    def _get_client(self):
+        api_key = os.getenv("KANBAN_API_KEY")
+        base_url = os.getenv("KANBAN_BASE_URL")
 
-    def get_embedding(self, text: str) -> Optional[List[float]]:
-        if not self.client:
+        # Fallback to DB settings if environment variables are not set (for standalone API)
+        if not api_key or not base_url:
+            try:
+                from database import KanbanDB
+                db = KanbanDB()
+                system_config = db.get_setting("system_config")
+                if system_config:
+                    api_key = api_key or system_config.get("api_key")
+                    base_url = base_url or system_config.get("base_url")
+                    if not os.getenv("SUMMARY_MODEL"):
+                        os.environ["SUMMARY_MODEL"] = system_config.get("summary_model", "gpt-4o-mini")
+                    if not os.getenv("EMBEDDING_MODEL"):
+                        os.environ["EMBEDDING_MODEL"] = system_config.get("embedding_model", "text-embedding-3-small")
+            except Exception as e:
+                print(f"[EmbeddingService] Database settings fallback failed: {e}")
+
+        base_url = base_url or "https://api.openai.com/v1"
+
+        if not api_key or api_key == "your_new_key_here":
             return None
 
+        if self.client is None or api_key != self._last_api_key or base_url != self._last_base_url:
+            print(f"[EmbeddingService] Initializing OpenAI client with base_url: {base_url}")
+            self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
+            self._last_api_key = api_key
+            self._last_base_url = base_url
+        
+        return self.client
+
+    def is_available(self) -> bool:
+        return self._get_client() is not None
+
+    def get_embedding(self, text: str) -> Optional[List[float]]:
+        client = self._get_client()
+        if not client:
+            return None
+
+        model = os.getenv("EMBEDDING_MODEL", self.default_model)
         try:
-            response = self.client.embeddings.create(
-                model=self.model, input=text, dimensions=self.dimensions
+            response = client.embeddings.create(
+                model=model, input=text, dimensions=self.dimensions
             )
             return response.data[0].embedding
         except Exception as e:
-            print(f"[!] Embedding error: {e}")
+            print(f"[!] Embedding error with model {model}: {e}")
             return None
 
     def get_embeddings(self, texts: List[str]) -> List[Optional[List[float]]]:
-        if not self.client:
+        client = self._get_client()
+        if not client:
             return [None] * len(texts)
 
+        model = os.getenv("EMBEDDING_MODEL", self.default_model)
         try:
-            response = self.client.embeddings.create(
-                model=self.model, input=texts, dimensions=self.dimensions
+            response = client.embeddings.create(
+                model=model, input=texts, dimensions=self.dimensions
             )
             return [item.embedding for item in response.data]
         except Exception as e:
-            print(f"[!] Embedding batch error: {e}")
+            print(f"[!] Embedding batch error with model {model}: {e}")
             return [None] * len(texts)
 
     def get_text_embedding(self, text: str) -> str:
@@ -87,7 +118,9 @@ class EmbeddingService:
         return self.get_embedding(combined_text)
 
     def generate_summary(self, title: str, messages: List[dict], model: str = None) -> Optional[str]:
-        if not self.client:
+        client = self._get_client()
+        if not client:
+            print("[EmbeddingService] Client not available for summary generation")
             return None
 
         model = model or os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
@@ -116,7 +149,7 @@ Provide a concise summary (max 300 words).
 """
 
         try:
-            response = self.client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that summarizes technical tasks."},
@@ -124,7 +157,11 @@ Provide a concise summary (max 300 words).
                 ],
                 max_tokens=500
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            if not content or not content.strip():
+                print(f"[!] LLM returned empty summary for model {model}")
+                return None
+            return content
         except Exception as e:
             print(f"[!] Summary generation error with model {model}: {e}")
             return None
