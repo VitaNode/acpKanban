@@ -475,7 +475,19 @@ class UnifiedBridge:
 
                 if card_id and method in ("chat/message", "session/prompt"):
                     # --- ASYNC PROCESSING ---
-                    # 1. Immediate DB Save (User Message)
+                    # 1. Concurrency Check: Check if a turn is already active for this card
+                    if card_id in self.active_turns:
+                        logger.warning(f"Rejecting prompt for card {card_id[:8]}: Turn already active")
+                        error_resp = {
+                            "error": {
+                                "code": -32004, 
+                                "message": "Agent is already processing a request for this card. Please wait."
+                            }
+                        }
+                        await self._send_acp_response(request_id, error_resp, source_ws, original_was_e2ee)
+                        return
+
+                    # 2. Immediate DB Save (User Message)
                     from database import KanbanDB
                     db = KanbanDB()
                     prompt_text = params.get("message") or params.get("prompt")
@@ -485,18 +497,18 @@ class UnifiedBridge:
                     await asyncio.to_thread(db.add_session_message, card_id, "user", prompt_text)
                     logger.info(f"Saved user message for card {card_id[:8]}...")
 
-                    # 2. Immediate Ack to Client
+                    # 3. Immediate Ack to Client
                     ack_response = {"status": "submitted", "card_id": card_id}
                     await self._send_acp_response(request_id, ack_response, source_ws, original_was_e2ee)
 
-                    # 3. Run in background and track
+                    # 4. Run in background and track
                     task = asyncio.create_task(
                         self._process_acp_request(
                             card_id, method, params, request_id, source_ws, original_was_e2ee
                         )
                     )
                     self.active_turns[card_id] = task
-                    return # Control returned to WS loop
+                    return 
                 else:
                     # Sync processing for non-prompt methods (initialize, health, etc.)
                     try:

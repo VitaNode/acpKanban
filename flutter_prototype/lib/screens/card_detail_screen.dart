@@ -223,6 +223,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
             });
           }
           saved = true;
+          // IMPORTANT: Do NOT trigger KanbanRefreshService().markNeedsRefresh() here
+          // as it causes MainScreen to rebuild and potentially dispose this screen.
           break;
         } else {
           throw Exception('Server returned null on update');
@@ -385,6 +387,17 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       'acp_session_id': _card.acpSessionId,
     }).then((response) async {
       if (!mounted) return;
+
+      // Check for bridge-level errors (like turn locking)
+      if (response.containsKey('error')) {
+        final error = response['error'];
+        _showErrorSnackBar(error['message'] ?? 'AI processing error');
+        setState(() {
+          _isAgentProcessing = false;
+          _messages = originalMessages; // Revert optimistic update
+        });
+        return;
+      }
 
       // Handle final response if bridge returns one (usually it returns success result)
       final result = response['result'];
@@ -859,17 +872,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
                   onSubmitted: (value) {
-                    _sendMessage();
+                    if (!_isAgentProcessing && !_isLoadingMessages) {
+                      _sendMessage();
+                    }
                   },
                 ),
               ),
             ),
             const SizedBox(width: 8),
             IconButton(
-              onPressed: _isLoadingMessages ? null : _sendMessage,
+              onPressed: (_isAgentProcessing || _isLoadingMessages) ? null : _sendMessage,
               icon: Icon(
                 Icons.send_rounded,
-                color: _isLoadingMessages
+                color: (_isAgentProcessing || _isLoadingMessages)
                     ? Colors.grey
                     : AppConstants.primaryColor,
               ),
