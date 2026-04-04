@@ -162,6 +162,9 @@ class ACPProtocolAdapter:
                 break
 
         # 4. Collect notifications AFTER session/prompt was sent
+        # Only extracts text content from content-bearing updates.
+        # Metadata updates (session_info_update, available_commands_update) are ignored
+        # because they don't have a 'content' field with 'text'.
         async def collect_notifications():
             while True:
                 try:

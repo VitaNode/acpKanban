@@ -73,7 +73,6 @@ class UnifiedBridge:
         self.config = self._load_config()
         self.sessions = {}  # card_id -> SessionContext
         self._session_locks = {}  # card_id -> asyncio.Lock
-        self._loading_sessions = set()  # card_ids currently loading sessions
         self.local_discovery = LocalDiscovery(user_id)
 
         # ECDH pair for initial handshake (load from storage or generate new)
@@ -339,11 +338,7 @@ class UnifiedBridge:
         if "method" not in data:
             return
 
-        # Filter history replay notifications - don't forward during session load
-        if card_id and card_id in self._loading_sessions:
-            return
-
-        # Filter verbose notifications
+        # Filter specific verbose update types
         if data.get("method") == "session/update":
             update_type = data.get("params", {}).get("update", {}).get("sessionUpdate")
             if update_type in ["agent_thought_chunk"]:
@@ -441,14 +436,9 @@ class UnifiedBridge:
                         params_with_recovery["acp_session_id"] = session.acp_session_id
                         params_with_recovery["workspace_path"] = session.workspace_path
 
-                        # Mark as loading to filter out history replay notifications
-                        self._loading_sessions.add(card_id)
-                        try:
-                            response_result = await session.adapter.handle_request(
-                                method, params_with_recovery
-                            )
-                        finally:
-                            self._loading_sessions.discard(card_id)
+                        response_result = await session.adapter.handle_request(
+                            method, params_with_recovery
+                        )
 
                         if (
                             isinstance(response_result, dict)
