@@ -1239,14 +1239,14 @@ class KanbanDB:
 
     def add_session_message(
         self, card_id: str, role: str, content: str, metadata: Dict = None
-    ):
+    ) -> int:
         now = datetime.now().isoformat()
 
         with self.get_connection() as conn:
             # 启动 IMMEDIATE 事务
             conn.execute("BEGIN IMMEDIATE")
 
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
                 (
                     card_id,
@@ -1256,6 +1256,7 @@ class KanbanDB:
                     now,
                 ),
             )
+            msg_id = cursor.lastrowid
 
             cursor = conn.execute(
                 "SELECT column_id FROM cards WHERE id = ?", (card_id,)
@@ -1283,10 +1284,56 @@ class KanbanDB:
                                 now,
                             ),
                         )
-                    except Exception as e:
-                        import logging
+                    except Exception:
+                        pass
+            conn.commit()
+            return msg_id
 
-                        logging.warning(f"Failed to insert timeline event: {e}")
+    def append_session_message(self, card_id: str, role: str, content: str) -> int:
+        """
+        Append content to the last message if it's the same role and within a short timeframe (30s),
+        otherwise create a new message.
+        """
+        now = datetime.now()
+        now_iso = now.isoformat()
+        
+        with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            
+            # Find last message for this card
+            cursor = conn.execute(
+                "SELECT id, role, content, created_at FROM card_sessions WHERE card_id = ? ORDER BY id DESC LIMIT 1",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            
+            should_append = False
+            if row:
+                msg_id, last_role, last_content, last_created = row
+                try:
+                    last_dt = datetime.fromisoformat(last_created)
+                    # If same role and created within last 30 seconds, append
+                    if last_role == role and (now - last_dt).total_seconds() < 30:
+                        should_append = True
+                except:
+                    pass
+            
+            if should_append:
+                new_content = (last_content or "") + content
+                conn.execute(
+                    "UPDATE card_sessions SET content = ?, created_at = ? WHERE id = ?",
+                    (new_content, now_iso, msg_id)
+                )
+                conn.commit()
+                return msg_id
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+                    (card_id, role, content, now_iso),
+                )
+                new_id = cursor.lastrowid
+                conn.commit()
+                return new_id
 
             conn.execute(
                 """

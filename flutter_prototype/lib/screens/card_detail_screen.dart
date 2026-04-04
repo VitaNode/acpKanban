@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import '../models/kanban_card.dart';
 import '../models/card_message.dart';
 import '../services/project_service.dart';
-import '../services/session_websocket_service.dart';
 import '../services/acp_client.dart';
 import '../services/smart_connect.dart';
 import '../widgets/message_bubble.dart';
@@ -34,7 +33,6 @@ class CardDetailScreen extends StatefulWidget {
 
 class _CardDetailScreenState extends State<CardDetailScreen> {
   final _projectService = ProjectService();
-  final _wsService = SessionWebSocketService();
 
   late TextEditingController _titleController;
   late TextEditingController _descriptionController;
@@ -47,7 +45,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   List<KanbanCard> _relatedCards = [];
   bool _isLoadingMessages = false;
   bool _isLoadingRelated = false;
-  bool _wsConnected = false;
   bool _isSavingCard = false;
   String? _sessionId;
 
@@ -67,7 +64,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
 
-    _initWebSocket();
     _loadSessionHistory();
     _loadSessionId();
     _loadRelatedCards();
@@ -75,22 +71,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   void _setupListeners() {
-    _wsService.messages.listen((msgs) {
-      if (mounted) {
-        setState(() {
-          _messages = msgs;
-          _isLoadingMessages = false;
-        });
-        _scrollToBottom();
-      }
-    });
-
-    _wsService.status.listen((status) {
-      if (mounted) {
-        setState(() => _wsConnected = status == 'connected');
-      }
-    });
-
     // Subscribe to ACP streaming messages
     if (widget.acpClient != null) {
       _acpMessageSubscription = widget.acpClient!.messages.listen(_handleAcpStreamMessage);
@@ -107,14 +87,46 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       final data = jsonDecode(messageJson) as Map<String, dynamic>;
       final method = data['method'] as String?;
       final params = data['params'] as Map<String, dynamic>? ?? {};
+      
+      // CRITICAL: Only handle messages for THIS card
+      final msgCardId = params['card_id']?.toString();
+      if (msgCardId != null && msgCardId != _card.id) {
+        return;
+      }
+
       final update = params['update'] as Map<String, dynamic>? ?? {};
       final sessionUpdate = update['sessionUpdate'] as String?;
 
-      debugPrint('[CardDetail] ACP stream: method=$method, sessionUpdate=$sessionUpdate');
-
       if (method == 'session/update') {
-        // Handle tool calls
-        if (sessionUpdate == 'tool_call') {
+        // 1. Handle Text Streaming (agent_message_chunk)
+        if (sessionUpdate == 'agent_message_chunk') {
+          final content = update['content'] as Map<String, dynamic>? ?? {};
+          final text = content['text']?.toString() ?? '';
+          
+          if (text.isNotEmpty) {
+            setState(() {
+              _isAgentProcessing = true;
+              // If last message is assistant, append. Otherwise create new.
+              if (_messages.isNotEmpty && _messages.last.role == 'assistant') {
+                final last = _messages.last;
+                _messages[_messages.length - 1] = last.copyWith(
+                  content: last.content + text,
+                );
+              } else {
+                _messages.add(CardMessage(
+                  id: 'stream_${DateTime.now().millisecondsSinceEpoch}',
+                  cardId: _card.id,
+                  role: 'assistant',
+                  content: text,
+                  createdAt: DateTime.now().toIso8601String(),
+                ));
+              }
+            });
+            _scrollToBottom();
+          }
+        }
+        // 2. Handle Tool Calls
+        else if (sessionUpdate == 'tool_call') {
           final toolCallId = update['id']?.toString() ?? '';
           final toolName = (update['tool'] ?? update['toolName'] ?? 'Unknown Tool').toString();
           final title = update['title']?.toString() ?? '';
@@ -134,14 +146,11 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           });
           _scrollToBottom();
         }
-        // Handle tool call updates (completed/failed)
+        // 3. Handle Tool Call Updates (completed/failed)
         else if (sessionUpdate == 'tool_call_update') {
           final toolCallId = (update['id'] ?? update['toolCallId'] ?? '').toString();
           final status = update['status']?.toString() ?? '';
-          // Result can be in 'result', 'content', or 'rawOutput'
           final result = update['result'] ?? update['content'] ?? update['rawOutput'] ?? '';
-          final locations = update['locations'];
-          final error = update['error'];
 
           setState(() {
             final index = _toolCalls.indexWhere((tc) => tc['id'] == toolCallId);
@@ -150,14 +159,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 ..._toolCalls[index],
                 'status': status == 'completed' ? 'completed' : status == 'failed' ? 'failed' : status,
                 'content': result is String ? result : const JsonEncoder().convert(result),
-                'locations': locations,
-                'error': error,
               };
             }
           });
           _scrollToBottom();
         }
-        // Handle permission requests
+        // 4. Handle Permission Requests
         else if (sessionUpdate == 'request_permission' ||
                  (update.containsKey('permission') && update['permission'] != null)) {
           setState(() {
@@ -165,21 +172,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           });
         }
       }
-      // Handle usage metadata (indicates processing complete)
-      else if (method == 'session/update' && update.containsKey('usage')) {
+      // 5. Handle Usage / End of Turn
+      else if (method == 'session/update' && (update.containsKey('usage') || sessionUpdate == 'stop')) {
         setState(() {
           _isAgentProcessing = false;
           _isWaitingForPermission = false;
         });
-        // Refresh from DB to get final response
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            _loadSessionHistory();
-          }
+        // Final sync from DB to ensure UI matches reality
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) _loadSessionHistory();
         });
       }
     } catch (e) {
-      debugPrint('[CardDetail] Error handling ACP stream message: $e');
+      debugPrint('[CardDetail] Error handling ACP stream: $e');
     }
   }
 
@@ -326,7 +331,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     final originalMessages = List<CardMessage>.from(_messages);
     final userMessageId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Clear tool call states for new message
+    // 1. Optimistic UI Update
     setState(() {
       _messages = [
         ..._messages,
@@ -343,46 +348,27 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       _expandedToolCalls = {};
       _isAgentProcessing = true;
       _isWaitingForPermission = false;
-      _isLoadingMessages = true;
     });
     _scrollToBottom();
 
-    // Handle via WebSocket if connected
-    if (_wsConnected) {
-      // Set processing state for WebSocket mode too
-      setState(() {
-        _toolCalls = [];
-        _expandedToolCalls = {};
-        _isAgentProcessing = true;
-        _isWaitingForPermission = false;
-      });
-      
-      _wsService.sendMessage('user', text).catchError((e) {
-        debugPrint('WebSocket send error: $e');
-        if (mounted) {
-          setState(() {
-            _messages = originalMessages;
-            _isLoadingMessages = false;
-            _isAgentProcessing = false;
-          });
-        }
-      });
-      return;
+    // 2. Persist user message to DB (FastAPI)
+    // This makes it visible even if we leave the page immediately
+    try {
+      await _projectService.addSessionMessage(_card.id, 'user', text);
+    } catch (e) {
+      debugPrint('[CardDetail] DB persistence error: $e');
     }
 
-    // Handle via ACP client (non-blocking)
+    // 3. Check connectivity
     if (widget.acpClient == null || 
         widget.acpClient!.activeMode == ConnectionPath.none) {
-      // Fallback: just persist to DB
-      await _projectService.addSessionMessage(_card.id, 'user', text);
-      await _loadSessionHistory();
+      debugPrint('[CardDetail] ACP not connected, message persisted to DB only');
+      setState(() => _isAgentProcessing = false);
       return;
     }
 
-    // Persist user message to DB first
-    await _projectService.addSessionMessage(_card.id, 'user', text);
-
-    // Send request non-blocking
+    // 4. Send request to Bridge (Asynchronous in Backend)
+    // The bridge will handle forwarding to ACP and persisting chunks to DB
     widget.acpClient!.sendRequest('chat/message', {
       'message': text,
       'card_id': _card.id,
@@ -393,37 +379,27 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     }).then((response) async {
       if (!mounted) return;
 
-      final aiMessage = response['result']?['message'] ?? 'No response';
-      await _projectService.addSessionMessage(_card.id, 'assistant', aiMessage);
-
-      final newSessionId = response['result']?['session_id'];
-      if (newSessionId != null) {
-        final oldSessionId = _sessionId;
-        setState(() {
-          _sessionId = newSessionId;
-          _card = _card.copyWith(acpSessionId: newSessionId);
-        });
-        debugPrint('[CardDetail] Session ID updated: $newSessionId');
-
-        final success = await _projectService.updateCardSessionId(_card.id, newSessionId);
-        if (!success && mounted) {
+      // Handle final response if bridge returns one (usually it returns success result)
+      final result = response['result'];
+      if (result != null && result is Map) {
+        final newSessionId = result['session_id'];
+        if (newSessionId != null && newSessionId != _sessionId) {
           setState(() {
-            _sessionId = oldSessionId;
-            _card = _card.copyWith(acpSessionId: oldSessionId);
+            _sessionId = newSessionId;
+            _card = _card.copyWith(acpSessionId: newSessionId);
           });
+          await _projectService.updateCardSessionId(_card.id, newSessionId);
         }
       }
-
-      // Refresh history
-      await _loadSessionHistory();
+      
+      // We don't manually add assistant message here because 
+      // it's being streamed via _handleAcpStreamMessage and saved to DB by Bridge.
     }).catchError((e) {
       debugPrint('[CardDetail] Send request error: $e');
       if (mounted) {
         setState(() {
           _isAgentProcessing = false;
-          _isLoadingMessages = false;
         });
-        // Don't show error here, streaming should have handled state
       }
     });
   }

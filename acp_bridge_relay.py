@@ -332,13 +332,36 @@ class UnifiedBridge:
 
     async def on_acp_message(self, data, card_id: str = None):
         """
-        Broadcast output from ACP process.
+        Broadcast output from ACP process and persist to database.
         """
-        # Filter: Only forward notifications, not responses
-        if "method" not in data:
-            return
+        # --- PERSISTENCE LOGIC ---
+        if card_id and data.get("method") == "session/update":
+            update = data.get("params", {}).get("update", {})
+            update_type = update.get("sessionUpdate")
+            
+            from database import KanbanDB
+            db = KanbanDB()
 
-        # Filter specific verbose update types
+            if update_type == "agent_message_chunk":
+                content = update.get("content", {})
+                text = content.get("text", "") if isinstance(content, dict) else ""
+                if text:
+                    await asyncio.to_thread(db.append_session_message, card_id, "assistant", text)
+            
+            elif update_type == "tool_call":
+                title = update.get("title", "Tool Call")
+                status = update.get("status", "pending")
+                text = f"🛠️ **{title}** ({status})"
+                await asyncio.to_thread(db.add_session_message, card_id, "assistant", text, {"type": "tool_call", "toolCallId": update.get("toolCallId")})
+            
+            elif update_type == "tool_call_update":
+                status = update.get("status")
+                if status == "completed":
+                    # We could append tool result here, but often it's very technical.
+                    # For now, just update the status if we find the message.
+                    pass
+
+        # Filter specific verbose update types for UI broadcasting
         if data.get("method") == "session/update":
             update_type = data.get("params", {}).get("update", {}).get("sessionUpdate")
             if update_type in ["agent_thought_chunk"]:
@@ -430,77 +453,31 @@ class UnifiedBridge:
                 card_id = params.get("card_id")
 
                 if card_id and method in ("chat/message", "session/prompt"):
-                    try:
-                        session = await self._get_or_create_session(card_id)
-                        params_with_recovery = dict(params)
-                        params_with_recovery["acp_session_id"] = session.acp_session_id
-                        params_with_recovery["workspace_path"] = session.workspace_path
+                    # --- ASYNC PROCESSING ---
+                    # 1. Immediate DB Save (User Message)
+                    from database import KanbanDB
+                    db = KanbanDB()
+                    prompt_text = params.get("message") or params.get("prompt")
+                    if isinstance(prompt_text, list):
+                        prompt_text = " ".join([item.get("text", "") for item in prompt_text if item.get("type") == "text"])
+                    
+                    await asyncio.to_thread(db.add_session_message, card_id, "user", prompt_text)
+                    logger.info(f"Saved user message for card {card_id[:8]}...")
 
-                        response_result = await session.adapter.handle_request(
-                            method, params_with_recovery
+                    # 2. Run in background
+                    asyncio.create_task(
+                        self._process_acp_request(
+                            card_id, method, params, request_id, source_ws, original_was_e2ee
                         )
-
-                        if (
-                            isinstance(response_result, dict)
-                            and "session_id" in response_result
-                        ):
-                            new_session_id = response_result["session_id"]
-                            if new_session_id != session.acp_session_id:
-                                from database import KanbanDB
-
-                                db = KanbanDB()
-                                await asyncio.to_thread(
-                                    db.update_card_session_id, card_id, new_session_id
-                                )
-                                session.acp_session_id = new_session_id
-                                session.needs_recovery = False
-                                logger.info(
-                                    f"Persisted session_id for card {card_id[:8]}...: {new_session_id[:8]}..."
-                                )
-                    except Exception as e:
-                        logger.error(f"Session error for card {card_id[:8]}...: {e}")
-                        error_msg = str(e)
-                        if (
-                            "authentication" in error_msg.lower()
-                            or "auth" in error_msg.lower()
-                        ):
-                            response_result = {
-                                "error": {"code": -32001, "message": error_msg}
-                            }
-                        elif (
-                            "timeout" in error_msg.lower()
-                            or "network" in error_msg.lower()
-                        ):
-                            response_result = {
-                                "error": {"code": -32002, "message": error_msg}
-                            }
-                        elif (
-                            "session" in error_msg.lower()
-                            and "expired" in error_msg.lower()
-                        ):
-                            response_result = {
-                                "error": {"code": -32003, "message": error_msg}
-                            }
-                        elif (
-                            "concurrent" in error_msg.lower()
-                            or "in use" in error_msg.lower()
-                        ):
-                            response_result = {
-                                "error": {"code": -32004, "message": error_msg}
-                            }
-                        else:
-                            response_result = {
-                                "error": {"code": -32603, "message": error_msg}
-                            }
+                    )
+                    return # Control returned to WS loop, user can switch cards
                 else:
+                    # Sync processing for non-prompt methods (initialize, health, etc.)
                     try:
                         if method == "initialize":
-                            # Store system agent config for cloud tasks (summaries/embeddings)
                             if "systemConfig" in params:
                                 self.system_config = params["systemConfig"]
-                                logger.info(f"Received system configuration from client: {list(self.system_config.keys())}")
-                                
-                                # Sync to environment variables for background tasks (Issue 10)
+                                # ... existing systemConfig logic ...
                                 if "api_key" in self.system_config:
                                     os.environ["KANBAN_API_KEY"] = self.system_config["api_key"]
                                 if "base_url" in self.system_config:
@@ -509,7 +486,6 @@ class UnifiedBridge:
                                     os.environ["SUMMARY_MODEL"] = self.system_config["summary_model"]
                                 if "embedding_model" in self.system_config:
                                     os.environ["EMBEDDING_MODEL"] = self.system_config["embedding_model"]
-
                                 from database import KanbanDB
                                 db = KanbanDB()
                                 await asyncio.to_thread(db.set_setting, "system_config", self.system_config)
@@ -517,47 +493,75 @@ class UnifiedBridge:
                         if self.sessions:
                             # Use the first available session for global requests if already running
                             session = next(iter(self.sessions.values()))
-                            response_result = await session.adapter.handle_request(
-                                method, params
-                            )
+                            response_result = await session.adapter.handle_request(method, params)
                         elif method == "initialize":
-                            # Special case: return bridge's info if no card session started yet
-                            # This satisfies the initial handshake from Flutter
                             response_result = {
                                 "protocolVersion": 1,
                                 "capabilities": {"chat": True},
                                 "serverInfo": {"name": "Unified-Bridge", "version": "1.0.0"}
                             }
                         else:
-                            # For other methods without card_id, return error if no session exists
                             raise ValueError(f"Method {method} requires card_id or an active session")
+                        
+                        await self._send_acp_response(request_id, response_result, source_ws, original_was_e2ee)
                     except Exception as e:
                         logger.error(f"Bridge error for {method}: {e}")
-                        response_result = {"error": {"code": -32603, "message": str(e)}}
-
-                # Build response envelope
-                response = {"jsonrpc": "2.0", "id": request_id}
-
-                if isinstance(response_result, dict) and "error" in response_result:
-                    response["error"] = response_result["error"]
-                else:
-                    response["result"] = response_result
-
-                # Smart encryption
-                if original_was_e2ee and self.e2ee.is_ready:
-                    response = self.e2ee.wrap_json_rpc(response)
-                    await source_ws.send(json.dumps(response))
-                    logger.info(f"-> Sent E2EE response for {method}: {request_id} (has_error={'error' in response_result})")
-                else:
-                    await source_ws.send(json.dumps(response))
-                    logger.info(f"-> Sent plaintext response for {method}: {request_id} (has_error={'error' in response_result})")
-                return
+                        await self._send_acp_response(request_id, {"error": {"code": -32603, "message": str(e)}}, source_ws, original_was_e2ee)
+                    return
 
             # Handle notifications (no ID) - forward to appropriate session
+            # ... existing notification logic ...
             card_id_for_notification = params.get("card_id")
             if card_id_for_notification and card_id_for_notification in self.sessions:
                 session = self.sessions[card_id_for_notification]
                 if session.is_alive():
+                    # Strip card_id from params before forwarding to ACP
+                    inner_params = dict(params)
+                    inner_params.pop("card_id", None)
+                    await session.acp_client.request(method, inner_params)
+        except Exception as e:
+            logger.error(f"Global forward error: {e}")
+
+    async def _process_acp_request(self, card_id, method, params, request_id, source_ws, was_e2ee):
+        """Background task for long-running ACP requests."""
+        try:
+            session = await self._get_or_create_session(card_id)
+            params_with_recovery = dict(params)
+            params_with_recovery["acp_session_id"] = session.acp_session_id
+            params_with_recovery["workspace_path"] = session.workspace_path
+
+            response_result = await session.adapter.handle_request(method, params_with_recovery)
+
+            # Persist session ID if changed
+            if isinstance(response_result, dict) and "session_id" in response_result:
+                new_session_id = response_result["session_id"]
+                if new_session_id != session.acp_session_id:
+                    from database import KanbanDB
+                    db = KanbanDB()
+                    await asyncio.to_thread(db.update_card_session_id, card_id, new_session_id)
+                    session.acp_session_id = new_session_id
+                    session.needs_recovery = False
+
+            await self._send_acp_response(request_id, response_result, source_ws, was_e2ee)
+        except Exception as e:
+            logger.error(f"Background process error for card {card_id}: {e}")
+            await self._send_acp_response(request_id, {"error": {"code": -32603, "message": str(e)}}, source_ws, was_e2ee)
+
+    async def _send_acp_response(self, request_id, result, source_ws, was_e2ee):
+        """Send response back to the client via WebSocket."""
+        response = {"jsonrpc": "2.0", "id": request_id}
+        if isinstance(result, dict) and "error" in result:
+            response["error"] = result["error"]
+        else:
+            response["result"] = result
+
+        if was_e2ee and self.e2ee.is_ready:
+            response = self.e2ee.wrap_json_rpc(response)
+        
+        try:
+            await source_ws.send(json.dumps(response))
+        except Exception as e:
+            logger.debug(f"Failed to send response back to client (maybe disconnected): {e}")
                     payload = (json.dumps(data) + "\n").encode()
                     session.acp_client.process.stdin.write(payload)
                     await session.acp_client.process.stdin.drain()
