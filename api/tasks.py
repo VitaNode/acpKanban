@@ -1,5 +1,6 @@
 import logging
 import time
+import os
 from database import KanbanDB
 from embedding import embedding_service
 import json
@@ -27,6 +28,8 @@ def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 return
                 
             # 3. Generate summary using LLM
+            summary_model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
+            logger.info(f"Generating summary for card {card_id} using model: {summary_model}")
             summary = embedding_service.generate_summary(card['title'], messages)
             if not summary:
                 raise Exception("LLM returned empty summary")

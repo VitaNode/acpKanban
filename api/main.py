@@ -24,9 +24,8 @@ async def lifespan(app: FastAPI):
     # Performance Optimization: Only initialize if needed
     try:
         db = get_db()
-        # Just check connection once, don't fetch all projects
-        with db.get_connection() as conn:
-            conn.execute("SELECT 1")
+        # Ensure all tables exist (including settings, summaries, etc.)
+        db.init_db()
         print("[*] Kanban API started successfully (DB Connected)")
     except Exception as e:
         print(f"[!] Database check failed: {e}")

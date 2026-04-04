@@ -132,6 +132,10 @@ class EmbeddingService:
                 if msg.get("content")
             ]
         )
+        
+        # Truncate logs if too long (approx 3000 characters) to avoid context issues
+        if len(logs) > 3000:
+            logs = logs[:1500] + "\n... [truncated] ...\n" + logs[-1500:]
 
         prompt = f"""
 You are an expert at summarizing technical discussions and task execution. 
