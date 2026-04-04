@@ -28,9 +28,11 @@ def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 return
                 
             # 3. Generate summary using LLM
+            # Trigger client initialization/config load
+            embedding_service.is_available()
             summary_model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
             logger.info(f"Generating summary for card {card_id} using model: {summary_model}")
-            summary = embedding_service.generate_summary(card['title'], messages)
+            summary = embedding_service.generate_summary(card['title'], messages, model=summary_model)
             if not summary:
                 raise Exception("LLM returned empty summary")
                 

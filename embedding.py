@@ -37,22 +37,33 @@ class EmbeddingService:
                 db = KanbanDB()
                 system_config = db.get_setting("system_config")
                 if system_config:
-                    api_key = api_key or system_config.get("api_key")
-                    base_url = base_url or system_config.get("base_url")
+                    # Handle both snake_case and camelCase
+                    api_key = api_key or system_config.get("api_key") or system_config.get("apiKey")
+                    base_url = base_url or system_config.get("base_url") or system_config.get("baseUrl")
+                    
                     if not os.getenv("SUMMARY_MODEL"):
-                        os.environ["SUMMARY_MODEL"] = system_config.get("summary_model", "gpt-4o-mini")
+                        summary_model = system_config.get("summary_model") or system_config.get("summaryModel") or "gpt-4o-mini"
+                        os.environ["SUMMARY_MODEL"] = summary_model
                     if not os.getenv("EMBEDDING_MODEL"):
-                        os.environ["EMBEDDING_MODEL"] = system_config.get("embedding_model", "text-embedding-3-small")
+                        embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
+                        os.environ["EMBEDDING_MODEL"] = embedding_model
             except Exception as e:
                 print(f"[EmbeddingService] Database settings fallback failed: {e}")
 
+        # Ensure base_url is an OpenAI compatible endpoint if not provided
         base_url = base_url or "https://api.openai.com/v1"
+        
+        # If it's a Gemini Google URL, ensure it ends with /openai for the OpenAI client
+        if "generativelanguage.googleapis.com" in base_url and not base_url.endswith("/openai"):
+            base_url = base_url.rstrip("/") + "/openai"
 
         if not api_key or api_key == "your_new_key_here":
+            # print("[EmbeddingService] No API key available")
             return None
 
         if self.client is None or api_key != self._last_api_key or base_url != self._last_base_url:
-            print(f"[EmbeddingService] Initializing OpenAI client with base_url: {base_url}")
+            masked_key = api_key[:8] + "..." if api_key else "None"
+            print(f"[EmbeddingService] Initializing OpenAI client with base_url: {base_url}, api_key: {masked_key}")
             self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
             self._last_api_key = api_key
             self._last_base_url = base_url
