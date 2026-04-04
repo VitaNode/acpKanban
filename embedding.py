@@ -55,10 +55,6 @@ class EmbeddingService:
 
         # Ensure base_url is an OpenAI compatible endpoint if not provided
         base_url = base_url or "https://api.openai.com/v1"
-        
-        # If it's a Gemini Google URL, ensure it ends with /openai for the OpenAI client
-        if "generativelanguage.googleapis.com" in base_url and not base_url.endswith("/openai"):
-            base_url = base_url.rstrip("/") + "/openai"
 
         if not api_key or api_key == "your_new_key_here":
             # print("[EmbeddingService] No API key available")

@@ -344,11 +344,18 @@ class KanbanDB:
 
             # Create vector table for semantic search if extension is loaded
             try:
-                # Check if vec0 is available by trying to create a small virtual table
-                cursor.execute("CREATE VIRTUAL TABLE IF NOT EXISTS card_vectors USING vec0(id TEXT PRIMARY KEY, embedding float[1536])")
-                print("[*] Vector table 'card_vectors' ensured.")
+                # Check if vec0 is available and if the table has the correct column name
+                # If table exists with 'id' column instead of 'card_id', we drop and recreate
+                cursor.execute("PRAGMA table_info(card_vectors)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if columns and 'card_id' not in columns:
+                    print("[!] Found old card_vectors table with wrong column names. Recreating...")
+                    cursor.execute("DROP TABLE card_vectors")
+                
+                cursor.execute("CREATE VIRTUAL TABLE IF NOT EXISTS card_vectors USING vec0(card_id TEXT PRIMARY KEY, embedding float[1536])")
+                print("[*] Vector table 'card_vectors' ensured with column 'card_id'.")
             except sqlite3.OperationalError as e:
-                print(f"[!] Could not create vector table (sqlite-vec might be missing): {e}")
+                print(f"[!] Could not create vector table (sqlite-vec extension might be missing): {e}")
 
 
             cursor.execute("""CREATE TABLE IF NOT EXISTS schema_version (
@@ -1368,19 +1375,6 @@ class KanbanDB:
                 cursor = conn.execute(sql, (query, limit))
             return [dict(row) for row in cursor.fetchall()]
 
-    def upsert_card_embedding(self, card_id: str, embedding: List[float]):
-        """Save or update the vector embedding for a card summary."""
-        try:
-            with self.get_connection() as conn:
-                import json
-                conn.execute(
-                    "INSERT OR REPLACE INTO card_vectors (id, embedding) VALUES (?, ?)",
-                    (card_id, json.dumps(embedding)),
-                )
-        except Exception as e:
-            # We treat this as a non-fatal error to avoid breaking the summary task
-            print(f"[!] upsert_card_embedding skipped: {e}")
-
     def search_cards_semantic(
         self, embedding: List[float], project_id: str = None, limit: int = 5
     ) -> List[Dict]:
@@ -1408,16 +1402,22 @@ class KanbanDB:
                     """
                     cursor = conn.execute(sql, (embedding, limit))
                 return [dict(row) for row in cursor.fetchall()]
-            except Exception:
+            except Exception as e:
+                print(f"[!] search_cards_semantic failed: {e}")
                 return []
 
     def upsert_card_embedding(self, card_id: str, embedding: List[float]):
-        embedding_json = json.dumps(embedding)
-        with self.get_connection() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO card_vectors (card_id, embedding) VALUES (?, ?)",
-                (card_id, embedding_json),
-            )
+        """Save or update the vector embedding for a card summary."""
+        try:
+            embedding_json = json.dumps(embedding)
+            with self.get_connection() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO card_vectors (card_id, embedding) VALUES (?, ?)",
+                    (card_id, embedding_json),
+                )
+        except Exception as e:
+            # We treat this as a non-fatal error to avoid breaking the summary task
+            print(f"[!] upsert_card_embedding skipped: {e}")
 
     def upsert_session_embedding(self, session_id: int, embedding: List[float]):
         embedding_json = json.dumps(embedding)
