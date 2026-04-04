@@ -342,6 +342,14 @@ class KanbanDB:
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )""")
 
+            # Create vector table for semantic search if extension is loaded
+            try:
+                # Check if vec0 is available by trying to create a small virtual table
+                cursor.execute("CREATE VIRTUAL TABLE IF NOT EXISTS card_vectors USING vec0(id TEXT PRIMARY KEY, embedding float[1536])")
+                print("[*] Vector table 'card_vectors' ensured.")
+            except sqlite3.OperationalError as e:
+                print(f"[!] Could not create vector table (sqlite-vec might be missing): {e}")
+
 
             cursor.execute("""CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER PRIMARY KEY,
@@ -1359,6 +1367,20 @@ class KanbanDB:
                 """
                 cursor = conn.execute(sql, (query, limit))
             return [dict(row) for row in cursor.fetchall()]
+
+    def upsert_card_embedding(self, card_id: str, embedding: List[float]):
+        """Save or update the vector embedding for a card summary."""
+        with self.get_connection() as conn:
+            # Check if vector table exists first (in case extension loading failed)
+            try:
+                # Use json.dumps for the list of floats which vec0 handles
+                import json
+                conn.execute(
+                    "INSERT OR REPLACE INTO card_vectors (id, embedding) VALUES (?, ?)",
+                    (card_id, json.dumps(embedding)),
+                )
+            except sqlite3.OperationalError as e:
+                print(f"[!] upsert_card_embedding failed (no vector table?): {e}")
 
     def search_cards_semantic(
         self, embedding: List[float], project_id: str = None, limit: int = 5

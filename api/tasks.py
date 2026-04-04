@@ -27,20 +27,28 @@ def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 logger.info(f"No messages for card {card_id}, skipping summary")
                 return
                 
-            # 3. Generate summary using LLM
-            # Trigger client initialization/config load
-            embedding_service.is_available()
-            summary_model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
-            logger.info(f"Generating summary for card {card_id} using model: {summary_model}")
-            summary = embedding_service.generate_summary(card['title'], messages, model=summary_model)
-            if not summary:
-                raise Exception("LLM returned empty summary")
-                
-            # 4. Save summary to database (incremental handled by db)
-            db.save_summary(card_id, summary)
-            logger.info(f"Summary generated and saved for card {card_id}")
+            # 3. Check if summary already exists to avoid redundant LLM calls
+            summary_obj = db.get_summary(card_id)
+            summary = summary_obj['summary'] if summary_obj else None
             
+            if not summary:
+                # Generate summary using LLM
+                # Trigger client initialization/config load
+                embedding_service.is_available()
+                summary_model = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
+                logger.info(f"Generating summary for card {card_id} using model: {summary_model}")
+                summary = embedding_service.generate_summary(card['title'], messages, model=summary_model)
+                if not summary:
+                    raise Exception("LLM returned empty summary")
+                
+                # 4. Save summary to database
+                db.save_summary(card_id, summary)
+                logger.info(f"Summary generated and saved for card {card_id}")
+            else:
+                logger.info(f"Summary already exists for card {card_id}, skipping generation")
+                
             # 5. Generate embedding for the summary
+            # We skip this only if we already have a vector (implied by success of next step)
             emb = embedding_service.get_embedding(summary)
             if emb:
                 db.upsert_card_embedding(card_id, emb)
