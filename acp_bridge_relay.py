@@ -351,11 +351,29 @@ class UnifiedBridge:
                     await asyncio.to_thread(db.append_session_message, card_id, "assistant", text, is_complete=False)
             
             elif update_type == "tool_call":
-                title = update.get("title", "Tool Call")
+                title = update.get("title") or update.get("tool") or "Tool Call"
                 status = update.get("status", "pending")
                 text = f"🛠️ **{title}** ({status})"
-                # tool call is a complete block initially
-                await asyncio.to_thread(db.add_session_message, card_id, "assistant", text, {"type": "tool_call", "toolCallId": update.get("toolCallId")}, is_complete=True)
+                # Tool calls are saved as assistant messages with metadata for later updates
+                await asyncio.to_thread(
+                    db.add_session_message, 
+                    card_id, "assistant", text, 
+                    {"type": "tool_call", "toolCallId": update.get("toolCallId")}, 
+                    is_complete=False # Not complete until tool finishing
+                )
+            
+            elif update_type == "tool_call_update":
+                status = update.get("status")
+                tool_id = update.get("toolCallId")
+                
+                if tool_id:
+                    # Mark as complete if it's no longer pending/in_progress
+                    is_finished = status in ["completed", "failed"]
+                    # Optionally we could update the text here to show final status
+                    await asyncio.to_thread(
+                        db.update_session_message_with_metadata,
+                        card_id, "toolCallId", tool_id, None, is_finished
+                    )
             
             elif update_type == "stop":
                 # Final check to mark last assistant message as complete
@@ -557,22 +575,15 @@ class UnifiedBridge:
                     session.acp_session_id = new_session_id
                     session.needs_recovery = False
 
-            # Mark assistant message as complete in DB if turn finished successfully
-            if "error" not in response_result:
-                from database import KanbanDB
-                db = KanbanDB()
-                await asyncio.to_thread(db.append_session_message, card_id, "assistant", "", is_complete=True)
-
-            # Broadcast final completion notification
-            await self.on_acp_message({
-                "jsonrpc": "2.0",
-                "method": "session/update",
-                "params": {
-                    "card_id": card_id,
-                    "update": {"sessionUpdate": "stop", "reason": "end_turn"}
-                }
-            }, card_id)
-
+                    # Broadcast final completion notification (DB marking handled by 'stop' handler in on_acp_message)
+                    await self.on_acp_message({
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "card_id": card_id,
+                        "update": {"sessionUpdate": "stop", "reason": "end_turn"}
+                    }
+                    }, card_id)
             logger.info(f"Background task finished for card {card_id[:8]}")
         except Exception as e:
             logger.error(f"Background process error for card {card_id}: {e}")

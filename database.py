@@ -1308,8 +1308,8 @@ class KanbanDB:
 
     def append_session_message(self, card_id: str, role: str, content: str, is_complete: bool = False) -> int:
         """
-        Append content to the last message if it's the same role and within a short timeframe (30s),
-        otherwise create a new message.
+        Append content to the last message if it's the same role, 
+        within a short timeframe (30s), AND not already complete.
         """
         now = datetime.now()
         now_iso = now.isoformat()
@@ -1319,18 +1319,18 @@ class KanbanDB:
             
             # Find last message for this card
             cursor = conn.execute(
-                "SELECT id, role, content, created_at FROM card_sessions WHERE card_id = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id, role, content, created_at, is_complete FROM card_sessions WHERE card_id = ? ORDER BY id DESC LIMIT 1",
                 (card_id,)
             )
             row = cursor.fetchone()
             
             should_append = False
             if row:
-                msg_id, last_role, last_content, last_created = row
+                msg_id, last_role, last_content, last_created, last_is_complete = row
                 try:
                     last_dt = datetime.fromisoformat(last_created)
-                    # If same role and created within last 30 seconds, append
-                    if last_role == role and (now - last_dt).total_seconds() < 30:
+                    # If same role, created within 30s, and NOT YET COMPLETE
+                    if last_role == role and (now - last_dt).total_seconds() < 30 and not last_is_complete:
                         should_append = True
                 except:
                     pass
@@ -1351,6 +1351,46 @@ class KanbanDB:
                 new_id = cursor.lastrowid
                 conn.commit()
                 return new_id
+
+    def update_session_message_with_metadata(self, card_id: str, metadata_key: str, metadata_value: Any, new_content: str = None, is_complete: bool = None):
+        """
+        Update a message by searching for a specific key/value in its metadata.
+        Used for updating tool_call status.
+        """
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            
+            # Find the message with matching metadata
+            # We use a simple LIKE check for JSON metadata search in SQLite
+            search_str = f'%"{metadata_key}": "{metadata_value}"%'
+            cursor = conn.execute(
+                "SELECT id, content, is_complete FROM card_sessions WHERE card_id = ? AND metadata LIKE ? ORDER BY id DESC LIMIT 1",
+                (card_id, search_str)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                msg_id, old_content, old_complete = row
+                updates = []
+                params = []
+                
+                if new_content is not None:
+                    updates.append("content = ?")
+                    params.append(new_content)
+                
+                if is_complete is not None:
+                    updates.append("is_complete = ?")
+                    params.append(1 if is_complete else 0)
+                
+                if updates:
+                    updates.append("created_at = ?")
+                    params.append(now)
+                    params.append(msg_id)
+                    
+                    sql = f"UPDATE card_sessions SET {', '.join(updates)} WHERE id = ?"
+                    conn.execute(sql, params)
+                    conn.commit()
 
             conn.execute(
                 """

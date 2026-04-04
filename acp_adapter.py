@@ -105,14 +105,15 @@ class ACPProtocolAdapter:
         if not session_id:
             if acp_session_id:
                 self.log(f"Attempting to load saved session: {acp_session_id}")
-                # TEMPORARY: Skip session/load to test if it corrupts session state
-                self.log(f"SKIPPING session/load for debugging, forcing new session")
-                session_id = None
-                # Original session/load code (commented out for testing):
-                # session_id, error_reason = await self._load_session(...)
-                # if session_id: self.log(f"Session loaded: {session_id}")
-                # elif error_reason == "workspace_mismatch": self.log("Workspace mismatch")
-                # else: self.log(f"Load failed ({error_reason})")
+                session_id, error_reason = await self._load_session(
+                    acp_session_id, workspace_path=workspace_path, card_id=sid_key
+                )
+                if session_id:
+                    self.log(f"Session loaded successfully: {session_id}")
+                elif error_reason == "workspace_mismatch":
+                    self.log(f"Workspace mismatch for session {acp_session_id}, will create new")
+                else:
+                    self.log(f"Session load failed ({error_reason}), will create new")
 
             if not session_id:
                 self.log(f"Creating new session for card: {sid_key}")

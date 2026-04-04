@@ -90,7 +90,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       
       // CRITICAL: Only handle messages for THIS card
       final msgCardId = params['card_id']?.toString();
-      if (msgCardId != null && msgCardId != _card.id) {
+      if (msgCardId == null || msgCardId != _card.id) {
         return;
       }
 
