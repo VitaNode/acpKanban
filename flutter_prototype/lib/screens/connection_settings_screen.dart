@@ -34,8 +34,8 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   late TextEditingController _apiPortController;
   late TextEditingController _systemBaseUrlController;
   late TextEditingController _systemApiKeyController;
-  late String _summaryModel;
-  late String _embeddingModel;
+  late TextEditingController _summaryModelController;
+  late TextEditingController _embeddingModelController;
 
   late int _relayPort;
   late int _localPort;
@@ -60,8 +60,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     _apiPortController = TextEditingController(text: '8000');
     _systemBaseUrlController = TextEditingController();
     _systemApiKeyController = TextEditingController();
-    _summaryModel = 'gpt-4o-mini';
-    _embeddingModel = 'text-embedding-3-small';
+    _summaryModelController = TextEditingController(text: 'gpt-4o-mini');
+    _embeddingModelController =
+        TextEditingController(text: 'text-embedding-3-small');
     _relayPort = 8766;
     _localPort = 8766;
     _apiPort = 8000;
@@ -84,8 +85,8 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       
       _systemBaseUrlController.text = config.systemConfig.baseUrl ?? '';
       _systemApiKeyController.text = config.systemConfig.apiKey ?? '';
-      _summaryModel = config.systemConfig.summaryModel;
-      _embeddingModel = config.systemConfig.embeddingModel;
+      _summaryModelController.text = config.systemConfig.summaryModel;
+      _embeddingModelController.text = config.systemConfig.embeddingModel;
 
       _relayPort = config.relayPort ?? 8766;
       _localPort = config.localPort ?? 8766;
@@ -104,6 +105,8 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     _apiPortController.dispose();
     _systemBaseUrlController.dispose();
     _systemApiKeyController.dispose();
+    _summaryModelController.dispose();
+    _embeddingModelController.dispose();
     super.dispose();
   }
 
@@ -152,8 +155,8 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       systemConfig: SystemAgentConfig(
         baseUrl: _systemBaseUrlController.text.isEmpty ? null : _systemBaseUrlController.text,
         apiKey: _systemApiKeyController.text.isEmpty ? null : _systemApiKeyController.text,
-        summaryModel: _summaryModel,
-        embeddingModel: _embeddingModel,
+        summaryModel: _summaryModelController.text,
+        embeddingModel: _embeddingModelController.text,
       ),
     );
 
@@ -482,35 +485,22 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
           obscureText: true,
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          value: _summaryModel,
+        TextField(
+          controller: _summaryModelController,
           decoration: const InputDecoration(
             labelText: 'Summary Model',
+            hintText: 'gpt-4o-mini',
             border: OutlineInputBorder(),
           ),
-          items: const [
-            DropdownMenuItem(value: 'gpt-4o-mini', child: Text('gpt-4o-mini')),
-            DropdownMenuItem(value: 'gpt-4o', child: Text('gpt-4o')),
-            DropdownMenuItem(value: 'claude-3-5-sonnet', child: Text('claude-3-5-sonnet')),
-          ],
-          onChanged: (v) {
-            if (v != null) setState(() => _summaryModel = v);
-          },
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          value: _embeddingModel,
+        TextField(
+          controller: _embeddingModelController,
           decoration: const InputDecoration(
             labelText: 'Embedding Model',
+            hintText: 'text-embedding-3-small',
             border: OutlineInputBorder(),
           ),
-          items: const [
-            DropdownMenuItem(value: 'text-embedding-3-small', child: Text('text-embedding-3-small')),
-            DropdownMenuItem(value: 'text-embedding-3-large', child: Text('text-embedding-3-large')),
-          ],
-          onChanged: (v) {
-            if (v != null) setState(() => _embeddingModel = v);
-          },
         ),
       ],
     );
