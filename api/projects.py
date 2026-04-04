@@ -402,6 +402,8 @@ async def switch_project(project_id: str):
                         "status": c.get("status", "active"),
                         "completed_at": c.get("completed_at"),
                         "parent_id": c.get("parent_id"),
+                        "acp_session_id": c.get("acp_session_id"),
+                        "acp_provider_id": c.get("acp_provider_id"),
                         "session_count": c.get("session_count", 0),
                         "created_at": c["created_at"],
                         "updated_at": c["updated_at"],

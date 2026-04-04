@@ -44,7 +44,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   late KanbanCard _card;
   List<CardMessage> _messages = [];
+  List<KanbanCard> _relatedCards = [];
   bool _isLoadingMessages = false;
+  bool _isLoadingRelated = false;
   bool _wsConnected = false;
   bool _isSavingCard = false;
   String? _sessionId;
@@ -68,6 +70,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _initWebSocket();
     _loadSessionHistory();
     _loadSessionId();
+    _loadRelatedCards();
     _setupListeners();
   }
 
@@ -280,6 +283,23 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       debugPrint('[CardDetail] Session ID restored: $_sessionId');
     } else {
       debugPrint('[CardDetail] No saved session for card: ${_card.id}');
+    }
+  }
+
+  Future<void> _loadRelatedCards() async {
+    if (!mounted) return;
+    setState(() => _isLoadingRelated = true);
+    try {
+      final related = await _projectService.getRelatedCards(_card.id);
+      if (mounted) {
+        setState(() {
+          _relatedCards = related;
+          _isLoadingRelated = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Load related cards error: $e');
+      if (mounted) setState(() => _isLoadingRelated = false);
     }
   }
 
@@ -528,6 +548,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       ],
                     ),
                   ),
+                  _buildRelatedCardsSection(),
                   const SizedBox(height: 24),
                   if (_isLoadingMessages && _messages.isEmpty)
                     _buildSkeletonLoading()
@@ -572,6 +593,135 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     } catch (e) {
       return null;
     }
+  }
+
+  Widget _getProviderIcon(String? providerId) {
+    if (providerId == null) return const Icon(Icons.person_outline, size: 14);
+    final provider = widget.providers.firstWhere(
+      (p) => p.id == providerId,
+      orElse: () => ACPProvider(id: providerId, name: providerId),
+    );
+    if (provider.icon != null && provider.icon!.isNotEmpty) {
+      return Text(provider.icon!, style: const TextStyle(fontSize: 12));
+    }
+    return const Icon(Icons.bolt, size: 14, color: Colors.amber);
+  }
+
+  Widget _buildRelatedCardsSection() {
+    if (_isLoadingRelated && _relatedCards.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: LinearProgressIndicator(minHeight: 1),
+      );
+    }
+
+    if (_relatedCards.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Icon(Icons.auto_awesome_motion, size: 16, color: Colors.grey[600]),
+            const SizedBox(width: 8),
+            Text(
+              'Related Cards',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[800],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 90,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _relatedCards.length,
+            itemBuilder: (context, index) {
+              return _buildRelatedCardItem(_relatedCards[index]);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRelatedCardItem(KanbanCard card) {
+    return Container(
+      width: 160,
+      margin: const EdgeInsets.only(right: 12),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CardDetailScreen(
+                card: card,
+                projectId: widget.projectId,
+                workspacePath: widget.workspacePath,
+                acpClient: widget.acpClient,
+                providers: widget.providers,
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                card.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  height: 1.2,
+                ),
+              ),
+              Row(
+                children: [
+                  _getProviderIcon(card.acpProviderId),
+                  const SizedBox(width: 4),
+                  if (card.isCompleted)
+                    const Icon(Icons.check_circle, size: 12, color: Colors.green)
+                  else
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Colors.blue,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  const Spacer(),
+                  Text(
+                    card.shortId,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[400],
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildSkeletonLoading() {
