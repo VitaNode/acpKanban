@@ -7,3 +7,4 @@ project_notes.md
 *.log
 .vscode/
 .ruff_cache/
+*.db
