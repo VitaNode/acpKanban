@@ -1238,7 +1238,7 @@ class KanbanDB:
                 # 上下文管理器会自动 COMMIT
 
     def add_session_message(
-        self, card_id: str, role: str, content: str, metadata: Dict = None
+        self, card_id: str, role: str, content: str, metadata: Dict = None, is_complete: bool = True
     ) -> int:
         now = datetime.now().isoformat()
 
@@ -1247,13 +1247,14 @@ class KanbanDB:
             conn.execute("BEGIN IMMEDIATE")
 
             cursor = conn.execute(
-                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete) VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     card_id,
                     role,
                     content,
                     json.dumps(metadata) if metadata else None,
                     now,
+                    1 if is_complete else 0
                 ),
             )
             msg_id = cursor.lastrowid
@@ -1289,7 +1290,7 @@ class KanbanDB:
             conn.commit()
             return msg_id
 
-    def append_session_message(self, card_id: str, role: str, content: str) -> int:
+    def append_session_message(self, card_id: str, role: str, content: str, is_complete: bool = False) -> int:
         """
         Append content to the last message if it's the same role and within a short timeframe (30s),
         otherwise create a new message.
@@ -1321,15 +1322,15 @@ class KanbanDB:
             if should_append:
                 new_content = (last_content or "") + content
                 conn.execute(
-                    "UPDATE card_sessions SET content = ?, created_at = ? WHERE id = ?",
-                    (new_content, now_iso, msg_id)
+                    "UPDATE card_sessions SET content = ?, created_at = ?, is_complete = ? WHERE id = ?",
+                    (new_content, now_iso, 1 if is_complete else 0, msg_id)
                 )
                 conn.commit()
                 return msg_id
             else:
                 cursor = conn.execute(
-                    "INSERT INTO card_sessions (card_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-                    (card_id, role, content, now_iso),
+                    "INSERT INTO card_sessions (card_id, role, content, created_at, is_complete) VALUES (?, ?, ?, ?, ?)",
+                    (card_id, role, content, now_iso, 1 if is_complete else 0),
                 )
                 new_id = cursor.lastrowid
                 conn.commit()

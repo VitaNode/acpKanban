@@ -91,6 +91,7 @@ class UnifiedBridge:
         self.relay_ws = None
         self.running = True
         self.system_config = {}  # Store cloud API settings for summaries/embeddings
+        self.active_turns = {}  # card_id -> background task
 
     def _load_config(self) -> dict:
         try:
@@ -346,20 +347,23 @@ class UnifiedBridge:
                 content = update.get("content", {})
                 text = content.get("text", "") if isinstance(content, dict) else ""
                 if text:
-                    await asyncio.to_thread(db.append_session_message, card_id, "assistant", text)
+                    # assistant message is NOT complete while streaming
+                    await asyncio.to_thread(db.append_session_message, card_id, "assistant", text, is_complete=False)
             
             elif update_type == "tool_call":
                 title = update.get("title", "Tool Call")
                 status = update.get("status", "pending")
                 text = f"🛠️ **{title}** ({status})"
-                await asyncio.to_thread(db.add_session_message, card_id, "assistant", text, {"type": "tool_call", "toolCallId": update.get("toolCallId")})
+                # tool call is a complete block initially
+                await asyncio.to_thread(db.add_session_message, card_id, "assistant", text, {"type": "tool_call", "toolCallId": update.get("toolCallId")}, is_complete=True)
             
-            elif update_type == "tool_call_update":
-                status = update.get("status")
-                if status == "completed":
-                    # We could append tool result here, but often it's very technical.
-                    # For now, just update the status if we find the message.
-                    pass
+            elif update_type == "stop":
+                # Final check to mark last assistant message as complete
+                await asyncio.to_thread(db.append_session_message, card_id, "assistant", "", is_complete=True)
+                # Cleanup active turns
+                if card_id in self.active_turns:
+                    self.active_turns.pop(card_id, None)
+                    logger.info(f"Turn completed for card {card_id[:8]} (stop signal)")
 
         # Filter specific verbose update types for UI broadcasting
         if data.get("method") == "session/update":
@@ -464,13 +468,18 @@ class UnifiedBridge:
                     await asyncio.to_thread(db.add_session_message, card_id, "user", prompt_text)
                     logger.info(f"Saved user message for card {card_id[:8]}...")
 
-                    # 2. Run in background
-                    asyncio.create_task(
+                    # 2. Immediate Ack to Client
+                    ack_response = {"status": "submitted", "card_id": card_id}
+                    await self._send_acp_response(request_id, ack_response, source_ws, original_was_e2ee)
+
+                    # 3. Run in background and track
+                    task = asyncio.create_task(
                         self._process_acp_request(
                             card_id, method, params, request_id, source_ws, original_was_e2ee
                         )
                     )
-                    return # Control returned to WS loop, user can switch cards
+                    self.active_turns[card_id] = task
+                    return # Control returned to WS loop
                 else:
                     # Sync processing for non-prompt methods (initialize, health, etc.)
                     try:
@@ -530,7 +539,13 @@ class UnifiedBridge:
             params_with_recovery["acp_session_id"] = session.acp_session_id
             params_with_recovery["workspace_path"] = session.workspace_path
 
-            response_result = await session.adapter.handle_request(method, params_with_recovery)
+            # Use callback for real-time notification processing
+            async def on_notification(n):
+                await self.on_acp_message(n, card_id)
+
+            response_result = await session.adapter.handle_request(
+                method, params_with_recovery, on_notification=on_notification
+            )
 
             # Persist session ID if changed
             if isinstance(response_result, dict) and "session_id" in response_result:
@@ -542,10 +557,28 @@ class UnifiedBridge:
                     session.acp_session_id = new_session_id
                     session.needs_recovery = False
 
-            await self._send_acp_response(request_id, response_result, source_ws, was_e2ee)
+            # Mark assistant message as complete in DB if turn finished successfully
+            if "error" not in response_result:
+                from database import KanbanDB
+                db = KanbanDB()
+                await asyncio.to_thread(db.append_session_message, card_id, "assistant", "", is_complete=True)
+
+            # Broadcast final completion notification
+            await self.on_acp_message({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "card_id": card_id,
+                    "update": {"sessionUpdate": "stop", "reason": "end_turn"}
+                }
+            }, card_id)
+
+            logger.info(f"Background task finished for card {card_id[:8]}")
         except Exception as e:
             logger.error(f"Background process error for card {card_id}: {e}")
-            await self._send_acp_response(request_id, {"error": {"code": -32603, "message": str(e)}}, source_ws, was_e2ee)
+        finally:
+            # Always remove from active_turns
+            self.active_turns.pop(card_id, None)
 
     async def _send_acp_response(self, request_id, result, source_ws, was_e2ee):
         """Send response back to the client via WebSocket."""

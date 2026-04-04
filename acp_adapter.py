@@ -80,6 +80,7 @@ class ACPProtocolAdapter:
         card_id: str = None,
         workspace_path: str = None,
         acp_session_id: str = None,
+        on_notification: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
@@ -91,6 +92,7 @@ class ACPProtocolAdapter:
             card_id: Card identifier for session tracking
             workspace_path: Working directory for the session
             acp_session_id: Previously saved session ID (from DB), may be None
+            on_notification: Optional callback for each notification received
         """
         self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id})")
 
@@ -172,6 +174,17 @@ class ACPProtocolAdapter:
                     # Increased timeout from 0.1 to 0.5 to reduce CPU load when idle
                     data = await asyncio.wait_for(queue.get(), timeout=0.5)
                     notification_count += 1
+                    
+                    # NEW: Forward notification to bridge immediately for persistence/broadcast
+                    if on_notification:
+                        try:
+                            if asyncio.iscoroutinefunction(on_notification):
+                                await on_notification(data)
+                            else:
+                                on_notification(data)
+                        except Exception as e:
+                            self.log(f"Notification callback error: {e}")
+
                     update_type = data.get("params", {}).get("update", {}).get("sessionUpdate", "unknown")
                     self.log(f"Notification #{notification_count}: {update_type}")
                     if data.get("method") == "session/update":
@@ -322,7 +335,7 @@ class ACPProtocolAdapter:
         self.log(f"Workspace set to: {workspace_path}")
 
     async def handle_request(
-        self, method: str, params: Dict[str, Any]
+        self, method: str, params: Dict[str, Any], on_notification: Optional[Callable[[Dict[str, Any]], Any]] = None
     ) -> Dict[str, Any]:
         """
         Unified entry point - routes requests to appropriate handler.
@@ -330,6 +343,7 @@ class ACPProtocolAdapter:
         Args:
             method: RPC method name (e.g., "chat/message", "initialize")
             params: Method parameters (may include card_id, acp_session_id, workspace_path)
+            on_notification: Optional callback for async notifications during the request
 
         Returns:
             Response result dictionary
@@ -344,6 +358,7 @@ class ACPProtocolAdapter:
                 card_id=params.get("card_id"),
                 workspace_path=params.get("workspace_path"),
                 acp_session_id=params.get("acp_session_id"),
+                on_notification=on_notification,
             )
         elif method == "health":
             return await self.health(params)

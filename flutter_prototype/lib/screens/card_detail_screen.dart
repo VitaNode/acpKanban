@@ -270,9 +270,24 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       final response = await _projectService.getSessionHistory(_card.id);
       if (response != null && mounted) {
         final List<dynamic> msgData = response['messages'] ?? [];
+        final messages = msgData.map((m) => CardMessage.fromJson(m)).toList();
+        
+        // Detect if last message is from assistant and incomplete
+        bool isStillProcessing = false;
+        if (messages.isNotEmpty) {
+          final last = messages.last;
+          if (last.role == 'assistant' && !last.isComplete) {
+            isStillProcessing = true;
+          } else if (last.role == 'user') {
+            // Also processing if user sent something but no assistant reply yet
+            isStillProcessing = true; 
+          }
+        }
+
         setState(() {
-          _messages = msgData.map((m) => CardMessage.fromJson(m)).toList();
+          _messages = messages;
           _isLoadingMessages = false;
+          _isAgentProcessing = isStillProcessing;
         });
         _scrollToBottom();
       }
