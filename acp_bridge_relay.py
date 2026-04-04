@@ -369,7 +369,6 @@ class UnifiedBridge:
                 if tool_id:
                     # Mark as complete if it's no longer pending/in_progress
                     is_finished = status in ["completed", "failed"]
-                    # Optionally we could update the text here to show final status
                     await asyncio.to_thread(
                         db.update_session_message_with_metadata,
                         card_id, "toolCallId", tool_id, None, is_finished
@@ -504,7 +503,6 @@ class UnifiedBridge:
                         if method == "initialize":
                             if "systemConfig" in params:
                                 self.system_config = params["systemConfig"]
-                                # ... existing systemConfig logic ...
                                 if "api_key" in self.system_config:
                                     os.environ["KANBAN_API_KEY"] = self.system_config["api_key"]
                                 if "base_url" in self.system_config:
@@ -537,7 +535,6 @@ class UnifiedBridge:
                     return
 
             # Handle notifications (no ID) - forward to appropriate session
-            # ... existing notification logic ...
             card_id_for_notification = params.get("card_id")
             if card_id_for_notification and card_id_for_notification in self.sessions:
                 session = self.sessions[card_id_for_notification]
@@ -545,9 +542,20 @@ class UnifiedBridge:
                     # Strip card_id from params before forwarding to ACP
                     inner_params = dict(params)
                     inner_params.pop("card_id", None)
-                    await session.acp_client.request(method, inner_params)
+                    # For notifications, we just write to stdin and don't wait for result
+                    payload = (json.dumps({"jsonrpc": "2.0", "method": method, "params": inner_params}) + "\n").encode()
+                    session.acp_client.process.stdin.write(payload)
+                    await session.acp_client.process.stdin.drain()
+                    logger.info(f"-> Forwarded notification to ACP: {method}")
+                else:
+                    logger.error(f"ACP Process not running for card {card_id_for_notification}.")
+            else:
+                logger.warning(f"No session for notification: {method}")
+
+        except json.JSONDecodeError:
+            logger.warning(f"Received non-JSON message from {addr}: {message[:50]}...")
         except Exception as e:
-            logger.error(f"Global forward error: {e}")
+            logger.error(f"Unexpected error in forward_to_acp from {addr}: {e}")
 
     async def _process_acp_request(self, card_id, method, params, request_id, source_ws, was_e2ee):
         """Background task for long-running ACP requests."""
@@ -575,15 +583,15 @@ class UnifiedBridge:
                     session.acp_session_id = new_session_id
                     session.needs_recovery = False
 
-                    # Broadcast final completion notification (DB marking handled by 'stop' handler in on_acp_message)
-                    await self.on_acp_message({
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "card_id": card_id,
-                        "update": {"sessionUpdate": "stop", "reason": "end_turn"}
-                    }
-                    }, card_id)
+            # Broadcast final completion notification (DB marking handled by 'stop' handler in on_acp_message)
+            await self.on_acp_message({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "card_id": card_id,
+                    "update": {"sessionUpdate": "stop", "reason": "end_turn"}
+                }
+            }, card_id)
             logger.info(f"Background task finished for card {card_id[:8]}")
         except Exception as e:
             logger.error(f"Background process error for card {card_id}: {e}")
@@ -606,21 +614,6 @@ class UnifiedBridge:
             await source_ws.send(json.dumps(response))
         except Exception as e:
             logger.debug(f"Failed to send response back to client (maybe disconnected): {e}")
-                    payload = (json.dumps(data) + "\n").encode()
-                    session.acp_client.process.stdin.write(payload)
-                    await session.acp_client.process.stdin.drain()
-                    logger.info(f"-> Forwarded notification to ACP: {method}")
-                else:
-                    logger.error(
-                        f"ACP Process not running for card {card_id_for_notification}."
-                    )
-            else:
-                logger.warning(f"No session for notification: {method}")
-
-        except json.JSONDecodeError:
-            logger.warning(f"Received non-JSON message from {addr}: {message[:50]}...")
-        except Exception as e:
-            logger.error(f"Unexpected error in forward_to_acp from {addr}: {e}")
 
     async def health_check_loop(self):
         while self.running:
