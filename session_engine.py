@@ -85,32 +85,33 @@ class SessionEngine:
             self.logger.info("Session engine stopped")
 
     async def process_prompt(self, method: str, params: Dict[str, Any], on_notification: Callable):
-        """Execute a prompt request through the adapter."""
-        if self.state != SessionState.IDLE:
-            raise RuntimeError("Engine is busy")
+        """Execute a prompt request through the adapter with lock protection."""
+        async with self._lock:
+            if self.state != SessionState.IDLE:
+                raise RuntimeError(f"Engine is busy (state={self.state})")
 
-        self.state = SessionState.THINKING
-        self.last_active = time.time()
-        
-        try:
-            # Prepare params with session recovery info
-            params_with_recovery = dict(params)
-            params_with_recovery["acp_session_id"] = self.acp_session_id
-            params_with_recovery["workspace_path"] = self.workspace_path
-
-            result = await self.adapter.handle_request(
-                method, params_with_recovery, on_notification=on_notification
-            )
+            self.state = SessionState.THINKING
+            self.last_active = time.time()
             
-            # Update internal session ID if it changed
-            if isinstance(result, dict) and "session_id" in result:
-                self.acp_session_id = result["session_id"]
+            try:
+                # Prepare params with session recovery info
+                params_with_recovery = dict(params)
+                params_with_recovery["acp_session_id"] = self.acp_session_id
+                params_with_recovery["workspace_path"] = self.workspace_path
+
+                result = await self.adapter.handle_request(
+                    method, params_with_recovery, on_notification=on_notification
+                )
                 
-            return result
-        except Exception as e:
-            self.state = SessionState.ERROR
-            self.logger.error(f"Error processing prompt: {e}")
-            raise
-        finally:
-            if self.state != SessionState.ERROR:
-                self.state = SessionState.IDLE
+                # Update internal session ID if it changed
+                if isinstance(result, dict) and "session_id" in result:
+                    self.acp_session_id = result["session_id"]
+                    
+                return result
+            except Exception as e:
+                self.state = SessionState.ERROR
+                self.logger.error(f"Error processing prompt: {e}")
+                raise
+            finally:
+                if self.state != SessionState.ERROR:
+                    self.state = SessionState.IDLE

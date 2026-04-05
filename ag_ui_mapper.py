@@ -9,15 +9,32 @@ class AGUIMapper:
     @staticmethod
     def map_notification(acp_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Converts an ACP session/update notification to an AG-UI event.
+        Converts an ACP notification to an AG-UI event.
         """
-        if acp_data.get("method") != "session/update":
+        method = acp_data.get("method")
+        
+        # 1. Request Permission -> input_request (Requires Approval)
+        # ACP sends this as a request, so it has an 'id' and 'method'
+        if method == "session/request_permission":
+            params = acp_data.get("params", {})
+            return {
+                "type": "ag_ui/input_request",
+                "payload": {
+                    "id": acp_data.get("id"),
+                    "kind": "confirmation",
+                    "title": "Approval Required",
+                    "message": params.get("message", "Agent wants to perform an action.")
+                }
+            }
+
+        # Remaining events are mostly notifications (no id)
+        if method != "session/update":
             return None
             
         update = acp_data.get("params", {}).get("update", {})
         update_type = update.get("sessionUpdate")
         
-        # 1. Content Chunks -> content_block
+        # 2. Content Chunks -> content_block
         if update_type == "agent_message_chunk":
             content = update.get("content", {})
             text = content.get("text", "") if isinstance(content, dict) else ""
@@ -29,7 +46,7 @@ class AGUIMapper:
                 }
             }
             
-        # 2. Tool Calls -> progress_update or input_request
+        # 3. Tool Calls -> progress_update
         elif update_type == "tool_call":
             return {
                 "type": "ag_ui/progress_update",
@@ -37,18 +54,6 @@ class AGUIMapper:
                     "status": "in_progress",
                     "label": f"Calling tool: {update.get('name') or update.get('tool')}",
                     "id": update.get("toolCallId")
-                }
-            }
-            
-        # 3. Request Permission -> input_request (Requires Approval)
-        elif acp_data.get("method") == "session/request_permission":
-            return {
-                "type": "ag_ui/input_request",
-                "payload": {
-                    "id": acp_data.get("id"),
-                    "kind": "confirmation",
-                    "title": "Approval Required",
-                    "message": f"Agent wants to perform an action: {update.get('message', '')}"
                 }
             }
             

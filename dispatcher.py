@@ -141,29 +141,35 @@ class MessageDispatcher:
             await engine.start()
             self.engines[card_id] = engine
             return engine, True
+async def _process_engine_request(self, card_id, method, params, request_id, on_output):
+    task_key = f"{card_id}_{request_id}"
+    try:
+        engine, is_new = await self._get_or_create_engine(card_id)
 
-    async def _process_engine_request(self, card_id, method, params, request_id, on_output):
-        task_key = f"{card_id}_{request_id}"
-        try:
-            engine, is_new = await self._get_or_create_engine(card_id)
-            
-            # Inject initial context if new engine or fresh session
-            if is_new or not engine.acp_session_id:
-                context = await self.context_builder.build_initial_context(card_id)
-                logger.info(f"Injecting initial context for card {card_id[:8]}")
-                
-                async def silent_output(n): pass 
-                try:
-                    await engine.process_prompt(
-                        "chat/message", 
-                        {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
-                        on_notification=silent_output
-                    )
-                except Exception as ce:
-                    logger.warning(f"Failed to inject initial context: {ce}")
+        # P1-2 FIX: Non-blocking context injection
+        if is_new or not engine.acp_session_id:
+            # Fire and forget context injection - it will queue up via SessionEngine lock
+            asyncio.create_task(self._inject_context_async(card_id, engine))
 
-            async def forward_notification(n):
-                if "params" in n:
+        async def forward_notification(n):
+...
+async def _inject_context_async(self, card_id: str, engine: SessionEngine):
+    """Background task to inject system context."""
+    try:
+        context = await self.context_builder.build_initial_context(card_id)
+        logger.info(f"Injecting initial context for card {card_id[:8]} (background)")
+
+        async def silent_output(n): pass 
+        await engine.process_prompt(
+            "chat/message", 
+            {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
+            on_notification=silent_output
+        )
+    except Exception as ce:
+        logger.warning(f"Background context injection failed: {ce}")
+
+async def _handle_status_cmd(self, params, request_id):
+
                     n["params"]["card_id"] = card_id
                 
                 # P0-1 FIX: Persist ACP notifications
