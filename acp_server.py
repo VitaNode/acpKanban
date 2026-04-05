@@ -290,7 +290,6 @@ class ACPServer:
         async with self.lock:
             self.log(f"Processing chat for card {card_id}: {user_text}")
 
-        project_id = self.current_project_id
         if card_id:
             card = self.db.get_card(card_id)
             if card:
@@ -305,7 +304,7 @@ class ACPServer:
             history.append({"role": "system", "content": system_content})
             self.log(f"Injected initial system context for session {card_id}")
 
-        MAX_HISTORY = 40 # Increased history for long-running sessions
+        MAX_HISTORY = 40  # Increased history for long-running sessions
         if len(history) > MAX_HISTORY:
             # Keep system prompt at index 0, and last N messages
             history = [history[0]] + history[-(MAX_HISTORY - 1) :]

@@ -23,7 +23,7 @@ class KanbanDB:
             return cls._instance
 
     def __init__(self, db_path="kanban.db", pool_size=None):
-        if hasattr(self, "_initialized"):
+        if hasattr(self, "_initialized") and self._initialized:
             return
         import os
 
@@ -38,17 +38,23 @@ class KanbanDB:
             
         print(f"[*] Database initialized at: {self.db_path}")
 
+        # Sync pool for legacy/thread use
         self._pool = Queue(maxsize=self.pool_size)
+        
+        # Async pool for primary use in bridge
         self._async_pool = None
-        self._async_lock = asyncio.Lock()
+        self._async_lock = None # Lazily initialized in _ensure_async_pool
         
         # Lock management for thread-safe column/card operations
         self._locks_lock = threading.Lock()
         self._column_locks = {}
 
+        # Pre-fill sync pool
         for _ in range(self.pool_size):
             conn = self._create_new_connection()
             self._pool.put(conn)
+            
+        self._initialized = True
 
     def _create_new_connection(self):
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -221,14 +227,27 @@ class KanbanDB:
                     except Exception:
                         pass
 
+    async def close_all_async(self):
+        """Async version of close_all to properly shut down the async pool."""
+        if self._async_pool:
+            print(f"[*] Closing async database connections...")
+            while not self._async_pool.empty():
+                try:
+                    conn = self._async_pool.get_nowait()
+                    conn.close()
+                except (asyncio.QueueEmpty, Exception):
+                    break
+        self.close_all()
+
     def close_all(self):
-        print(f"[*] Closing {self._pool.qsize()} database connections...")
-        while not self._pool.empty():
-            try:
-                conn = self._pool.get_nowait()
-                conn.close()
-            except Empty:
-                break
+        if hasattr(self, "_pool"):
+            print(f"[*] Closing {self._pool.qsize()} database connections...")
+            while not self._pool.empty():
+                try:
+                    conn = self._pool.get_nowait()
+                    conn.close()
+                except (Empty, Exception):
+                    break
 
     def init_db(self):
         """初始化数据库表结构"""

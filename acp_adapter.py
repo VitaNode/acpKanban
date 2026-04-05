@@ -117,16 +117,9 @@ class ACPProtocolAdapter:
 
             if not session_id:
                 self.log(f"Creating new session for card: {sid_key}")
-
-                async def on_session_created(new_session_id: str):
-                    self.log(f"Immediately persisting session_id: {new_session_id}")
-                    if self._persist_session_callback:
-                        await self._persist_session_callback(sid_key, new_session_id)
-
                 session_id = await self._create_session(
                     workspace_path=workspace_path,
                     card_id=sid_key,
-                    on_session_created=on_session_created,
                 )
                 self.log(f"Session created: {session_id}")
 
@@ -265,7 +258,6 @@ class ACPProtocolAdapter:
         self,
         workspace_path: str = None,
         card_id: str = None,
-        on_session_created: Callable[[str], Any] = None,
     ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
 
@@ -283,9 +275,6 @@ class ACPProtocolAdapter:
             raise Exception(f"Session creation failed: {response['error']}")
 
         session_id = response.get("result", {}).get("sessionId")
-
-        if on_session_created:
-            await on_session_created(session_id)
 
         self._workspace_cwd = project_cwd
         return session_id

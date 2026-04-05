@@ -6,6 +6,7 @@ import logging
 import sys
 import argparse
 import time
+import signal
 from datetime import datetime
 from pathlib import Path
 from acp_client import ACPClient
@@ -285,19 +286,73 @@ class UnifiedBridge:
 
         return callback
 
+    async def stop(self):
+        """Gracefully stop the bridge and all child processes."""
+        if not self.running:
+            return
+        
+        logger.info("Graceful shutdown initiated...")
+        self.running = False
+        self.local_discovery.stop_broadcast()
+        
+        # 1. Stop all ACP sessions
+        logger.info(f"Stopping {len(self.sessions)} ACP sessions...")
+        stop_tasks = []
+        for card_id in list(self.sessions.keys()):
+            stop_tasks.append(self._close_session(card_id))
+        if stop_tasks:
+            await asyncio.gather(*stop_tasks, return_exceptions=True)
+
+        # 2. Cancel all active turns
+        logger.info(f"Cancelling {len(self.active_turns)} active turns...")
+        for card_id, task in list(self.active_turns.items()):
+            if not task.done():
+                task.cancel()
+        
+        if self.active_turns:
+            await asyncio.gather(*self.active_turns.values(), return_exceptions=True)
+            self.active_turns.clear()
+
+        # 3. Close relay connection
+        if self.relay_ws:
+            await self.relay_ws.close()
+            self.relay_ws = None
+
+        # 4. Close database connections
+        from database import KanbanDB
+        await KanbanDB().close_all_async()
+        
+        logger.info("Graceful shutdown complete.")
+
     async def start(self):
         logger.info(f"Starting Unified Bridge for User: {self.user_id}")
         logger.info(f"Pairing Public Key: {self.public_key_hex}")
         logger.info(f"Workspace: {self._workspace_cwd}")
+
+        # Register signal handlers
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+            except NotImplementedError:
+                # Signal handlers not implemented on Windows for some loop types
+                pass
 
         self.local_discovery.start_broadcast()
 
         local_server = websockets.serve(self.handle_local_client, "0.0.0.0", 8766)
         logger.info("Local Server listening on ws://0.0.0.0:8766")
 
-        await asyncio.gather(
-            local_server, self.maintain_relay_connection(), self.health_check_loop()
-        )
+        try:
+            await asyncio.gather(
+                local_server, 
+                self.maintain_relay_connection(), 
+                self.health_check_loop()
+            )
+        except asyncio.CancelledError:
+            logger.info("Bridge tasks cancelled.")
+        finally:
+            await self.stop()
 
     async def handle_local_client(self, websocket, path=None):
         addr = websocket.remote_address
@@ -336,56 +391,66 @@ class UnifiedBridge:
         Broadcast output from ACP process and persist to database.
         """
         # --- PERSISTENCE LOGIC ---
-        if card_id and data.get("method") == "session/update":
+        if card_id and data.get("method") == "session/update" and self.running:
             update = data.get("params", {}).get("update", {})
             update_type = update.get("sessionUpdate")
             
             from database import KanbanDB
             db = KanbanDB()
 
-            if update_type == "agent_message_chunk":
-                content = update.get("content", {})
-                text = content.get("text", "") if isinstance(content, dict) else ""
-                if text:
-                    # assistant message is NOT complete while streaming
-                    await asyncio.to_thread(db.append_session_message, card_id, "assistant", text, is_complete=False)
-            
-            elif update_type == "tool_call":
-                title = update.get("title") or update.get("tool") or "Tool Call"
-                status = update.get("status", "pending")
-                text = f"🛠️ **{title}** ({status})"
-                # Tool calls are saved as assistant messages with metadata for later updates
-                await asyncio.to_thread(
-                    db.add_session_message, 
-                    card_id, "assistant", text, 
-                    {"type": "tool_call", "toolCallId": update.get("toolCallId")}, 
-                    is_complete=False # Not complete until tool finishing
-                )
-            
-            elif update_type == "tool_call_update":
-                status = update.get("status")
-                tool_id = update.get("toolCallId")
+            try:
+                if update_type == "agent_message_chunk":
+                    content = update.get("content", {})
+                    text = content.get("text", "") if isinstance(content, dict) else ""
+                    if text:
+                        # assistant message is NOT complete while streaming
+                        await asyncio.to_thread(db.append_session_message, card_id, "assistant", text, is_complete=False)
                 
-                if tool_id:
-                    # Mark as complete if it's no longer pending/in_progress
-                    is_finished = status in ["completed", "failed"]
+                elif update_type == "tool_call":
+                    title = update.get("title") or update.get("tool") or "Tool Call"
+                    status = update.get("status", "pending")
+                    text = f"🛠️ **{title}** ({status})"
+                    # Tool calls are saved as assistant messages with metadata for later updates
                     await asyncio.to_thread(
-                        db.update_session_message_with_metadata,
-                        card_id, "toolCallId", tool_id, None, is_finished
+                        db.add_session_message, 
+                        card_id, "assistant", text, 
+                        {"type": "tool_call", "toolCallId": update.get("toolCallId")}, 
+                        is_complete=False # Not complete until tool finishing
                     )
-            
-            elif update_type == "stop":
-                # Final check to mark last assistant message as complete
-                await asyncio.to_thread(db.append_session_message, card_id, "assistant", "", is_complete=True)
-                # Cleanup active turns
-                if card_id in self.active_turns:
-                    self.active_turns.pop(card_id, None)
-                    logger.info(f"Turn completed for card {card_id[:8]} (stop signal)")
+                
+                elif update_type == "tool_call_update":
+                    status = update.get("status")
+                    tool_id = update.get("toolCallId")
+                    
+                    if tool_id:
+                        # Mark as complete if it's no longer pending/in_progress
+                        is_finished = status in ["completed", "failed"]
+                        await asyncio.to_thread(
+                            db.update_session_message_with_metadata,
+                            card_id, "toolCallId", tool_id, None, is_finished
+                        )
+                
+                elif update_type == "stop":
+                    # Final check to mark last assistant message as complete
+                    await asyncio.to_thread(db.append_session_message, card_id, "assistant", "", is_complete=True)
+                    # Cleanup active turns
+                    if card_id in self.active_turns:
+                        self.active_turns.pop(card_id, None)
+                        logger.info(f"Turn completed for card {card_id[:8]} (stop signal)")
+            except Exception as e:
+                if self.running:
+                    logger.error(f"Failed to persist message to DB: {e}")
+                else:
+                    logger.debug(f"DB persist failed during shutdown (expected): {e}")
 
         # Filter specific verbose update types for UI broadcasting
         if data.get("method") == "session/update":
             update_type = data.get("params", {}).get("update", {}).get("sessionUpdate")
             if update_type in ["agent_thought_chunk"]:
+                return
+        else:
+            # Internal request/responses should NOT be broadcast to Flutter client
+            if data.get("method") or data.get("id"):
                 return
 
         plaintext_str = json.dumps(data)
@@ -433,6 +498,9 @@ class UnifiedBridge:
         """
         Forward message to ACP CLI or handle via adapter.
         """
+        if not self.running:
+            return
+
         addr = (
             source_ws.remote_address
             if hasattr(source_ws, "remote_address")
@@ -494,8 +562,16 @@ class UnifiedBridge:
                     if isinstance(prompt_text, list):
                         prompt_text = " ".join([item.get("text", "") for item in prompt_text if item.get("type") == "text"])
                     
-                    await asyncio.to_thread(db.add_session_message, card_id, "user", prompt_text)
-                    logger.info(f"Saved user message for card {card_id[:8]}...")
+                    try:
+                        async with db.get_async_connection() as conn:
+                            await asyncio.to_thread(
+                                conn.execute,
+                                "INSERT INTO card_sessions (card_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+                                (card_id, "user", prompt_text, datetime.now().isoformat())
+                            )
+                        logger.info(f"Saved user message for card {card_id[:8]}...")
+                    except Exception as e:
+                        logger.error(f"Failed to save user message: {e}")
 
                     # 3. Immediate Ack to Client
                     ack_response = {"status": "submitted", "card_id": card_id}
@@ -572,6 +648,9 @@ class UnifiedBridge:
     async def _process_acp_request(self, card_id, method, params, request_id, source_ws, was_e2ee):
         """Background task for long-running ACP requests."""
         try:
+            if not self.running:
+                return
+
             session = await self._get_or_create_session(card_id)
             params_with_recovery = dict(params)
             params_with_recovery["acp_session_id"] = session.acp_session_id
@@ -591,9 +670,18 @@ class UnifiedBridge:
                 if new_session_id != session.acp_session_id:
                     from database import KanbanDB
                     db = KanbanDB()
-                    await asyncio.to_thread(db.update_card_session_id, card_id, new_session_id)
-                    session.acp_session_id = new_session_id
-                    session.needs_recovery = False
+                    try:
+                        async with db.get_async_connection() as conn:
+                            await asyncio.to_thread(
+                                conn.execute,
+                                "UPDATE cards SET acp_session_id = ? WHERE id = ?",
+                                (new_session_id, card_id)
+                            )
+                        session.acp_session_id = new_session_id
+                        session.needs_recovery = False
+                        logger.info(f"Persisted new session ID for card {card_id[:8]}: {new_session_id[:8]}...")
+                    except Exception as e:
+                        logger.error(f"Failed to update session ID: {e}")
 
             # Broadcast final completion notification (DB marking handled by 'stop' handler in on_acp_message)
             await self.on_acp_message({
@@ -605,6 +693,8 @@ class UnifiedBridge:
                 }
             }, card_id)
             logger.info(f"Background task finished for card {card_id[:8]}")
+        except asyncio.CancelledError:
+            logger.info(f"Background task for card {card_id[:8]} was cancelled.")
         except Exception as e:
             logger.error(f"Background process error for card {card_id}: {e}")
         finally:
@@ -677,7 +767,12 @@ if __name__ == "__main__":
         workspace_cwd=args.workspace_cwd,
         fallback_command=args.command.split() if args.command else None,
     )
+    
     try:
         asyncio.run(bridge.start())
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
+        # Clean shutdown handled by start() finally block and signal handlers
         pass
+    except Exception as e:
+        logger.critical(f"Bridge crashed: {e}")
+        sys.exit(1)
