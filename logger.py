@@ -1,0 +1,54 @@
+import logging
+import uuid
+import sys
+import contextvars
+from datetime import datetime
+
+# Context variable to store the current request ID
+request_id_var = contextvars.ContextVar("request_id", default=None)
+
+class RequestIdFilter(logging.Filter):
+    """
+    Logging filter that adds the current request_id to the log record.
+    """
+    def filter(self, record):
+        record.request_id = request_id_var.get() or "N/A"
+        return True
+
+def setup_logger(name="Kanban", level="INFO"):
+    """
+    Configure and return a structured logger.
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    # Avoid duplicate handlers
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        
+        # Define a structured format: [Timestamp] [Level] [RequestID] [Logger] Message
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] [%(request_id)s] [%(name)s] %(message)s"
+        )
+        handler.setFormatter(formatter)
+        
+        # Add the Request ID filter
+        handler.addFilter(RequestIdFilter())
+        
+        logger.addHandler(handler)
+        
+    return logger
+
+def set_request_id(req_id: str = None):
+    """Set the current request ID in the context."""
+    if not req_id:
+        req_id = str(uuid.uuid4())[:8]
+    request_id_var.set(req_id)
+    return req_id
+
+def clear_request_id():
+    """Clear the request ID from the context."""
+    request_id_var.set(None)
+
+# Global base logger
+logger = setup_logger()
