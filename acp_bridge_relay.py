@@ -20,6 +20,23 @@ from dispatcher import MessageDispatcher
 # Set up structured logger
 logger = setup_logger("BridgeRelay")
 
+class ConnectionState:
+    """Manages the status of local and relay connections (P2-1 FIX)."""
+    def __init__(self):
+        self.local_clients = set()
+        self.relay_ws = None
+        self.running = True
+
+    def add_local(self, ws):
+        self.local_clients.add(ws)
+
+    def remove_local(self, ws):
+        self.local_clients.discard(ws)
+
+    @property
+    def is_relay_connected(self) -> bool:
+        return self.relay_ws is not None and not self.relay_ws.closed
+
 class UnifiedBridge:
     def __init__(
         self,
@@ -39,6 +56,7 @@ class UnifiedBridge:
         self.db = KanbanDB()
         self.dispatcher = MessageDispatcher(self.db)
         self.local_discovery = LocalDiscovery(self.user_id)
+        self.state = ConnectionState()
 
         # ECDH pair for initial handshake
         saved_keys = E2EEManager.load_key_pair(self.user_id)
@@ -52,26 +70,22 @@ class UnifiedBridge:
 
         self.e2ee = E2EEManager(session_key_hex=session_key)
 
-        self.local_clients = set()
-        self.relay_ws = None
-        self.running = True
-
     async def stop(self):
         """Gracefully stop the bridge and all child processes."""
-        if not self.running:
+        if not self.state.running:
             return
         
         logger.info("Graceful shutdown initiated...")
-        self.running = False
+        self.state.running = False
         self.local_discovery.stop_broadcast()
         
         # 1. Stop all engines and tasks via dispatcher
         await self.dispatcher.shutdown()
 
         # 2. Close relay connection
-        if self.relay_ws:
-            await self.relay_ws.close()
-            self.relay_ws = None
+        if self.state.relay_ws:
+            await self.state.relay_ws.close()
+            self.state.relay_ws = None
 
         # 3. Close database connections
         await self.db.close_all_async()
@@ -110,18 +124,18 @@ class UnifiedBridge:
     async def handle_local_client(self, websocket, path=None):
         addr = websocket.remote_address
         logger.info(f"New local client connected: {addr}")
-        self.local_clients.add(websocket)
+        self.state.add_local(websocket)
         try:
             async for message in websocket:
                 await self.forward_to_acp(message, websocket)
         except websockets.exceptions.ConnectionClosed:
             logger.info(f"Local client {addr} disconnected.")
         finally:
-            self.local_clients.discard(websocket)
+            self.state.remove_local(websocket)
 
     async def maintain_relay_connection(self):
         headers = {"Authorization": f"Bearer {self.token}"}
-        while self.running:
+        while self.state.running:
             try:
                 async with websockets.connect(
                     self.relay_url,
@@ -130,21 +144,21 @@ class UnifiedBridge:
                     extra_headers=headers,
                 ) as ws:
                     logger.info("Connected to Cloud Relay.")
-                    self.relay_ws = ws
+                    self.state.relay_ws = ws
                     try:
                         async for message in ws:
                             await self.forward_to_acp(message, ws)
                     finally:
-                        self.relay_ws = None
+                        self.state.relay_ws = None
             except Exception:
-                if self.running:
+                if self.state.running:
                     await asyncio.sleep(5)
 
     async def forward_to_acp(self, message, source_ws):
         """
         Forward message to Dispatcher.
         """
-        if not self.running:
+        if not self.state.running:
             return
 
         addr = (
@@ -203,13 +217,34 @@ class UnifiedBridge:
             else:
                 response["result"] = result
 
-        if was_e2ee and self.e2ee.is_ready:
-            response = self.e2ee.wrap_json_rpc(response)
-        
-        try:
-            await source_ws.send(json.dumps(response))
-        except Exception as e:
-            logger.debug(f"Failed to send response back to client: {e}")
+        # 1. Local clients receive plaintext or E2EE depending on how they connected
+        # Notifications are broadcast to all local clients
+        if is_raw:
+            payload = json.dumps(response)
+            for client in list(self.state.local_clients):
+                try:
+                    await client.send(payload)
+                except Exception:
+                    self.state.remove_local(client)
+
+        # 2. Specific response goes back to source
+        else:
+            try:
+                # Responses are ALWAYS sent back in the format they arrived (E2EE if source was E2EE)
+                final_resp = response
+                if was_e2ee and self.e2ee.is_ready:
+                    final_resp = self.e2ee.wrap_json_rpc(response)
+                await source_ws.send(json.dumps(final_resp))
+            except Exception as e:
+                logger.debug(f"Failed to send response back to client: {e}")
+
+        # 3. Forward to Relay if it's a notification and relay is connected
+        if is_raw and self.state.is_relay_connected and self.e2ee.is_ready:
+            try:
+                encrypted_env = self.e2ee.wrap_json_rpc(response)
+                await self.state.relay_ws.send(json.dumps(encrypted_env))
+            except Exception as e:
+                logger.error(f"Relay send error: {e}")
 
     async def handle_pairing(self, data):
         peer_public = data.get("params", {}).get("publicKey")
@@ -228,8 +263,7 @@ class UnifiedBridge:
             return {"error": "Pairing calculation error"}
 
     async def health_check_loop(self):
-        while self.running:
-            # Basic health check - could be expanded
+        while self.state.running:
             await asyncio.sleep(30)
 
 

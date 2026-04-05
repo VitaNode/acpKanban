@@ -25,6 +25,27 @@ class CommandRegistry:
         cmd_name = text.split()[0].lower()
         return self._commands.get(cmd_name)
 
+class TaskRegistry:
+    """Manages tracking and lifecycle of background tasks (P2-2 FIX)."""
+    def __init__(self):
+        self._tasks: Dict[str, asyncio.Task] = {}
+
+    def add(self, key: str, task: asyncio.Task):
+        self._tasks[key] = task
+
+    def remove(self, key: str):
+        self._tasks.pop(key, None)
+
+    async def cancel_all(self):
+        if not self._tasks:
+            return
+        logger.info(f"Cancelling {len(self._tasks)} active tasks...")
+        for task in self._tasks.values():
+            task.cancel()
+        # P2-6 FIX: Await task completion after cancellation
+        await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        self._tasks.clear()
+
 class MessageDispatcher:
     """
     Main orchestrator that routes incoming messages to 
@@ -35,8 +56,8 @@ class MessageDispatcher:
         self.context_builder = ContextBuilder(db)
         self.engines: Dict[str, SessionEngine] = {}
         self.commands = CommandRegistry()
+        self.tasks = TaskRegistry()
         self._setup_local_commands()
-        self._active_tasks: Dict[str, asyncio.Task] = {}
         self._engine_creation_locks: Dict[str, asyncio.Lock] = {}
 
     def _setup_local_commands(self):
@@ -92,7 +113,7 @@ class MessageDispatcher:
             # Background the long-running prompt
             task_key = f"{card_id}_{request_id}"
             task = asyncio.create_task(self._process_engine_request(card_id, method, params, request_id, wrapped_output))
-            self._active_tasks[task_key] = task
+            self.tasks.add(task_key, task)
             return {"status": "submitted", "card_id": card_id}
 
         # 3. Fallback: Unknown or management methods
@@ -141,35 +162,19 @@ class MessageDispatcher:
             await engine.start()
             self.engines[card_id] = engine
             return engine, True
-async def _process_engine_request(self, card_id, method, params, request_id, on_output):
-    task_key = f"{card_id}_{request_id}"
-    try:
-        engine, is_new = await self._get_or_create_engine(card_id)
 
-        # P1-2 FIX: Non-blocking context injection
-        if is_new or not engine.acp_session_id:
-            # Fire and forget context injection - it will queue up via SessionEngine lock
-            asyncio.create_task(self._inject_context_async(card_id, engine))
+    async def _process_engine_request(self, card_id, method, params, request_id, on_output):
+        task_key = f"{card_id}_{request_id}"
+        try:
+            engine, is_new = await self._get_or_create_engine(card_id)
+            
+            # P1-2 FIX: Non-blocking context injection
+            if is_new or not engine.acp_session_id:
+                # Fire and forget context injection
+                asyncio.create_task(self._inject_context_async(card_id, engine))
 
-        async def forward_notification(n):
-...
-async def _inject_context_async(self, card_id: str, engine: SessionEngine):
-    """Background task to inject system context."""
-    try:
-        context = await self.context_builder.build_initial_context(card_id)
-        logger.info(f"Injecting initial context for card {card_id[:8]} (background)")
-
-        async def silent_output(n): pass 
-        await engine.process_prompt(
-            "chat/message", 
-            {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
-            on_notification=silent_output
-        )
-    except Exception as ce:
-        logger.warning(f"Background context injection failed: {ce}")
-
-async def _handle_status_cmd(self, params, request_id):
-
+            async def forward_notification(n):
+                if "params" in n:
                     n["params"]["card_id"] = card_id
                 
                 # P0-1 FIX: Persist ACP notifications
@@ -235,7 +240,22 @@ async def _handle_status_cmd(self, params, request_id):
             logger.error(f"Engine process error: {e}")
             await on_output({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}})
         finally:
-            self._active_tasks.pop(task_key, None)
+            self.tasks.remove(task_key)
+
+    async def _inject_context_async(self, card_id: str, engine: SessionEngine):
+        """Background task to inject system context."""
+        try:
+            context = await self.context_builder.build_initial_context(card_id)
+            logger.info(f"Injecting initial context for card {card_id[:8]} (background)")
+            
+            async def silent_output(n): pass 
+            await engine.process_prompt(
+                "chat/message", 
+                {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
+                on_notification=silent_output
+            )
+        except Exception as ce:
+            logger.warning(f"Background context injection failed: {ce}")
 
     async def _handle_status_cmd(self, params, request_id):
         engine_stats = {cid: eng.state for cid, eng in self.engines.items() if eng.is_alive}
@@ -254,9 +274,11 @@ async def _handle_status_cmd(self, params, request_id):
         return {"message": "Session reset successfully.", "card_id": card_id}
 
     async def shutdown(self):
-        for task in self._active_tasks.values():
-            task.cancel()
+        logger.info("Shutting down dispatcher...")
+        await self.tasks.cancel_all()
+        
         stop_tasks = [eng.stop() for eng in self.engines.values()]
         if stop_tasks:
             await asyncio.gather(*stop_tasks, return_exceptions=True)
         self.engines.clear()
+        logger.info("Dispatcher shutdown complete.")
