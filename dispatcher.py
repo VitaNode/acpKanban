@@ -37,6 +37,7 @@ class MessageDispatcher:
         self.commands = CommandRegistry()
         self._setup_local_commands()
         self._active_tasks: Dict[str, asyncio.Task] = {}
+        self._engine_creation_locks: Dict[str, asyncio.Lock] = {}
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -73,6 +74,22 @@ class MessageDispatcher:
         # 2. Route to SessionEngine for Conversation
         card_id = params.get("card_id")
         if card_id and method in ("chat/message", "session/prompt"):
+            # P0-1 FIX: Save user message immediately
+            prompt_text = params.get("message") or params.get("prompt")
+            if isinstance(prompt_text, list):
+                prompt_text = " ".join([p.get("text", "") for p in prompt_text if p.get("type") == "text"])
+            
+            await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text)
+            
+            # Record timeline for user message
+            card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+            if card and card.get("project_id"):
+                await asyncio.to_thread(
+                    self.db.projects.add_timeline_event, 
+                    card["project_id"], card_id, "user_message", f"[user] {prompt_text[:100]}"
+                )
+
+            # Background the long-running prompt
             task_key = f"{card_id}_{request_id}"
             task = asyncio.create_task(self._process_engine_request(card_id, method, params, request_id, wrapped_output))
             self._active_tasks[task_key] = task
@@ -82,36 +99,48 @@ class MessageDispatcher:
         return {"error": {"code": -32601, "message": f"Method {method} not handled by dispatcher"}}
 
     async def _get_or_create_engine(self, card_id: str) -> (SessionEngine, bool):
+        # P0-2 FIX: Pre-check without lock
         if card_id in self.engines:
             engine = self.engines[card_id]
             if engine.is_alive:
                 return engine, False
 
-        # Load from DB to get provider
-        card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
-        if not card:
-            raise ValueError(f"Card {card_id} not found")
+        # Acquire lock for this card
+        if card_id not in self._engine_creation_locks:
+            self._engine_creation_locks[card_id] = asyncio.Lock()
+        
+        async with self._engine_creation_locks[card_id]:
+            # Double check after lock
+            if card_id in self.engines:
+                engine = self.engines[card_id]
+                if engine.is_alive:
+                    return engine, False
 
-        provider_id = card.get("acp_provider_id") or config.default_provider
-        
-        # Get project workspace
-        project_id = None
-        column = await asyncio.to_thread(self.db.columns.get_column_simple_for_bridge, card["column_id"])
-        if column:
-            project_id = column["project_id"]
-        
-        workspace_path = config.get("system.workspace_root")
-        if project_id:
-            project = await asyncio.to_thread(self.db.projects.get_by_id, project_id)
-            if project and project.get("workspace_path"):
-                workspace_path = project["workspace_path"]
+            # Load from DB to get provider
+            card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+            if not card:
+                raise ValueError(f"Card {card_id} not found")
 
-        engine = SessionEngine(card_id, provider_id, workspace_path)
-        engine.acp_session_id = card.get("acp_session_id")
-        
-        await engine.start()
-        self.engines[card_id] = engine
-        return engine, True
+            provider_id = card.get("acp_provider_id") or config.default_provider
+            
+            # Get project workspace
+            project_id = None
+            column = await asyncio.to_thread(self.db.columns.get_column_simple_for_bridge, card["column_id"])
+            if column:
+                project_id = column["project_id"]
+            
+            workspace_path = config.get("system.workspace_root")
+            if project_id:
+                project = await asyncio.to_thread(self.db.projects.get_by_id, project_id)
+                if project and project.get("workspace_path"):
+                    workspace_path = project["workspace_path"]
+
+            engine = SessionEngine(card_id, provider_id, workspace_path)
+            engine.acp_session_id = card.get("acp_session_id")
+            
+            await engine.start()
+            self.engines[card_id] = engine
+            return engine, True
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
         task_key = f"{card_id}_{request_id}"
@@ -136,6 +165,53 @@ class MessageDispatcher:
             async def forward_notification(n):
                 if "params" in n:
                     n["params"]["card_id"] = card_id
+                
+                # P0-1 FIX: Persist ACP notifications
+                update = n.get("params", {}).get("update", {})
+                update_type = update.get("sessionUpdate")
+                
+                if update_type == "agent_message_chunk":
+                    text = update.get("content", {}).get("text", "")
+                    if text:
+                        await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", text, is_complete=False)
+                
+                elif update_type == "tool_call":
+                    title = update.get("title") or update.get("tool") or "Tool Call"
+                    status = update.get("status", "pending")
+                    tool_id = update.get("toolCallId")
+                    text = f"🛠️ **{title}** ({status})"
+                    await asyncio.to_thread(
+                        self.db.sessions.add_message, 
+                        card_id, "assistant", text, 
+                        {"type": "tool_call", "toolCallId": tool_id}, 
+                        is_complete=False
+                    )
+                
+                elif update_type == "tool_call_update":
+                    status = update.get("status")
+                    tool_id = update.get("toolCallId")
+                    is_finished = status in ["completed", "failed"]
+                    await asyncio.to_thread(
+                        self.db.sessions.update_message_with_metadata,
+                        card_id, "toolCallId", tool_id, None, is_finished
+                    )
+                
+                elif update_type == "stop":
+                    # Mark last message as complete
+                    await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", is_complete=True)
+                    
+                    # Record timeline event for AI action
+                    card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+                    if card and card.get("project_id"):
+                        # Get last message content for timeline
+                        history = await asyncio.to_thread(self.db.sessions.get_history, card_id, limit=1)
+                        if history:
+                            content = history[0].get("content", "")
+                            await asyncio.to_thread(
+                                self.db.projects.add_timeline_event,
+                                card["project_id"], card_id, "ai_action", f"[assistant] {content[:100]}"
+                            )
+
                 await on_output(n)
 
             result = await engine.process_prompt(method, params, on_notification=forward_notification)

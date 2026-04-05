@@ -17,6 +17,14 @@ class BaseRepository:
         self.db = db
 
 class ProjectRepository(BaseRepository):
+    def add_timeline_event(self, project_id: str, card_id: Optional[str], event_type: str, content: str, metadata: Dict = None):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO project_timeline (project_id, card_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                (project_id, card_id, event_type, content, json.dumps(metadata) if metadata else None, now),
+            )
+
     def create(self, name: str, workspace_path: str = None) -> str:
         project_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
@@ -207,6 +215,71 @@ class SessionRepository(BaseRepository):
             msg_id = cursor.lastrowid
             conn.commit()
             return msg_id
+
+    def append_message(self, card_id: str, role: str, content: str, is_complete: bool = False) -> int:
+        """Append content to the last message if same role and within 30s window."""
+        now = datetime.now()
+        now_iso = now.isoformat()
+        
+        with self.db.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "SELECT id, role, content, created_at, is_complete FROM card_sessions WHERE card_id = ? ORDER BY id DESC LIMIT 1",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            
+            should_append = False
+            if row:
+                msg_id, last_role, last_content, last_created, last_is_complete = row
+                try:
+                    last_dt = datetime.fromisoformat(last_created)
+                    if last_role == role and (now - last_dt).total_seconds() < 30 and not last_is_complete:
+                        should_append = True
+                except: pass
+            
+            if should_append:
+                new_content = (last_content or "") + content
+                conn.execute(
+                    "UPDATE card_sessions SET content = ?, created_at = ?, is_complete = ? WHERE id = ?",
+                    (new_content, now_iso, 1 if is_complete else 0, msg_id)
+                )
+                conn.commit()
+                return msg_id
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, created_at, is_complete) VALUES (?, ?, ?, ?, ?)",
+                    (card_id, role, content, now_iso, 1 if is_complete else 0),
+                )
+                new_id = cursor.lastrowid
+                conn.commit()
+                return new_id
+
+    def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_value: Any, new_content: str = None, is_complete: bool = None):
+        """Update a message found by metadata (e.g. toolCallId)."""
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            search_str = f'%"{metadata_key}": "{metadata_value}"%'
+            cursor = conn.execute(
+                "SELECT id FROM card_sessions WHERE card_id = ? AND metadata LIKE ? ORDER BY id DESC LIMIT 1",
+                (card_id, search_str)
+            )
+            row = cursor.fetchone()
+            if row:
+                msg_id = row[0]
+                updates = ["created_at = ?"]
+                params = [now]
+                if new_content is not None:
+                    updates.append("content = ?")
+                    params.append(new_content)
+                if is_complete is not None:
+                    updates.append("is_complete = ?")
+                    params.append(1 if is_complete else 0)
+                
+                params.append(msg_id)
+                conn.execute(f"UPDATE card_sessions SET {', '.join(updates)} WHERE id = ?", params)
+                conn.commit()
 
     def get_history(self, card_id: str, limit: int = 50) -> List[Dict]:
         with self.db.get_connection() as conn:
