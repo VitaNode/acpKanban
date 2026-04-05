@@ -214,10 +214,10 @@ class MessageDispatcher:
                     # Record timeline event for AI action
                     card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
                     if card and card.get("project_id"):
-                        # Get last message content for timeline
-                        history = await asyncio.to_thread(self.db.sessions.get_history, card_id, limit=1)
-                        if history:
-                            content = history[0].get("content", "")
+                        # P2-7/NEW-1 FIX: Get latest assistant message for timeline
+                        last_msg = await asyncio.to_thread(self.db.sessions.get_latest_message, card_id, "assistant")
+                        if last_msg:
+                            content = last_msg.get("content", "")
                             await asyncio.to_thread(
                                 self.db.projects.add_timeline_event,
                                 card["project_id"], card_id, "ai_action", f"[assistant] {content[:100]}"

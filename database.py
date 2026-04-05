@@ -281,6 +281,20 @@ class SessionRepository(BaseRepository):
                 conn.execute(f"UPDATE card_sessions SET {', '.join(updates)} WHERE id = ?", params)
                 conn.commit()
 
+    def get_latest_message(self, card_id: str, role: Optional[str] = None) -> Optional[Dict]:
+        """Get the most recent message for a card, optionally filtered by role."""
+        query = "SELECT * FROM card_sessions WHERE card_id = ?"
+        params = [card_id]
+        if role:
+            query += " AND role = ?"
+            params.append(role)
+        query += " ORDER BY id DESC LIMIT 1"
+        
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(query, params)
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_history(self, card_id: str, limit: int = 50) -> List[Dict]:
         with self.db.get_connection() as conn:
             cursor = conn.execute(
