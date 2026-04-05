@@ -99,6 +99,19 @@ class ColumnRepository(BaseRepository):
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_by_id(self, column_id: str) -> Optional[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM columns WHERE id = ?", (column_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_column_simple_for_bridge(self, column_id: str) -> Optional[Dict]:
+        """Simplified version of get_column for bridge internal use."""
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT id, project_id FROM columns WHERE id = ?", (column_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def create(self, project_id: str, name: str, position: int = None, color: str = "#808080") -> str:
         column_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()

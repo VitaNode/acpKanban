@@ -13,16 +13,11 @@ from acp_client import ACPClient
 from mdns_discovery import LocalDiscovery
 from e2ee import E2EEManager
 from acp_adapter import ACPProtocolAdapter
+from config_manager import config
+from logger import setup_logger, set_request_id
 
-# Set up logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    stream=sys.stdout,
-)
-logger = logging.getLogger("BridgeRelay")
-
-CONFIG_PATH = Path(__file__).parent / "acp_config.json"
+# Set up structured logger
+logger = setup_logger("BridgeRelay")
 
 
 class SessionContext:
@@ -58,23 +53,22 @@ class SessionContext:
 class UnifiedBridge:
     def __init__(
         self,
-        user_id,
-        relay_url,
+        user_id=None,
+        relay_url=None,
         token=None,
         session_key=None,
         workspace_cwd=None,
         fallback_command=None,
     ):
-        self.user_id = user_id
-        self.relay_url = f"{relay_url.rstrip('/')}/relay/mac/{user_id}"
-        self.token = token or os.getenv("RELAY_TOKEN", "default_secret")
-        self._workspace_cwd = workspace_cwd or str(Path.home())
+        self.user_id = user_id or config.user_id
+        self.relay_url = f"{(relay_url or config.relay_url).rstrip('/')}/relay/mac/{self.user_id}"
+        self.token = token or config.get("relay.token")
+        self._workspace_cwd = workspace_cwd or config.get("system.workspace_root")
         self._fallback_command = fallback_command
 
-        self.config = self._load_config()
         self.sessions = {}  # card_id -> SessionContext
         self._session_locks = {}  # card_id -> asyncio.Lock
-        self.local_discovery = LocalDiscovery(user_id)
+        self.local_discovery = LocalDiscovery(self.user_id)
 
         # ECDH pair for initial handshake (load from storage or generate new)
         saved_keys = E2EEManager.load_key_pair(user_id)
@@ -94,31 +88,8 @@ class UnifiedBridge:
         self.system_config = {}  # Store cloud API settings for summaries/embeddings
         self.active_turns = {}  # card_id -> background task
 
-    def _load_config(self) -> dict:
-        try:
-            with open(CONFIG_PATH, "r") as f:
-                config = json.load(f)
-            providers = config.get("providers", [])
-            if not providers:
-                logger.error(
-                    f"No providers defined in {CONFIG_PATH}. "
-                    "Bridge cannot start without at least one provider."
-                )
-                raise RuntimeError("acp_config.json must define at least one provider")
-            logger.info(f"Loaded ACP config: {len(providers)} providers")
-            return config
-        except FileNotFoundError:
-            logger.error(
-                f"Config file not found: {CONFIG_PATH}. "
-                "Create acp_config.json with at least one provider."
-            )
-            raise
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in {CONFIG_PATH}: {e}")
-            raise
-
     def _get_provider_config(self, provider_id: str) -> dict:
-        for p in self.config.get("providers", []):
+        for p in config.providers:
             if p["id"] == provider_id:
                 return p
         raise ValueError(f"Provider '{provider_id}' not found in config")
@@ -140,7 +111,7 @@ class UnifiedBridge:
             from database import KanbanDB
 
             db = KanbanDB()
-            card = await asyncio.to_thread(db.get_card, card_id)
+            card = await asyncio.to_thread(db.cards.get_by_id, card_id)
 
             if not card:
                 raise ValueError(f"Card {card_id} not found in database")
@@ -149,15 +120,15 @@ class UnifiedBridge:
             acp_session_id = card.get("acp_session_id")
 
             if not provider_id:
-                provider_id = self.config.get("default_provider", "gemini")
+                provider_id = config.default_provider
                 logger.warning(
                     f"Card {card_id} has no provider, using default: {provider_id}"
                 )
 
-            cursor = await asyncio.to_thread(db.get_column, card["column_id"])
+            cursor = await asyncio.to_thread(db.columns.get_column_simple_for_bridge, card["column_id"])
             project_id = cursor.get("project_id") if cursor else None
             project = (
-                await asyncio.to_thread(db.get_project, project_id)
+                await asyncio.to_thread(db.projects.get_by_id, project_id)
                 if project_id
                 else None
             )
@@ -188,7 +159,7 @@ class UnifiedBridge:
                     command.extend(["--approval-mode", "yolo"])
                     logger.info(f"Added --approval-mode=yolo to Gemini CLI command")
 
-            max_sessions = self.config.get("max_sessions", 10)
+            max_sessions = config.get("system.max_sessions", 10)
             if len(self.sessions) >= max_sessions:
                 await self._evict_idle_session()
 
@@ -508,6 +479,10 @@ class UnifiedBridge:
         )
         try:
             data = json.loads(message)
+            # Set request ID from message if available, otherwise generate new
+            req_id = data.get("id")
+            set_request_id(req_id if isinstance(req_id, str) else None)
+            
             original_was_e2ee = data.get("method") == "e2ee/envelope"
 
             # Handle Pairing (Plaintext)
