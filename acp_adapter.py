@@ -15,8 +15,10 @@ Usage:
 import json
 import uuid
 import asyncio
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
+from config_manager import config
 
 
 class ACPProtocolAdapter:
@@ -261,9 +263,23 @@ class ACPProtocolAdapter:
     ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
 
+        # 1. Build MCP Servers list
+        mcp_servers = []
+        
+        # Add internal Kanban tools
+        mcp_servers.append({
+            "name": "kanban-tools",
+            "command": [sys.executable, str(Path(__file__).parent / "mcp_kanban.py")]
+        })
+        
+        # Add external MCP servers from config
+        external_mcp = config.get("mcp_servers", [])
+        if external_mcp:
+            mcp_servers.extend(external_mcp)
+
         params = {
             "cwd": project_cwd,
-            "mcpServers": [],
+            "mcpServers": mcp_servers,
         }
 
         if card_id:

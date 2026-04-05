@@ -5,6 +5,8 @@ from session_engine import SessionEngine
 from database import KanbanDB
 from logger import setup_logger, set_request_id
 from config_manager import config
+from context_builder import ContextBuilder
+from ag_ui_mapper import AGUIMapper
 
 logger = setup_logger("Dispatcher")
 
@@ -30,6 +32,7 @@ class MessageDispatcher:
     """
     def __init__(self, db: KanbanDB):
         self.db = db
+        self.context_builder = ContextBuilder(db)
         self.engines: Dict[str, SessionEngine] = {}
         self.commands = CommandRegistry()
         self._setup_local_commands()
@@ -46,6 +49,16 @@ class MessageDispatcher:
         method = data.get("method")
         params = data.get("params", {})
         request_id = data.get("id")
+        ui_format = params.get("ui_format", "acp")
+
+        # Wrap output to handle AG-UI mapping if requested
+        async def wrapped_output(output_data):
+            if ui_format == "ag_ui":
+                mapped = AGUIMapper.map_notification(output_data)
+                if mapped:
+                    await on_output(mapped)
+                    return
+            await on_output(output_data)
 
         # 1. Handle Slash Commands (Interceptors)
         if method in ("chat/message", "session/prompt"):
@@ -60,20 +73,19 @@ class MessageDispatcher:
         # 2. Route to SessionEngine for Conversation
         card_id = params.get("card_id")
         if card_id and method in ("chat/message", "session/prompt"):
-            # Background the long-running prompt
             task_key = f"{card_id}_{request_id}"
-            task = asyncio.create_task(self._process_engine_request(card_id, method, params, request_id, on_output))
+            task = asyncio.create_task(self._process_engine_request(card_id, method, params, request_id, wrapped_output))
             self._active_tasks[task_key] = task
             return {"status": "submitted", "card_id": card_id}
 
         # 3. Fallback: Unknown or management methods
         return {"error": {"code": -32601, "message": f"Method {method} not handled by dispatcher"}}
 
-    async def _get_or_create_engine(self, card_id: str) -> SessionEngine:
+    async def _get_or_create_engine(self, card_id: str) -> (SessionEngine, bool):
         if card_id in self.engines:
             engine = self.engines[card_id]
             if engine.is_alive:
-                return engine
+                return engine, False
 
         # Load from DB to get provider
         card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
@@ -99,26 +111,38 @@ class MessageDispatcher:
         
         await engine.start()
         self.engines[card_id] = engine
-        return engine
+        return engine, True
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
         task_key = f"{card_id}_{request_id}"
         try:
-            engine = await self._get_or_create_engine(card_id)
+            engine, is_new = await self._get_or_create_engine(card_id)
             
+            # Inject initial context if new engine or fresh session
+            if is_new or not engine.acp_session_id:
+                context = await self.context_builder.build_initial_context(card_id)
+                logger.info(f"Injecting initial context for card {card_id[:8]}")
+                
+                async def silent_output(n): pass 
+                try:
+                    await engine.process_prompt(
+                        "chat/message", 
+                        {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
+                        on_notification=silent_output
+                    )
+                except Exception as ce:
+                    logger.warning(f"Failed to inject initial context: {ce}")
+
             async def forward_notification(n):
-                # Ensure card_id is present for client routing
                 if "params" in n:
                     n["params"]["card_id"] = card_id
                 await on_output(n)
 
             result = await engine.process_prompt(method, params, on_notification=forward_notification)
             
-            # Update DB if session ID changed
             if engine.acp_session_id != params.get("acp_session_id"):
                 await asyncio.to_thread(self.db.cards.update_card_session_id, card_id, engine.acp_session_id)
                 
-            # Final stop signal
             await on_output({
                 "jsonrpc": "2.0",
                 "method": "session/update",
@@ -144,19 +168,13 @@ class MessageDispatcher:
             await self.engines[card_id].stop()
             del self.engines[card_id]
         
-        # Also clear session_id in DB to force a fresh session next time
         await asyncio.to_thread(self.db.cards.update_card_session_id, card_id, None)
-        
-        return {"message": "Session reset successfully. A new session will be created on next message.", "card_id": card_id}
+        return {"message": "Session reset successfully.", "card_id": card_id}
 
     async def shutdown(self):
-        """Stop all engines and tasks."""
-        logger.info("Shutting down dispatcher...")
         for task in self._active_tasks.values():
             task.cancel()
-        
         stop_tasks = [eng.stop() for eng in self.engines.values()]
         if stop_tasks:
             await asyncio.gather(*stop_tasks, return_exceptions=True)
         self.engines.clear()
-        logger.info("Dispatcher shutdown complete.")

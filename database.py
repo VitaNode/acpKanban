@@ -174,6 +174,27 @@ class CardRepository(BaseRepository):
             )
             return card_id
 
+    def update_card_session_id(self, card_id: str, session_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET acp_session_id = ? WHERE id = ?", (session_id, card_id))
+
+class SummaryRepository(BaseRepository):
+    def get_all_for_project(self, project_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT s.*, c.title FROM summaries s JOIN cards c ON c.id = s.card_id JOIN columns col ON col.id = c.column_id WHERE col.project_id = ? ORDER BY s.updated_at DESC",
+                (project_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def upsert(self, card_id: str, summary: str):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO summaries (card_id, summary, updated_at) VALUES (?, ?, ?) ON CONFLICT(card_id) DO UPDATE SET summary=excluded.summary, updated_at=excluded.updated_at",
+                (card_id, summary, now),
+            )
+
 class SessionRepository(BaseRepository):
     def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None, is_complete: bool = True) -> int:
         now = datetime.now().isoformat()
@@ -231,6 +252,7 @@ class KanbanDB:
         self.projects = ProjectRepository(self)
         self.columns = ColumnRepository(self)
         self.cards = CardRepository(self)
+        self.summaries = SummaryRepository(self)
         self.sessions = SessionRepository(self)
         
         self._initialized = True
