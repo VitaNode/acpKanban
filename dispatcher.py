@@ -245,9 +245,17 @@ class MessageDispatcher:
     async def _inject_context_async(self, card_id: str, engine: SessionEngine):
         """Background task to inject system context."""
         try:
+            # 1. Quick check if engine is already in error state
+            if not engine.is_alive or engine.state == SessionState.ERROR:
+                return
+
             context = await self.context_builder.build_initial_context(card_id)
             logger.info(f"Injecting initial context for card {card_id[:8]} (background)")
             
+            # 2. Re-check before starting prompt
+            if not engine.is_alive or engine.state == SessionState.ERROR:
+                return
+
             async def silent_output(n): pass 
             await engine.process_prompt(
                 "chat/message", 
