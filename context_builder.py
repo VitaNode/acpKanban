@@ -20,13 +20,15 @@ class ContextBuilder:
     async def build_initial_context(self, card_id: str) -> str:
         """
         Builds the comprehensive initial context string.
+        (Called asynchronously via Dispatcher.create_task)
         """
-        card = await self.db.cards.get_by_id(card_id)
+        # Fixed: Repository methods are synchronous (with threads)
+        card = self.db.cards.get_by_id(card_id)
         if not card:
             return "Context: Card not found."
 
         project_id = card.get("project_id")
-        project = await self.db.projects.get_by_id(project_id) if project_id else None
+        project = self.db.projects.get_by_id(project_id) if project_id else None
         
         sections = []
         
@@ -43,7 +45,7 @@ class ContextBuilder:
 
         # 3. Global Summaries (Other cards in the same project)
         if project_id:
-            summaries = await self.db.summaries.get_all_for_project(project_id)
+            summaries = self.db.summaries.get_all_for_project(project_id)
             if summaries:
                 summaries_text = "\n".join([
                     f"- Card: {s['title']}\n  Summary: {s['summary']}"

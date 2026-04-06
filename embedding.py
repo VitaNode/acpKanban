@@ -35,21 +35,29 @@ class EmbeddingService:
             try:
                 from database import KanbanDB
                 db = KanbanDB()
-                print(f"[EmbeddingService] Fallback to DB at: {db.db_path}")
-                system_config = db.get_setting("system_config")
-                if system_config:
-                    # Handle both snake_case and camelCase
-                    api_key = api_key or system_config.get("api_key") or system_config.get("apiKey")
-                    base_url = base_url or system_config.get("base_url") or system_config.get("baseUrl")
-                    
-                    if not os.getenv("SUMMARY_MODEL"):
-                        summary_model = system_config.get("summary_model") or system_config.get("summaryModel") or "gpt-4o-mini"
-                        os.environ["SUMMARY_MODEL"] = summary_model
-                    if not os.getenv("EMBEDDING_MODEL"):
-                        embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
-                        os.environ["EMBEDDING_MODEL"] = embedding_model
+                raw_config = db.get_setting("system_config")
+                if raw_config:
+                    # Parse JSON if it's a string
+                    system_config = raw_config
+                    if isinstance(raw_config, str):
+                        try:
+                            system_config = json.loads(raw_config)
+                        except json.JSONDecodeError:
+                            system_config = {}
+
+                    if isinstance(system_config, dict):
+                        # Handle both snake_case and camelCase
+                        api_key = api_key or system_config.get("api_key") or system_config.get("apiKey")
+                        base_url = base_url or system_config.get("base_url") or system_config.get("baseUrl")
+                        
+                        if not os.getenv("SUMMARY_MODEL"):
+                            summary_model = system_config.get("summary_model") or system_config.get("summaryModel") or "gpt-4o-mini"
+                            os.environ["SUMMARY_MODEL"] = summary_model
+                        if not os.getenv("EMBEDDING_MODEL"):
+                            embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
+                            os.environ["EMBEDDING_MODEL"] = embedding_model
                 else:
-                    print("[EmbeddingService] No system_config found in DB")
+                    pass # Silent fallback
             except Exception as e:
                 print(f"[EmbeddingService] Database settings fallback failed: {e}")
 
@@ -57,7 +65,6 @@ class EmbeddingService:
         base_url = base_url or "https://api.openai.com/v1"
 
         if not api_key or api_key == "your_new_key_here":
-            # print("[EmbeddingService] No API key available")
             return None
 
         if self.client is None or api_key != self._last_api_key or base_url != self._last_base_url:
