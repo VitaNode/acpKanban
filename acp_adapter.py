@@ -13,11 +13,12 @@ class ACPProtocolAdapter:
     Protocol adapter that converts custom chat/message format to standard ACP session/prompt.
     """
 
-    def __init__(self, acp_client, workspace_cwd: Optional[str] = None):
+    def __init__(self, acp_client, workspace_cwd: Optional[str] = None, provider_id: Optional[str] = None):
         """
         Initialize the adapter.
         """
         self.acp = acp_client
+        self.provider_id = provider_id
         self._workspace_cwd = workspace_cwd or str(Path.home())
         self._card_sessions = {}
         self._history = {}
@@ -166,13 +167,17 @@ class ACPProtocolAdapter:
     ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
 
-        # Official format: mcpServers from tool_registry (already string 'command' and list 'args')
-        mcp_servers = tool_registry.get_mcp_servers()
-
         params = {
             "cwd": project_cwd,
-            "mcpServers": mcp_servers,
         }
+
+        # Special Case: OpenClaw Bridge Mode (per official docs)
+        # It does not support per-session MCP servers (mcpServers).
+        if self.provider_id and "openclaw" in self.provider_id.lower():
+            self.log("OpenClaw detected: Skipping per-session mcpServers (Bridge Mode restriction)")
+        else:
+            # Official format: mcpServers from tool_registry
+            params["mcpServers"] = tool_registry.get_mcp_servers()
 
         if card_id:
             params["_meta"] = {"sessionKey": f"agent:main:kanban:{card_id}"}
@@ -190,14 +195,18 @@ class ACPProtocolAdapter:
     ) -> tuple[Optional[str], str]:
         project_cwd = workspace_path or self._workspace_cwd
         try:
-            response = await self.acp.request(
-                "session/load",
-                {
-                    "sessionId": session_id,
-                    "cwd": project_cwd,
-                    "mcpServers": tool_registry.get_mcp_servers(),
-                },
-            )
+            params = {
+                "sessionId": session_id,
+                "cwd": project_cwd,
+            }
+
+            # Skip mcpServers for OpenClaw
+            if self.provider_id and "openclaw" in self.provider_id.lower():
+                pass
+            else:
+                params["mcpServers"] = tool_registry.get_mcp_servers()
+
+            response = await self.acp.request("session/load", params)
             if "error" in response:
                 return None, str(response.get("error", {}))
             return session_id, ""

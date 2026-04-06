@@ -66,7 +66,7 @@ class SessionEngine:
             self.acp_client = ACPClient(command=command, name=f"ACP-{self.provider_id}")
             await self.acp_client.start()
             
-            self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path)
+            self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path, provider_id=self.provider_id)
             self.state = SessionState.IDLE
             self.logger.info(f"Started session engine with provider {self.provider_id}")
 
