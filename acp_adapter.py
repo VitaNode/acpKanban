@@ -22,7 +22,6 @@ class ACPProtocolAdapter:
         self._card_sessions = {}
         self._history = {}
         self._current_card_id: Optional[str] = None
-        self._persist_session_callback: Optional[Callable] = None
 
     def log(self, message: str):
         """Log a message."""
@@ -36,7 +35,7 @@ class ACPProtocolAdapter:
 
     async def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle initialize request.
+        Handle initialize request with full official capabilities.
         """
         if "workspace_path" in params:
             self._workspace_cwd = params["workspace_path"]
@@ -45,11 +44,21 @@ class ACPProtocolAdapter:
 
         self.log(f"Initializing with workspace: {self._workspace_cwd}")
 
+        # Official ACP initialize format
         acp_params = {
             "protocolVersion": 1,
-            "clientInfo": params.get(
-                "clientInfo", {"name": "Kanban-Bridge", "version": "1.0.0"}
-            ),
+            "clientCapabilities": {
+                "fs": {
+                    "readTextFile": True,
+                    "writeTextFile": True
+                },
+                "terminal": True
+            },
+            "clientInfo": {
+                "name": "Kanban-Bridge",
+                "title": "Agent Kanban Bridge",
+                "version": "1.0.0"
+            }
         }
 
         response = await self.acp.request("initialize", acp_params)
@@ -157,7 +166,7 @@ class ACPProtocolAdapter:
     ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
 
-        # P2-3 FIX: Use registry
+        # Official format: mcpServers from tool_registry (already string 'command' and list 'args')
         mcp_servers = tool_registry.get_mcp_servers()
 
         params = {
