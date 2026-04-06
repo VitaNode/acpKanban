@@ -1,7 +1,7 @@
 import asyncio
 import json
 from typing import Dict, Any, Optional, Callable
-from session_engine import SessionEngine
+from session_engine import SessionEngine, SessionState
 from database import KanbanDB
 from logger import setup_logger, set_request_id
 from config_manager import config
