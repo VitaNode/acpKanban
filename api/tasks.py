@@ -1,8 +1,8 @@
 import logging
 import time
 import os
-from database import KanbanDB
-from embedding import embedding_service
+from src.persistence.database import KanbanDB
+from src.persistence.embedding import embedding_service
 import json
 
 logger = logging.getLogger(__name__)

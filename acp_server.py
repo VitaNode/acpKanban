@@ -6,8 +6,8 @@ import os
 import traceback
 from openai import OpenAI
 from dotenv import load_dotenv
-from database import KanbanDB
-from embedding import embedding_service
+from src.persistence.database import KanbanDB
+from src.persistence.embedding import embedding_service
 
 load_dotenv()
 

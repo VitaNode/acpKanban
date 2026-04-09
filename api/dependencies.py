@@ -3,7 +3,7 @@ from functools import wraps
 from typing import Optional
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from database import KanbanDB
+from src.persistence.database import KanbanDB
 
 
 db_instance: Optional[KanbanDB] = None

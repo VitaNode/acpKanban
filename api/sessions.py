@@ -73,16 +73,15 @@ async def add_session_message(card_id: str, request: SessionMessageRequest):
 @router.delete("/cards/{card_id}/session")
 async def clear_session(card_id: str):
     """
-    Clear the session history for a card (from database only, not memory cache).
+    Clear the session history for a card (from database only).
     """
     db = get_db()
     card = validate_card_exists(card_id, db)
 
     try:
-        conn = db.get_connection()
-        conn.execute("DELETE FROM card_sessions WHERE card_id = ?", (card_id,))
-        conn.commit()
-        db.return_connection(conn)
+        with db.get_connection() as conn:
+            conn.execute("DELETE FROM card_sessions WHERE card_id = ?", (card_id,))
+            conn.commit()
         return {"message": f"Session history cleared for card '{card['title']}'"}
     except Exception as e:
         raise HTTPError(400, str(e))
@@ -92,7 +91,6 @@ async def clear_session(card_id: str):
 async def clear_project_sessions(project_id: str):
     """
     Clear all session histories for cards in a project.
-    This is called when switching to a different project to free memory.
     """
     db = get_db()
     from api.projects import validate_project_exists
@@ -100,21 +98,20 @@ async def clear_project_sessions(project_id: str):
     validate_project_exists(project_id, db)
 
     try:
-        conn = db.get_connection()
-        cursor = conn.execute(
-            """
-            DELETE FROM card_sessions 
-            WHERE card_id IN (
-                SELECT c.id FROM cards c 
-                JOIN columns col ON col.id = c.column_id 
-                WHERE col.project_id = ?
+        with db.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                DELETE FROM card_sessions 
+                WHERE card_id IN (
+                    SELECT c.id FROM cards c 
+                    JOIN columns col ON col.id = c.column_id 
+                    WHERE col.project_id = ?
+                )
+            """,
+                (project_id,),
             )
-        """,
-            (project_id,),
-        )
-        conn.commit()
-        deleted_count = cursor.rowcount
-        db.return_connection(conn)
-        return {"message": f"Cleared {deleted_count} session messages from project"}
+            conn.commit()
+            deleted_count = cursor.rowcount
+            return {"message": f"Cleared {deleted_count} session messages from project"}
     except Exception as e:
         raise HTTPError(400, str(e))

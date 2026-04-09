@@ -337,10 +337,10 @@ async def get_related_cards(
     summary_obj = db.get_summary(card_id)
     if not summary_obj:
         # If no summary, try semantic search with card title/description
-        from embedding import embedding_service
+        from src.persistence.embedding import embedding_service
         emb = embedding_service.compute_card_embedding(card['title'], card.get('description', ''))
     else:
-        from embedding import embedding_service
+        from src.persistence.embedding import embedding_service
         emb = embedding_service.get_embedding(summary_obj['summary'])
 
     if not emb:
