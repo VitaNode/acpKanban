@@ -5,7 +5,8 @@ import subprocess
 import time
 import os
 import sys
-from e2ee import E2EEManager
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.transport.e2ee import E2EEManager
 
 async def test_auth_failure():
     print("[*] Testing Auth Failure")

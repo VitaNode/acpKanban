@@ -2,7 +2,8 @@ import asyncio
 import json
 import os
 import sys
-from acp_client import ACPClient
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.protocol.client import ACPClient
 async def test_acp(name, command, cwd=None):
     print(f"\n{'='*60}")
     print(f"Testing {name}: {' '.join(command)}")
