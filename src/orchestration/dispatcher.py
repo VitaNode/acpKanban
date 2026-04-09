@@ -6,7 +6,7 @@ from src.persistence.database import KanbanDB
 from src.logic.context import ContextBuilder
 from src.protocol.ag_ui_mapper import AGUIMapper
 from src.config.manager import config
-from logger import setup_logger, set_request_id
+from src.logger import setup_logger, set_request_id
 
 logger = setup_logger("Dispatcher")
 

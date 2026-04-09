@@ -15,7 +15,7 @@ from src.transport.e2ee import E2EEManager
 from src.config.manager import config
 from src.orchestration.dispatcher import MessageDispatcher
 from src.persistence.database import KanbanDB
-from logger import setup_logger, set_request_id
+from src.logger import setup_logger, set_request_id
 
 # Set up structured logger
 logger = setup_logger("BridgeRelay")

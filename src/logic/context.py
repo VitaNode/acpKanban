@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from src.persistence.database import KanbanDB
-from logger import setup_logger
+from src.logger import setup_logger
 
 logger = setup_logger("ContextBuilder")
 

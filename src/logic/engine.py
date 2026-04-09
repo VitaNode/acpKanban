@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, Callable
 from src.protocol.client import ACPClient
 from src.protocol.adapter import ACPProtocolAdapter
 from src.config.manager import config
-from logger import setup_logger
+from src.logger import setup_logger
 
 class SessionState:
     IDLE = "idle"
