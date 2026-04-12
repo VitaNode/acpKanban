@@ -84,7 +84,10 @@ class ACPServer:
         sys.stdout.flush()
         
         try:
-            return await future
+            return await asyncio.wait_for(future, timeout=300.0) # 5 min timeout
+        except asyncio.TimeoutError:
+            self.log(f"Request {method} (id: {request_id}) timed out after 5 minutes")
+            raise Exception("Permission request timed out.")
         finally:
             self._pending_responses.pop(request_id, None)
 

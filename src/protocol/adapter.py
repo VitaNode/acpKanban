@@ -13,7 +13,7 @@ class ACPProtocolAdapter:
     Protocol adapter that converts custom chat/message format to standard ACP session/prompt.
     """
 
-    def __init__(self, acp_client, workspace_cwd: Optional[str] = None, provider_id: Optional[str] = None):
+    def __init__(self, acp_client, workspace_cwd: Optional[str] = None, provider_id: Optional[str] = None, on_request: Optional[Callable[[str, Dict[str, Any]], Any]] = None):
         """
         Initialize the adapter.
         """
@@ -23,6 +23,7 @@ class ACPProtocolAdapter:
         self._card_sessions = {}
         self._history = {}
         self._current_card_id: Optional[str] = None
+        self.on_request = on_request
 
     def log(self, message: str):
         """Log a message."""
@@ -130,11 +131,29 @@ class ACPProtocolAdapter:
             while True:
                 try:
                     data = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    
+                    # N3: Handle Server-to-Client Requests
+                    if "method" in data and "id" in data:
+                        self.log(f"Received nested request from server: {data['method']}")
+                        if self.on_request:
+                            # CRIT-2: Run request handler in background to avoid blocking notification loop
+                            async def handle_and_respond(req_id, method, params):
+                                try:
+                                    result = await self.on_request(method, params)
+                                    # CRIT-1: Method is 'respond', not 'send_response'
+                                    await self.acp.respond(req_id, result=result)
+                                except Exception as re:
+                                    await self.acp.respond(req_id, error={"code": -32000, "message": str(re)})
+                            
+                            asyncio.create_task(handle_and_respond(data["id"], data["method"], data.get("params", {})))
+                        continue
+
                     if on_notification:
                         await on_notification(data)
 
                     if data.get("method") == "session/update":
                         update = data.get("params", {}).get("update", {})
+                        # Support standardized 'content' inside 'update'
                         content = update.get("content", {})
                         if isinstance(content, dict) and "text" in content:
                             collected_text.append(content["text"])
