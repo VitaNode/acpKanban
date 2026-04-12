@@ -104,8 +104,10 @@ class ACPServer:
             },
             "agentInfo": {
                 "name": "Kanban-Brain",
+                "title": "Agent Kanban Brain",
                 "version": "2.0.0"
-            }
+            },
+            "authMethods": []
         }
         self.send_response(request_id, result=result)
 
@@ -127,15 +129,34 @@ class ACPServer:
         }
         
         self.log(f"Created session {session_id} for card {card_id}")
-        self.send_response(request_id, result={"sessionId": session_id})
-
     def on_session_load(self, request_id, params):
         session_id = params.get("sessionId")
         if session_id not in self._sessions:
-            # Attempt to restore from DB if card_id is known
+            # Check if we can find this session or its card context
             return self.send_response(request_id, error={"code": -32602, "message": "Session not found"})
         
-        self.send_response(request_id, result={"sessionId": session_id})
+        session = self._sessions[session_id]
+        history = session.get("history", [])
+        
+        # Replay history via notifications
+        for msg in history:
+            role = msg.get("role")
+            content = msg.get("content")
+            
+            # Convert internal message format to ACP notification blocks
+            if role == "system":
+                continue # Typically skip system in UI replay unless needed
+                
+            self.send_notification("session/update", {
+                "sessionId": session_id,
+                "update": {
+                    "type": "content",
+                    "content": {"type": "text", "text": content}
+                }
+            })
+            
+        # Standard result: null for load completion
+        self.send_response(request_id, result=None)
 
     def on_session_list(self, request_id):
         sessions = [
