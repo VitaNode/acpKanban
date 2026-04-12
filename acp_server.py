@@ -32,9 +32,10 @@ class ACPServer:
             api_key=self.api_key, base_url=self.base_url, timeout=60.0, max_retries=2
         )
 
-        # Sessions: {session_id: {"card_id": str, "project_id": str, "history": list, "cwd": str, "updated_at": str, "active_task": Task}}
+        # Sessions: {session_id: {"card_id": str, "project_id": str, "history": list, "cwd": str, "updated_at": str, "active_task": Task, "permission_cache": dict}}
         self._sessions: Dict[str, Dict[str, Any]] = {}
         self._responded_ids: Set[Any] = set() 
+        self._pending_responses: Dict[Any, asyncio.Future] = {} 
         self.allowed_workspaces: List[str] = [] 
         self.log(f"ACP Server (Brain) initialized with {self.model_id}")
 
@@ -54,7 +55,6 @@ class ACPServer:
         sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
         sys.stdout.flush()
         
-        # R3: Memory management for cache
         if len(self._responded_ids) > 10000:
             self._responded_ids.clear()
         self._responded_ids.add(response_id)
@@ -67,6 +67,41 @@ class ACPServer:
         }
         sys.stdout.write(json.dumps(notification, ensure_ascii=False) + "\n")
         sys.stdout.flush()
+
+    async def send_request(self, method: str, params: Dict[str, Any]) -> Any:
+        """Sends a request to the client and waits for the response."""
+        request_id = str(uuid.uuid4())
+        future = asyncio.get_running_loop().create_future()
+        self._pending_responses[request_id] = future
+        
+        request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params
+        }
+        sys.stdout.write(json.dumps(request, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+        
+        try:
+            return await future
+        finally:
+            self._pending_responses.pop(request_id, None)
+
+    async def handle_message(self, message):
+        """Dispatches incoming JSON-RPC messages (requests or responses)."""
+        if "method" in message:
+            await self.handle_request(message)
+        elif "id" in message and ("result" in message or "error" in message):
+            request_id = message["id"]
+            if request_id in self._pending_responses:
+                future = self._pending_responses[request_id]
+                if "error" in message:
+                    future.set_exception(Exception(message["error"].get("message", "Unknown error")))
+                else:
+                    future.set_result(message.get("result"))
+            else:
+                self.log(f"Received unexpected response ID: {request_id}")
 
     async def handle_request(self, request):
         method = request.get("method")
@@ -94,6 +129,11 @@ class ACPServer:
                 return self.on_session_list(request_id)
             elif method == "session/cancel":
                 return self.on_session_cancel(request_id, params)
+            elif method == "test/request_permission" and os.getenv("KANBAN_DEBUG"):
+                session_id = params.get("sessionId")
+                # Trigger with a dummy tool call ID
+                result = await self._execute_tool("delete_card", {"card_id": "test_id"}, "test_project", session_id, "call_test_123")
+                return self.send_response(request_id, result={"toolResult": result})
             elif method == "health":
                 return self.send_response(request_id, result={"status": "healthy"})
             elif method == "shutdown":
@@ -117,12 +157,10 @@ class ACPServer:
             return self.send_response(request_id, error={"code": -32603, "message": str(e)})
 
     def on_initialize(self, request_id, params):
-        # N9: Support lower bound validation
         client_version = params.get("protocolVersion", 1)
         server_version = 1 
         version = max(1, min(client_version, server_version))
 
-        # N7: Reset allowed workspaces on new initialize
         self.allowed_workspaces = []
         initial_cwd = params.get("cwd") or params.get("workspace_path")
         if initial_cwd:
@@ -175,7 +213,8 @@ class ACPServer:
             "cwd": abs_cwd,
             "status": "active",
             "updated_at": datetime.now().isoformat(),
-            "active_task": None
+            "active_task": None,
+            "permission_cache": {} # N4: Initialize cache
         }
         
         self.log(f"Created session {session_id} for card {card_id} in project {project_id}")
@@ -215,7 +254,8 @@ class ACPServer:
                         "cwd": os.path.abspath(workspace_path or os.getcwd()),
                         "status": "active",
                         "updated_at": datetime.now().isoformat(),
-                        "active_task": None
+                        "active_task": None,
+                        "permission_cache": {} # N4: Initialize cache
                     }
                     self.log(f"Restored session {session_id} from database (Card {card_id})")
                 else:
@@ -302,16 +342,16 @@ class ACPServer:
             
             if message.tool_calls:
                 history.append(message)
-                # Note: Assistant message with tool_calls is not persisted in simple role logic but 
-                # technically we should persist it. For now focus on tool result.
-                
                 for tool_call in message.tool_calls:
                     self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "running")
                     
+                    # N6: Pass tool_call.id to _execute_tool
                     result = await self._execute_tool(
                         tool_call.function.name, 
                         json.loads(tool_call.function.arguments), 
-                        project_id
+                        project_id,
+                        session_id,
+                        tool_call.id
                     )
                     
                     history.append({
@@ -321,7 +361,6 @@ class ACPServer:
                         "content": result,
                     })
                     
-                    # R1: Persist tool role message
                     if card_id:
                         self.db.add_session_message(
                             card_id, "tool", result, 
@@ -342,7 +381,6 @@ class ACPServer:
             if card_id:
                 self.db.add_session_message(card_id, "assistant", final_text or "")
 
-            # N6: Standard ACP Response Format
             self.send_response(request_id, result={
                 "content": [{"type": "text", "text": final_text}],
                 "stopReason": "end_turn"
@@ -370,9 +408,55 @@ class ACPServer:
             params["update"]["tool_call"]["output"] = output[:500]
         self.send_notification("session/update", params)
 
-    async def _execute_tool(self, name: str, args: Dict[str, Any], project_id: Optional[str]) -> str:
+    async def _execute_tool(self, name: str, args: Dict[str, Any], project_id: Optional[str], session_id: str, tool_call_id: str) -> str:
+        """Executes a tool, checking permissions and project scope."""
         if not project_id and name in ["create_card", "move_card", "update_card", "delete_card", "search_cards"]:
             return "Error: No project associated with this session. Please initialize or link a project card first."
+
+        # N4 & N6: Permission Check with Cache and Original ID
+        sensitive_tools = ["delete_card", "update_card", "move_card"]
+        if name in sensitive_tools:
+            session = self._sessions.get(session_id)
+            if session:
+                cache = session.get("permission_cache", {})
+                cached_decision = cache.get(name)
+                
+                # Check for permanent decisions
+                if cached_decision:
+                    if cached_decision.get("option") == "allow_always":
+                        self.log(f"Using cached 'allow_always' for {name}")
+                    elif cached_decision.get("option") == "reject_always":
+                        return f"Error: Permission permanently denied by user for tool {name}."
+                    else:
+                        # Clear 'once' decisions for next run
+                        cache.pop(name, None)
+                        # Fall through to request
+                
+                # Request permission if no permanent decision
+                if not cached_decision or cached_decision.get("option") not in ["allow_always", "reject_always"]:
+                    self.log(f"Requesting permission for sensitive tool: {name} (ID: {tool_call_id})")
+                    try:
+                        perm_res = await self.send_request("session/request_permission", {
+                            "sessionId": session_id,
+                            "toolCall": {
+                                "id": tool_call_id, # N6: Use original tool_call_id
+                                "name": name,
+                                "arguments": json.dumps(args)
+                            }
+                        })
+                        
+                        if not perm_res or not perm_res.get("allow"):
+                            # Store reject_always if selected
+                            if perm_res and perm_res.get("option") == "reject_always":
+                                cache[name] = perm_res
+                            return f"Error: Permission denied by user for tool {name}."
+                        
+                        # Store allow_always if selected
+                        if perm_res.get("option") == "allow_always":
+                            cache[name] = perm_res
+                            
+                    except Exception as pe:
+                        return f"Error: Permission request failed: {str(pe)}"
 
         try:
             if "card_id" in args:
@@ -517,8 +601,8 @@ class ACPServer:
             line = await loop.run_in_executor(None, sys.stdin.readline)
             if not line: break
             try:
-                request = json.loads(line)
-                await self.handle_request(request)
+                message = json.loads(line)
+                await self.handle_message(message)
             except Exception as e:
                 self.log(f"RPC Process Error: {e}")
 
