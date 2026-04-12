@@ -34,7 +34,7 @@ class ACPServer:
 
         # Sessions: {session_id: {"card_id": str, "project_id": str, "history": list, "cwd": str, "updated_at": str, "active_task": Task}}
         self._sessions: Dict[str, Dict[str, Any]] = {}
-        self._responded_ids: Set[Any] = set() # N4: Deduplication
+        self._responded_ids: Set[Any] = set() 
         self.allowed_workspaces: List[str] = [] 
         self.log(f"ACP Server (Brain) initialized with {self.model_id}")
 
@@ -42,7 +42,6 @@ class ACPServer:
         print(f"[*] {message}", file=sys.stderr)
 
     def send_response(self, response_id, result=None, error=None):
-        # N4: Ensure only one response per request ID
         if response_id in self._responded_ids:
             return
         
@@ -54,6 +53,10 @@ class ACPServer:
         
         sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
         sys.stdout.flush()
+        
+        # R3: Memory management for cache
+        if len(self._responded_ids) > 10000:
+            self._responded_ids.clear()
         self._responded_ids.add(response_id)
 
     def send_notification(self, method: str, params: Dict[str, Any]):
@@ -108,17 +111,19 @@ class ACPServer:
                 )
         except asyncio.CancelledError:
             self.log(f"Request {request_id} ({method}) was cancelled.")
-            # N4: Handled by send_response deduplication
             self.send_response(request_id, error={"code": -32000, "message": "Request cancelled"})
         except Exception as e:
             self.log(f"Error handling {method}: {str(e)}\n{traceback.format_exc()}")
-            self.send_response(request_id, error={"code": -32603, "message": str(e)})
+            return self.send_response(request_id, error={"code": -32603, "message": str(e)})
 
     def on_initialize(self, request_id, params):
+        # N9: Support lower bound validation
         client_version = params.get("protocolVersion", 1)
         server_version = 1 
-        version = min(client_version, server_version)
+        version = max(1, min(client_version, server_version))
 
+        # N7: Reset allowed workspaces on new initialize
+        self.allowed_workspaces = []
         initial_cwd = params.get("cwd") or params.get("workspace_path")
         if initial_cwd:
             self.allowed_workspaces.append(os.path.abspath(initial_cwd))
@@ -191,7 +196,6 @@ class ACPServer:
                 if row:
                     card_id, project_id, workspace_path = row[0], row[1], row[2]
                     db_history = self.db.get_session_history(card_id)
-                    # N5: Recover metadata
                     history = []
                     for msg in db_history:
                         m = {
@@ -224,7 +228,6 @@ class ACPServer:
             role = msg.get("role")
             if role == "system": continue
             
-            # N1: Correct nested structure
             update_type = "user_message_chunk" if role == "user" else "agent_message_chunk"
             self.send_notification("session/update", {
                 "sessionId": session_id,
@@ -233,7 +236,6 @@ class ACPServer:
                     "content": {"type": "text", "text": msg.get("content", "")}
                 }
             })
-            # N2: Optional updated_at refresh
             session["updated_at"] = datetime.now().isoformat()
             
         self.send_response(request_id, result=None)
@@ -300,6 +302,9 @@ class ACPServer:
             
             if message.tool_calls:
                 history.append(message)
+                # Note: Assistant message with tool_calls is not persisted in simple role logic but 
+                # technically we should persist it. For now focus on tool result.
+                
                 for tool_call in message.tool_calls:
                     self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "running")
                     
@@ -316,6 +321,13 @@ class ACPServer:
                         "content": result,
                     })
                     
+                    # R1: Persist tool role message
+                    if card_id:
+                        self.db.add_session_message(
+                            card_id, "tool", result, 
+                            metadata={"tool_call_id": tool_call.id, "name": tool_call.function.name}
+                        )
+                    
                     self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "completed", result)
 
                 second_response = self.client.chat.completions.create(
@@ -330,8 +342,9 @@ class ACPServer:
             if card_id:
                 self.db.add_session_message(card_id, "assistant", final_text or "")
 
+            # N6: Standard ACP Response Format
             self.send_response(request_id, result={
-                "text": final_text,
+                "content": [{"type": "text", "text": final_text}],
                 "stopReason": "end_turn"
             })
 
@@ -345,7 +358,7 @@ class ACPServer:
         params = {
             "sessionId": session_id,
             "update": {
-                "sessionUpdate": "tool_call", # N1: Unified format
+                "sessionUpdate": "tool_call",
                 "tool_call": {
                     "id": tool_id,
                     "name": name,
@@ -358,7 +371,6 @@ class ACPServer:
         self.send_notification("session/update", params)
 
     async def _execute_tool(self, name: str, args: Dict[str, Any], project_id: Optional[str]) -> str:
-        # N3: Scope check early
         if not project_id and name in ["create_card", "move_card", "update_card", "delete_card", "search_cards"]:
             return "Error: No project associated with this session. Please initialize or link a project card first."
 
