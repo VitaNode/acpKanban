@@ -4,6 +4,7 @@ import json
 import uuid
 import os
 import traceback
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -31,10 +32,9 @@ class ACPServer:
             api_key=self.api_key, base_url=self.base_url, timeout=60.0, max_retries=2
         )
 
-        # Sessions: {session_id: {"card_id": str, "history": list, "cwd": str}}
+        # Sessions: {session_id: {"card_id": str, "project_id": str, "history": list, "cwd": str, "updated_at": str}}
         self._sessions: Dict[str, Dict[str, Any]] = {}
-        self.current_project_id = None
-        self.current_workspace_path = None
+        self.allowed_workspaces: List[str] = [] # Set during initialize
         self.log(f"ACP Server (Brain) initialized with {self.model_id}")
 
     def log(self, message):
@@ -71,7 +71,7 @@ class ACPServer:
             elif method == "session/prompt":
                 return await self.on_session_prompt(request_id, params)
             elif method == "session/load":
-                return self.on_session_load(request_id, params)
+                return await self.on_session_load(request_id, params)
             elif method == "session/list":
                 return self.on_session_list(request_id)
             elif method == "health":
@@ -79,8 +79,8 @@ class ACPServer:
             elif method == "shutdown":
                 self.running = False
                 return self.send_response(request_id, result={})
-            # Legacy support
             elif method == "chat/message":
+                self.log("DEPRECATED: 'chat/message' is used. Please switch to 'session/prompt'.")
                 return await self.on_session_prompt(request_id, {
                     "sessionId": params.get("card_id", "default"),
                     "prompt": [{"type": "text", "text": params.get("message", "")}]
@@ -94,9 +94,19 @@ class ACPServer:
             return self.send_response(request_id, error={"code": -32603, "message": str(e)})
 
     def on_initialize(self, request_id, params):
-        # Official ACP initialize response
+        # 3. Protocol Version Negotiation
+        client_version = params.get("protocolVersion", 1)
+        server_version = 1 # We currently support v1
+        version = min(client_version, server_version)
+
+        # 5. Workspace Anchoring - Pre-validate CWD if provided
+        initial_cwd = params.get("cwd") or params.get("workspace_path")
+        if initial_cwd:
+            self.allowed_workspaces.append(os.path.abspath(initial_cwd))
+            self.log(f"Anchored workspace to: {initial_cwd}")
+
         result = {
-            "protocolVersion": 1,
+            "protocolVersion": version,
             "agentCapabilities": {
                 "prompts": {"supported": True},
                 "tools": {"list": self._get_tools_definitions()},
@@ -113,54 +123,93 @@ class ACPServer:
 
     def on_session_new(self, request_id, params):
         session_id = str(uuid.uuid4())
-        cwd = params.get("cwd", self.current_workspace_path or os.getcwd())
-        
-        # Metadata handling (e.g., card_id)
+        cwd = params.get("cwd") or os.getcwd()
+        abs_cwd = os.path.abspath(cwd)
+
+        # 5. Workspace Anchoring Validation
+        if self.allowed_workspaces and not any(abs_cwd.startswith(w) for w in self.allowed_workspaces):
+            return self.send_response(request_id, error={
+                "code": -32001, 
+                "message": f"Security Error: CWD {cwd} is outside allowed workspaces."
+            })
+
         meta = params.get("_meta", {})
         card_id = None
         session_key = meta.get("sessionKey", "")
         if "kanban:" in session_key:
             card_id = session_key.split("kanban:")[-1]
 
+        project_id = None
+        if card_id:
+            card = self.db.get_card(card_id)
+            if card:
+                project_id = card.get("project_id")
+
         self._sessions[session_id] = {
             "card_id": card_id,
+            "project_id": project_id,
             "history": [],
-            "cwd": cwd
+            "cwd": abs_cwd,
+            "status": "active",
+            "updated_at": datetime.now().isoformat()
         }
         
-        self.log(f"Created session {session_id} for card {card_id}")
-    def on_session_load(self, request_id, params):
+        self.log(f"Created session {session_id} for card {card_id} in project {project_id}")
+        self.send_response(request_id, result={"sessionId": session_id})
+
+    async def on_session_load(self, request_id, params):
         session_id = params.get("sessionId")
+        
+        # 7. Database Recovery Support
         if session_id not in self._sessions:
-            # Check if we can find this session or its card context
-            return self.send_response(request_id, error={"code": -32602, "message": "Session not found"})
+            # Try to find a card associated with this session_id in DB
+            with self.db.get_connection() as conn:
+                cursor = conn.execute("SELECT id, project_id FROM cards WHERE acp_session_id = ?", (session_id,))
+                row = cursor.fetchone()
+                if row:
+                    card_id, project_id = row[0], row[1]
+                    db_history = self.db.get_session_history(card_id)
+                    # Convert DB messages to internal format
+                    history = [{"role": msg["role"], "content": msg["content"]} for msg in db_history]
+                    self._sessions[session_id] = {
+                        "card_id": card_id,
+                        "project_id": project_id,
+                        "history": history,
+                        "cwd": os.getcwd(), # Default or restore from somewhere?
+                        "status": "active",
+                        "updated_at": datetime.now().isoformat()
+                    }
+                    self.log(f"Restored session {session_id} from database (Card {card_id})")
+                else:
+                    return self.send_request_response(request_id, error={"code": -32602, "message": "Session not found"})
         
         session = self._sessions[session_id]
         history = session.get("history", [])
         
-        # Replay history via notifications
+        # 1. Replay history via notifications (skipped system)
         for msg in history:
             role = msg.get("role")
-            content = msg.get("content")
-            
-            # Convert internal message format to ACP notification blocks
-            if role == "system":
-                continue # Typically skip system in UI replay unless needed
+            if role == "system": continue
                 
             self.send_notification("session/update", {
                 "sessionId": session_id,
                 "update": {
                     "type": "content",
-                    "content": {"type": "text", "text": content}
+                    "content": {"type": "text", "text": msg.get("content", "")}
                 }
             })
             
-        # Standard result: null for load completion
         self.send_response(request_id, result=None)
 
     def on_session_list(self, request_id):
+        # 9. Meta-data rich list
         sessions = [
-            {"sessionId": sid, "title": data.get("card_id", "General")}
+            {
+                "sessionId": sid, 
+                "title": data.get("card_id", "General Task"),
+                "status": data.get("status", "active"),
+                "lastUpdatedAt": data.get("updated_at")
+            }
             for sid, data in self._sessions.items()
         ]
         self.send_response(request_id, result={"sessions": sessions})
@@ -170,43 +219,32 @@ class ACPServer:
         prompt_blocks = params.get("prompt", [])
         
         if session_id not in self._sessions:
-            # Fallback for card_id as session_id (Legacy/Bridge simplification)
-            if session_id and len(session_id) < 50: # Assume it's a card_id
-                self._sessions[session_id] = {"card_id": session_id, "history": [], "cwd": os.getcwd()}
+            # Fallback for transient sessions
+            if session_id and len(session_id) < 15:
+                self._sessions[session_id] = {
+                    "card_id": session_id, "project_id": None, "history": [], 
+                    "cwd": os.getcwd(), "updated_at": datetime.now().isoformat()
+                }
             else:
                 return self.send_response(request_id, error={"code": -32602, "message": "Invalid sessionId"})
 
         session = self._sessions[session_id]
+        session["updated_at"] = datetime.now().isoformat()
         card_id = session["card_id"]
+        project_id = session["project_id"]
         
-        # Combine text from all blocks
         user_text = " ".join([b.get("text", "") for b in prompt_blocks if b.get("type") == "text"])
         
-        async with self.lock:
-            self.log(f"Session {session_id} (Card {card_id}) Prompt: {user_text[:50]}...")
-
-        # Load project info for card
-        project_id = None
-        if card_id:
-            card = self.db.get_card(card_id)
-            if card:
-                project_id = card.get("project_id")
-
         history = session["history"]
         if not history:
-            # Injected system context
             system_content = self._get_system_prompt(project_id)
             history.append({"role": "system", "content": system_content})
-            
-            # If card exists, load some DB history as context (optional, based on Level 3 Focus)
-            # history.extend(self._load_session_from_db(card_id))
 
         history.append({"role": "user", "content": user_text})
         if card_id:
-            self._save_message_to_db(card_id, "user", user_text)
+            self.db.add_session_message(card_id, "user", user_text)
 
         try:
-            # Tool-enabled completion
             tools = self._get_tools_definitions(project_id)
             response = self.client.chat.completions.create(
                 model=self.model_id,
@@ -217,24 +255,18 @@ class ACPServer:
 
             message = response.choices[0].message
             
-            # Handle tool calls
             if message.tool_calls:
                 history.append(message)
                 for tool_call in message.tool_calls:
-                    # Notify UI about tool execution
-                    self.send_notification("session/update", {
-                        "sessionId": session_id,
-                        "update": {
-                            "type": "tool_call",
-                            "tool_call": {
-                                "id": tool_call.id,
-                                "name": tool_call.function.name,
-                                "status": "running"
-                            }
-                        }
-                    })
+                    # Notify running
+                    self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "running")
                     
-                    result = await self._execute_tool(tool_call.function.name, json.loads(tool_call.function.arguments), project_id)
+                    # 6. Tool Isolation: Pass project_id to ensure tool is scoped
+                    result = await self._execute_tool(
+                        tool_call.function.name, 
+                        json.loads(tool_call.function.arguments), 
+                        project_id
+                    )
                     
                     history.append({
                         "role": "tool",
@@ -243,19 +275,8 @@ class ACPServer:
                         "content": result,
                     })
                     
-                    # Notify UI about tool result
-                    self.send_notification("session/update", {
-                        "sessionId": session_id,
-                        "update": {
-                            "type": "tool_call",
-                            "tool_call": {
-                                "id": tool_call.id,
-                                "name": tool_call.function.name,
-                                "status": "completed",
-                                "output": result[:200] + "..." if len(result) > 200 else result
-                            }
-                        }
-                    })
+                    # Notify completed
+                    self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "completed", result)
 
                 second_response = self.client.chat.completions.create(
                     model=self.model_id, messages=history
@@ -267,27 +288,43 @@ class ACPServer:
                 history.append({"role": "assistant", "content": final_text})
 
             if card_id:
-                self._save_message_to_db(card_id, "assistant", final_text or "")
+                self.db.add_session_message(card_id, "assistant", final_text or "")
 
-            # Stream content via notification (optional but recommended)
-            self.send_notification("session/update", {
-                "sessionId": session_id,
-                "update": {
-                    "type": "content",
-                    "content": {"type": "text", "text": final_text}
-                }
+            # 4. Standardized prompt response
+            self.send_response(request_id, result={
+                "text": final_text,
+                "stopReason": "end_turn"
             })
-
-            self.send_response(request_id, result={"text": final_text})
 
         except Exception as e:
             self.log(f"AI Completion Error: {str(e)}")
             self.send_response(request_id, error={"code": -32000, "message": str(e)})
 
+    def _notify_tool_status(self, session_id, tool_id, name, status, output=None):
+        params = {
+            "sessionId": session_id,
+            "update": {
+                "type": "tool_call",
+                "tool_call": {
+                    "id": tool_id,
+                    "name": name,
+                    "status": status
+                }
+            }
+        }
+        if output:
+            params["update"]["tool_call"]["output"] = output[:500]
+        self.send_notification("session/update", params)
+
     async def _execute_tool(self, name: str, args: Dict[str, Any], project_id: Optional[str]) -> str:
         """Executes a tool and returns the result as string."""
-        self.log(f"Executing tool: {name} with args {args}")
         try:
+            # 6. Strict tool scope validation
+            if "card_id" in args:
+                target_card = self.db.get_card(args["card_id"])
+                if project_id and target_card and target_card.get("project_id") != project_id:
+                    return f"Error: Card {args['card_id']} does not belong to the current project."
+
             if name == "create_card":
                 column_id = self._get_column_id_by_name(args["column_name"], project_id)
                 if not column_id: return f"Error: Column '{args['column_name']}' not found"
@@ -317,7 +354,6 @@ class ACPServer:
             return f"Error executing tool {name}: {str(e)}"
 
     def _get_tools_definitions(self, project_id: str = None):
-        # Dynamic enum for columns
         column_names = ["Todo", "In Progress", "Done"]
         if project_id:
             try:
@@ -418,12 +454,6 @@ class ACPServer:
         for c in cols:
             if c["name"] == name: return c["id"]
         return None
-
-    def _save_message_to_db(self, card_id: str, role: str, content: str):
-        try:
-            self.db.add_session_message(card_id, role, content)
-        except Exception as e:
-            self.log(f"DB Save Error: {e}")
 
     async def run(self):
         self.log("ACP Server (Brain) started.")
