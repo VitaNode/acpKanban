@@ -175,22 +175,28 @@ class ACPServer:
         
         if session_id not in self._sessions:
             with self.db.get_connection() as conn:
-                cursor = conn.execute("SELECT id, project_id FROM cards WHERE acp_session_id = ?", (session_id,))
+                # Get project_id and workspace_path
+                cursor = conn.execute("""
+                    SELECT c.id, c.project_id, p.workspace_path 
+                    FROM cards c 
+                    JOIN projects p ON p.id = c.project_id 
+                    WHERE c.acp_session_id = ?
+                """, (session_id,))
                 row = cursor.fetchone()
                 if row:
-                    card_id, project_id = row[0], row[1]
+                    card_id, project_id, workspace_path = row[0], row[1], row[2]
                     db_history = self.db.get_session_history(card_id)
                     history = [{"role": msg["role"], "content": msg["content"]} for msg in db_history]
                     self._sessions[session_id] = {
                         "card_id": card_id,
                         "project_id": project_id,
                         "history": history,
-                        "cwd": os.getcwd(),
+                        "cwd": os.path.abspath(workspace_path or os.getcwd()),
                         "status": "active",
                         "updated_at": datetime.now().isoformat(),
                         "active_task": None
                     }
-                    self.log(f"Restored session {session_id} from database (Card {card_id})")
+                    self.log(f"Restored session {session_id} from database (Card {card_id}, Project {project_id})")
                 else:
                     return self.send_response(request_id, error={"code": -32602, "message": "Session not found"})
         
@@ -200,12 +206,13 @@ class ACPServer:
         for msg in history:
             role = msg.get("role")
             if role == "system": continue
+            
+            # Correct ACP session/update format for history replay
+            update_type = "user_message_chunk" if role == "user" else "agent_message_chunk"
             self.send_notification("session/update", {
                 "sessionId": session_id,
-                "update": {
-                    "type": "content",
-                    "content": {"type": "text", "text": msg.get("content", "")}
-                }
+                "sessionUpdate": update_type,
+                "content": {"type": "text", "text": msg.get("content", "")}
             })
             
         self.send_response(request_id, result=None)
