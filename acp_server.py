@@ -5,7 +5,7 @@ import uuid
 import os
 import traceback
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
 from openai import OpenAI
 from dotenv import load_dotenv
 from src.persistence.database import KanbanDB
@@ -34,6 +34,7 @@ class ACPServer:
 
         # Sessions: {session_id: {"card_id": str, "project_id": str, "history": list, "cwd": str, "updated_at": str, "active_task": Task}}
         self._sessions: Dict[str, Dict[str, Any]] = {}
+        self._responded_ids: Set[Any] = set() # N4: Deduplication
         self.allowed_workspaces: List[str] = [] 
         self.log(f"ACP Server (Brain) initialized with {self.model_id}")
 
@@ -41,13 +42,19 @@ class ACPServer:
         print(f"[*] {message}", file=sys.stderr)
 
     def send_response(self, response_id, result=None, error=None):
+        # N4: Ensure only one response per request ID
+        if response_id in self._responded_ids:
+            return
+        
         response = {"jsonrpc": "2.0", "id": response_id}
         if error:
             response["error"] = error
         else:
             response["result"] = result
+        
         sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
         sys.stdout.flush()
+        self._responded_ids.add(response_id)
 
     def send_notification(self, method: str, params: Dict[str, Any]):
         notification = {
@@ -69,7 +76,6 @@ class ACPServer:
             elif method == "session/new":
                 return self.on_session_new(request_id, params)
             elif method == "session/prompt":
-                # 12. Track task for cancellation
                 session_id = params.get("sessionId")
                 task = asyncio.create_task(self.on_session_prompt(request_id, params))
                 if session_id in self._sessions:
@@ -102,11 +108,11 @@ class ACPServer:
                 )
         except asyncio.CancelledError:
             self.log(f"Request {request_id} ({method}) was cancelled.")
-            if request_id:
-                self.send_response(request_id, error={"code": -32000, "message": "Request cancelled"})
+            # N4: Handled by send_response deduplication
+            self.send_response(request_id, error={"code": -32000, "message": "Request cancelled"})
         except Exception as e:
             self.log(f"Error handling {method}: {str(e)}\n{traceback.format_exc()}")
-            return self.send_response(request_id, error={"code": -32603, "message": str(e)})
+            self.send_response(request_id, error={"code": -32603, "message": str(e)})
 
     def on_initialize(self, request_id, params):
         client_version = params.get("protocolVersion", 1)
@@ -175,7 +181,6 @@ class ACPServer:
         
         if session_id not in self._sessions:
             with self.db.get_connection() as conn:
-                # Get project_id and workspace_path
                 cursor = conn.execute("""
                     SELECT c.id, c.project_id, p.workspace_path 
                     FROM cards c 
@@ -186,7 +191,19 @@ class ACPServer:
                 if row:
                     card_id, project_id, workspace_path = row[0], row[1], row[2]
                     db_history = self.db.get_session_history(card_id)
-                    history = [{"role": msg["role"], "content": msg["content"]} for msg in db_history]
+                    # N5: Recover metadata
+                    history = []
+                    for msg in db_history:
+                        m = {
+                            "role": msg["role"], 
+                            "content": msg["content"]
+                        }
+                        if msg.get("metadata"):
+                            try:
+                                m["metadata"] = json.loads(msg["metadata"])
+                            except: pass
+                        history.append(m)
+
                     self._sessions[session_id] = {
                         "card_id": card_id,
                         "project_id": project_id,
@@ -196,7 +213,7 @@ class ACPServer:
                         "updated_at": datetime.now().isoformat(),
                         "active_task": None
                     }
-                    self.log(f"Restored session {session_id} from database (Card {card_id}, Project {project_id})")
+                    self.log(f"Restored session {session_id} from database (Card {card_id})")
                 else:
                     return self.send_response(request_id, error={"code": -32602, "message": "Session not found"})
         
@@ -207,13 +224,17 @@ class ACPServer:
             role = msg.get("role")
             if role == "system": continue
             
-            # Correct ACP session/update format for history replay
+            # N1: Correct nested structure
             update_type = "user_message_chunk" if role == "user" else "agent_message_chunk"
             self.send_notification("session/update", {
                 "sessionId": session_id,
-                "sessionUpdate": update_type,
-                "content": {"type": "text", "text": msg.get("content", "")}
+                "update": {
+                    "sessionUpdate": update_type,
+                    "content": {"type": "text", "text": msg.get("content", "")}
+                }
             })
+            # N2: Optional updated_at refresh
+            session["updated_at"] = datetime.now().isoformat()
             
         self.send_response(request_id, result=None)
 
@@ -230,7 +251,6 @@ class ACPServer:
         self.send_response(request_id, result={"sessions": sessions})
 
     def on_session_cancel(self, request_id, params):
-        # 12. session/cancel implementation
         session_id = params.get("sessionId")
         if session_id in self._sessions:
             task = self._sessions[session_id].get("active_task")
@@ -245,9 +265,8 @@ class ACPServer:
         session_id = params.get("sessionId")
         prompt_blocks = params.get("prompt", [])
         
-        # 10. Remove unreliable len < 50 fallback
         if session_id not in self._sessions:
-            return self.send_response(request_id, error={"code": -32602, "message": f"Session {session_id} not found. Please call session/new or session/load first."})
+            return self.send_response(request_id, error={"code": -32602, "message": f"Session {session_id} not found."})
 
         session = self._sessions[session_id]
         session["updated_at"] = datetime.now().isoformat()
@@ -256,18 +275,12 @@ class ACPServer:
         
         user_text = " ".join([b.get("text", "") for b in prompt_blocks if b.get("type") == "text"])
         
-        # Test simulation for cancel
-        if "Write a long story." in user_text:
-            await asyncio.sleep(5)
-        
         history = session["history"]
         
-        # 11. Improved System Prompt Injection
         system_content = self._get_system_prompt(project_id)
         if not history or history[0].get("role") != "system":
             history.insert(0, {"role": "system", "content": system_content})
         else:
-            # Update system prompt if it exists (ensure fresh context)
             history[0]["content"] = system_content
 
         history.append({"role": "user", "content": user_text})
@@ -323,18 +336,16 @@ class ACPServer:
             })
 
         except asyncio.CancelledError:
-            # Handle cancellation specifically if needed
             raise
         except Exception as e:
             self.log(f"AI Completion Error: {str(e)}")
             self.send_response(request_id, error={"code": -32000, "message": str(e)})
 
-
     def _notify_tool_status(self, session_id, tool_id, name, status, output=None):
         params = {
             "sessionId": session_id,
             "update": {
-                "type": "tool_call",
+                "sessionUpdate": "tool_call", # N1: Unified format
                 "tool_call": {
                     "id": tool_id,
                     "name": name,
@@ -347,6 +358,10 @@ class ACPServer:
         self.send_notification("session/update", params)
 
     async def _execute_tool(self, name: str, args: Dict[str, Any], project_id: Optional[str]) -> str:
+        # N3: Scope check early
+        if not project_id and name in ["create_card", "move_card", "update_card", "delete_card", "search_cards"]:
+            return "Error: No project associated with this session. Please initialize or link a project card first."
+
         try:
             if "card_id" in args:
                 target_card = self.db.get_card(args["card_id"])
