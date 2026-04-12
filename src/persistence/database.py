@@ -2,13 +2,15 @@ import sqlite3
 import uuid
 import json
 import asyncio
+import sys
+import os
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 import threading
 from queue import Queue, Empty
 from contextlib import contextmanager
-from config_manager import config
+from src.config.manager import config
 
 MAX_SESSION_MESSAGES_PER_CARD = 200
 
@@ -59,10 +61,9 @@ class ProjectRepository(BaseRepository):
             cursor = conn.execute(
                 """SELECT p.*,
                     (SELECT COUNT(*) FROM cards c
-                     JOIN columns col ON col.id = c.column_id
+                     JOIN columns col ON c.column_id = col.id
                      WHERE col.project_id = p.id) as card_count
-                FROM projects p
-                ORDER BY p.updated_at DESC"""
+                   FROM projects p ORDER BY updated_at DESC"""
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -73,30 +74,36 @@ class ProjectRepository(BaseRepository):
             return dict(row) if row else None
 
     def update(self, project_id: str, name: str = None, workspace_path: str = None):
-        now = datetime.now().isoformat()
+        updates = []
+        params = []
+        if name:
+            updates.append("name = ?")
+            params.append(name)
+        if workspace_path is not None:
+            updates.append("workspace_path = ?")
+            params.append(workspace_path)
+        
+        if not updates: return
+        
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(project_id)
+        
         with self.db.get_connection() as conn:
-            if name is not None:
-                conn.execute(
-                    "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
-                    (name, now, project_id),
-                )
-            if workspace_path is not None:
-                conn.execute(
-                    "UPDATE projects SET workspace_path = ?, updated_at = ? WHERE id = ?",
-                    (workspace_path, now, project_id),
-                )
+            conn.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
 
     def delete(self, project_id: str):
         with self.db.get_connection() as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                conn.execute("DELETE FROM project_agent_status WHERE project_id = ?", (project_id,))
-                conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.execute("DELETE FROM columns WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM project_timeline WHERE project_id = ?", (project_id,))
+            # Cards are deleted via ON DELETE CASCADE (if configured) or manually here:
+            # For SQLite, manually cleaning related tables if PRAGMA foreign_keys = OFF
+            cursor = conn.execute("SELECT id FROM columns WHERE project_id = ?", (project_id,))
+            col_ids = [row[0] for row in cursor.fetchall()]
+            if col_ids:
+                placeholders = ",".join(["?"] * len(col_ids))
+                conn.execute(f"DELETE FROM cards WHERE column_id IN ({placeholders})", col_ids)
 
     def get_timeline(self, project_id: str, limit: int = 100) -> List[Dict]:
         with self.db.get_connection() as conn:
@@ -148,174 +155,168 @@ class ColumnRepository(BaseRepository):
             return dict(row) if row else None
 
     def create(self, project_id: str, name: str, position: int = None, color: str = "#808080") -> str:
-        column_id = str(uuid.uuid4())[:8]
+        col_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
-
+        if position is None:
+            with self.db.get_connection() as conn:
+                cursor = conn.execute("SELECT MAX(position) FROM columns WHERE project_id = ?", (project_id,))
+                max_pos = cursor.fetchone()[0]
+                position = (max_pos + 1) if max_pos is not None else 0
+        
         with self.db.get_connection() as conn:
-            if position is None:
-                cursor = conn.execute(
-                    "SELECT MAX(position) FROM columns WHERE project_id = ?",
-                    (project_id,),
-                )
-                row = cursor.fetchone()
-                position = (row[0] + 1) if row[0] is not None else 0
-
             conn.execute(
                 "INSERT INTO columns (id, project_id, name, position, color, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (column_id, project_id, name, position, color, now),
+                (col_id, project_id, name, position, color, now),
             )
-            return column_id
+            return col_id
 
     def update(self, column_id: str, name: str = None, color: str = None):
+        updates = []
+        params = []
+        if name:
+            updates.append("name = ?")
+            params.append(name)
+        if color:
+            updates.append("color = ?")
+            params.append(color)
+        
+        if not updates: return
+        params.append(column_id)
+        
         with self.db.get_connection() as conn:
-            if name is not None:
-                conn.execute("UPDATE columns SET name = ? WHERE id = ?", (name, column_id))
-            if color is not None:
-                conn.execute("UPDATE columns SET color = ? WHERE id = ?", (color, column_id))
+            conn.execute(f"UPDATE columns SET {', '.join(updates)} WHERE id = ?", params)
+
+    def update_position(self, column_id: str, position: int):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE columns SET position = ? WHERE id = ?", (position, column_id))
 
     def delete(self, column_id: str, move_to_column_id: str = None):
         with self.db.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                if move_to_column_id:
-                    conn.execute(
-                        "UPDATE cards SET column_id = ? WHERE column_id = ?",
-                        (move_to_column_id, column_id),
-                    )
-                conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
-
-    def reorder(self, positions: List[Dict[str, Any]]):
-        with self.db.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                for item in positions:
-                    conn.execute(
-                        "UPDATE columns SET position = ? WHERE id = ?",
-                        (item["position"], item["id"]),
-                    )
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
+            if move_to_column_id:
+                conn.execute("UPDATE cards SET column_id = ? WHERE column_id = ?", (move_to_column_id, column_id))
+            conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
 
 class CardRepository(BaseRepository):
-    def get_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]:
-        with self.db.get_connection() as conn:
-            if include_completed:
-                cursor = conn.execute(
-                    "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? ORDER BY c.position",
-                    (column_id,),
-                )
-            else:
-                cursor = conn.execute(
-                    "SELECT c.*, (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count FROM cards c WHERE c.column_id = ? AND status = 'active' ORDER BY c.position",
-                    (column_id,),
-                )
-            return [dict(row) for row in cursor.fetchall()]
-
-    def get_by_id(self, card_id: str) -> Optional[Dict]:
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT c.*, col.name as column_name, col.project_id FROM cards c JOIN columns col ON col.id = c.column_id WHERE c.id = ?",
-                (card_id,),
-            )
-            row = cursor.fetchone()
-            return dict(row) if row else None
-
-    def create(self, column_id: str, title: str, description: str = "", position: int = None) -> str:
+    def create(self, column_id: str, title: str, description: str = None, parent_id: str = None) -> str:
         card_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
-
+        
         with self.db.get_connection() as conn:
-            if position is None:
-                cursor = conn.execute(
-                    "SELECT MAX(position) FROM cards WHERE column_id = ?",
-                    (column_id,),
-                )
-                row = cursor.fetchone()
-                position = (row[0] + 1) if row[0] is not None else 0
-
+            cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (column_id,))
+            max_pos = cursor.fetchone()[0]
+            position = (max_pos + 1) if max_pos is not None else 0
+            
             conn.execute(
-                "INSERT INTO cards (id, column_id, title, description, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (card_id, column_id, title, description, position, now, now),
+                "INSERT INTO cards (id, column_id, title, description, position, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (card_id, column_id, title, description, position, parent_id, now, now),
             )
             return card_id
 
+    def get_by_id(self, card_id: str) -> Optional[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT c.*, col.project_id 
+                FROM cards c 
+                JOIN columns col ON col.id = c.column_id 
+                WHERE c.id = ?
+            """, (card_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_by_column(self, column_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM cards WHERE column_id = ? AND status = 'active' ORDER BY position", (column_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
     def update(self, card_id: str, title: str = None, description: str = None):
-        now = datetime.now().isoformat()
+        updates = []
+        params = []
+        if title:
+            updates.append("title = ?")
+            params.append(title)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        
+        if not updates: return
+        
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(card_id)
+        
         with self.db.get_connection() as conn:
-            if title is not None:
-                conn.execute("UPDATE cards SET title = ?, updated_at = ? WHERE id = ?", (title, now, card_id))
-            if description is not None:
-                conn.execute("UPDATE cards SET description = ?, updated_at = ? WHERE id = ?", (description, now, card_id))
+            conn.execute(f"UPDATE cards SET {', '.join(updates)} WHERE id = ?", params)
 
-    def update_provider(self, card_id: str, provider_id: str):
-        with self.db.get_connection() as conn:
-            conn.execute("UPDATE cards SET acp_provider_id = ? WHERE id = ?", (provider_id, card_id))
-
-    def delete(self, card_id: str):
-        with self.db.get_connection() as conn:
-            conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
-
-    def move_card(self, card_id: str, target_column_id: str, target_position: int = None):
+    def move(self, card_id: str, target_column_id: str, target_position: int = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             if target_position is None:
-                cursor = conn.execute(
-                    "SELECT MAX(position) FROM cards WHERE column_id = ?",
-                    (target_column_id,),
-                )
-                row = cursor.fetchone()
-                target_position = (row[0] + 1) if row[0] is not None else 0
-
+                cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (target_column_id,))
+                max_pos = cursor.fetchone()[0]
+                target_position = (max_pos + 1) if max_pos is not None else 0
+            
             conn.execute(
                 "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
                 (target_column_id, target_position, now, card_id),
             )
 
-    def complete_card(self, card_id: str):
-        now = datetime.now().isoformat()
+    def delete(self, card_id: str):
         with self.db.get_connection() as conn:
-            conn.execute(
-                "UPDATE cards SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?",
-                (now, now, card_id),
-            )
-
-    def uncomplete_card(self, card_id: str):
-        now = datetime.now().isoformat()
-        with self.db.get_connection() as conn:
-            conn.execute(
-                "UPDATE cards SET status = 'active', completed_at = NULL, updated_at = ? WHERE id = ?",
-                (now, card_id),
-            )
-
-    def search_cards_semantic(self, embedding_vector: List[float], project_id: str = None, limit: int = 5) -> List[Dict]:
-        with self.db.get_connection() as conn:
-            # Note: This requires sqlite-vec extension and proper index setup
-            # If not available, we return an empty list for now to prevent crash
-            try:
-                return []
-            except Exception:
-                return []
-
-    def upsert_card_embedding(self, card_id: str, embedding_vector: List[float]):
-        # Placeholder for sqlite-vec
-        pass
+            conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+            conn.execute("DELETE FROM card_sessions WHERE card_id = ?", (card_id,))
 
     def update_card_session_id(self, card_id: str, session_id: str):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET acp_session_id = ? WHERE id = ?", (session_id, card_id))
 
+    def update_provider(self, card_id: str, provider_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET acp_provider_id = ? WHERE id = ?", (provider_id, card_id))
+
+    def complete_card(self, card_id: str):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?", (now, now, card_id))
+
+    def uncomplete_card(self, card_id: str):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET status = 'active', completed_at = NULL, updated_at = ? WHERE id = ?", (now, card_id))
+
+    def search_cards_semantic(self, embedding_vector: List[float], project_id: str = None, limit: int = 5) -> List[Dict]:
+        # Placeholder for sqlite-vec implementation
+        return []
+
+    def upsert_card_embedding(self, card_id: str, embedding_vector: List[float]):
+        # Placeholder for sqlite-vec implementation
+        pass
+
+    def search_cards_fts(self, query: str, project_id: str = None) -> List[Dict]:
+        # FTS search across cards
+        with self.db.get_connection() as conn:
+            sql = """
+                SELECT c.*, col.name as column_name 
+                FROM cards c 
+                JOIN columns col ON col.id = c.column_id 
+                WHERE (c.title LIKE ? OR c.description LIKE ?)
+            """
+            params = [f"%{query}%", f"%{query}%"]
+            if project_id:
+                sql += " AND col.project_id = ?"
+                params.append(project_id)
+            
+            cursor = conn.execute(sql, params)
+            return [dict(row) for row in cursor.fetchall()]
+
 class SummaryRepository(BaseRepository):
     def get_all_for_project(self, project_id: str) -> List[Dict]:
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT s.*, c.title FROM summaries s JOIN cards c ON c.id = s.card_id JOIN columns col ON col.id = c.column_id WHERE col.project_id = ? ORDER BY s.updated_at DESC",
-                (project_id,),
+                """SELECT s.*, c.title 
+                   FROM summaries s 
+                   JOIN cards c ON c.id = s.card_id 
+                   JOIN columns col ON col.id = c.column_id 
+                   WHERE col.project_id = ?""", (project_id,)
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -334,96 +335,21 @@ class SummaryRepository(BaseRepository):
             )
 
 class SessionRepository(BaseRepository):
-    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None, is_complete: bool = True) -> int:
+    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            cursor = conn.execute(
-                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete) VALUES (?, ?, ?, ?, ?, ?)",
-                (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_complete else 0),
+            conn.execute(
+                "INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                (card_id, role, content, json.dumps(metadata) if metadata else None, now),
             )
-            msg_id = cursor.lastrowid
-            conn.commit()
-            return msg_id
-
-    def append_message(self, card_id: str, role: str, content: str, is_complete: bool = False) -> int:
-        """Append content to the last message if same role and within 30s window."""
-        now = datetime.now()
-        now_iso = now.isoformat()
-        
-        with self.db.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            cursor = conn.execute(
-                "SELECT id, role, content, created_at, is_complete FROM card_sessions WHERE card_id = ? ORDER BY id DESC LIMIT 1",
-                (card_id,)
-            )
-            row = cursor.fetchone()
             
-            should_append = False
-            if row:
-                msg_id, last_role, last_content, last_created, last_is_complete = row
-                try:
-                    last_dt = datetime.fromisoformat(last_created)
-                    if last_role == role and (now - last_dt).total_seconds() < 30 and not last_is_complete:
-                        should_append = True
-                except: pass
-            
-            if should_append:
-                new_content = (last_content or "") + content
-                conn.execute(
-                    "UPDATE card_sessions SET content = ?, created_at = ?, is_complete = ? WHERE id = ?",
-                    (new_content, now_iso, 1 if is_complete else 0, msg_id)
-                )
-                conn.commit()
-                return msg_id
-            else:
-                cursor = conn.execute(
-                    "INSERT INTO card_sessions (card_id, role, content, created_at, is_complete) VALUES (?, ?, ?, ?, ?)",
-                    (card_id, role, content, now_iso, 1 if is_complete else 0),
-                )
-                new_id = cursor.lastrowid
-                conn.commit()
-                return new_id
-
-    def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_value: Any, new_content: str = None, is_complete: bool = None):
-        """Update a message found by metadata (e.g. toolCallId)."""
-        now = datetime.now().isoformat()
-        with self.db.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            search_str = f'%"{metadata_key}": "{metadata_value}"%'
-            cursor = conn.execute(
-                "SELECT id FROM card_sessions WHERE card_id = ? AND metadata LIKE ? ORDER BY id DESC LIMIT 1",
-                (card_id, search_str)
+            # Maintenance: limit history
+            conn.execute(
+                """DELETE FROM card_sessions WHERE id IN (
+                    SELECT id FROM card_sessions WHERE card_id = ? 
+                    ORDER BY created_at DESC LIMIT -1 OFFSET ?
+                )""", (card_id, MAX_SESSION_MESSAGES_PER_CARD)
             )
-            row = cursor.fetchone()
-            if row:
-                msg_id = row[0]
-                updates = ["created_at = ?"]
-                params = [now]
-                if new_content is not None:
-                    updates.append("content = ?")
-                    params.append(new_content)
-                if is_complete is not None:
-                    updates.append("is_complete = ?")
-                    params.append(1 if is_complete else 0)
-                
-                params.append(msg_id)
-                conn.execute(f"UPDATE card_sessions SET {', '.join(updates)} WHERE id = ?", params)
-                conn.commit()
-
-    def get_latest_message(self, card_id: str, role: Optional[str] = None) -> Optional[Dict]:
-        """Get the most recent message for a card, optionally filtered by role."""
-        query = "SELECT * FROM card_sessions WHERE card_id = ?"
-        params = [card_id]
-        if role:
-            query += " AND role = ?"
-            params.append(role)
-        query += " ORDER BY id DESC LIMIT 1"
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.execute(query, params)
-            row = cursor.fetchone()
-            return dict(row) if row else None
 
     def get_history(self, card_id: str, limit: int = 50) -> List[Dict]:
         with self.db.get_connection() as conn:
@@ -447,31 +373,30 @@ class KanbanDB:
     def __init__(self, db_path=None, pool_size=None):
         if hasattr(self, "_initialized") and self._initialized:
             return
-        import os
 
         self.pool_size = pool_size or int(os.getenv("KANBAN_DB_POOL_SIZE", "5"))
         self.db_path = db_path or config.db_path
-            
-        print(f"[*] Database initialized at: {self.db_path}")
+
+        print(f"[*] Database initialized at: {self.db_path}", file=sys.stderr)
 
         self._pool = Queue(maxsize=self.pool_size)
         self._async_pool = None
         self._async_lock = None
-        
+
         self._locks_lock = threading.Lock()
         self._column_locks = {}
 
         for _ in range(self.pool_size):
             conn = self._create_new_connection()
             self._pool.put(conn)
-        
+
         # Initialize Repositories
         self.projects = ProjectRepository(self)
         self.columns = ColumnRepository(self)
         self.cards = CardRepository(self)
         self.summaries = SummaryRepository(self)
         self.sessions = SessionRepository(self)
-        
+
         self._initialized = True
 
     # --- Compatibility Proxy Layer ---
@@ -483,20 +408,20 @@ class KanbanDB:
     def get_timeline(self, project_id: str, limit: int = 100) -> List[Dict]: return self.projects.get_timeline(project_id, limit)
     def get_all_agent_statuses(self) -> List[Dict]: return self.projects.get_all_agent_statuses()
     def get_project_agent_status(self, project_id: str) -> Optional[Dict]: return self.projects.get_project_agent_status(project_id)
-    
+
     def get_columns(self, project_id: str) -> List[Dict]: return self.columns.get_by_project(project_id)
-    def get_column(self, column_id: str) -> Optional[Dict]: return self.columns.get_by_id(column_id)
     def create_column(self, project_id: str, name: str, position: int = None, color: str = "#808080") -> str: return self.columns.create(project_id, name, position, color)
     def update_column(self, column_id: str, name: str = None, color: str = None): return self.columns.update(column_id, name, color)
     def delete_column(self, column_id: str, move_to_column_id: str = None): return self.columns.delete(column_id, move_to_column_id)
-    def reorder_columns(self, positions: List[Dict[str, Any]]): return self.columns.reorder(positions)
+    def update_column_position(self, column_id: str, position: int): return self.columns.update_position(column_id, position)
     
+    def create_card(self, column_id: str, title: str, description: str = None, parent_id: str = None) -> str: return self.cards.create(column_id, title, description, parent_id)
     def get_card(self, card_id: str) -> Optional[Dict]: return self.cards.get_by_id(card_id)
-    def create_card(self, column_id: str, title: str, description: str = "", position: int = None) -> str: return self.cards.create(column_id, title, description, position)
+    def get_cards_by_column(self, column_id: str) -> List[Dict]: return self.cards.get_by_column(column_id)
     def update_card(self, card_id: str, title: str = None, description: str = None): return self.cards.update(card_id, title, description)
+    def move_card(self, card_id: str, target_column_id: str, target_position: int = None): return self.cards.move(card_id, target_column_id, target_position)
     def delete_card(self, card_id: str): return self.cards.delete(card_id)
-    def move_card(self, card_id: str, target_column_id: str, target_position: int = None): return self.cards.move_card(card_id, target_column_id, target_position)
-    def get_cards_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]: return self.cards.get_by_column(column_id, include_completed)
+    def search_cards_fts(self, query: str, project_id: str = None) -> List[Dict]: return self.cards.search_cards_fts(query, project_id)
     def update_card_session_id(self, card_id: str, session_id: str): return self.cards.update_card_session_id(card_id, session_id)
     def update_card_provider(self, card_id: str, provider_id: str): return self.cards.update_provider(card_id, provider_id)
     def complete_card(self, card_id: str): return self.cards.complete_card(card_id)
@@ -548,85 +473,28 @@ class KanbanDB:
         return self._async_pool
 
     def _load_extensions(self, conn):
-        try:
-            conn.enable_load_extension(True)
-            import sqlite_vec
-            sqlite_vec.load(conn)
-        except Exception:
-            pass
+        # sqlite-vec extension logic
+        pass
 
     @contextmanager
     def get_connection(self):
-        conn = None
+        conn = self._pool.get()
         try:
-            try:
-                conn = self._pool.get(timeout=2)
-            except Empty:
-                conn = self._create_new_connection()
-
-            conn.execute("PRAGMA foreign_keys = ON")
             yield conn
-            if conn:
-                try:
-                    conn.commit()
-                except Exception:
-                    pass
-        except Exception as e:
-            if conn:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-            raise e
         finally:
-            if conn:
-                if not self._pool.full():
-                    self._pool.put_nowait(conn)
-                else:
-                    conn.close()
+            self._pool.put(conn)
 
     @asynccontextmanager
     async def get_async_connection(self):
         pool = await self._ensure_async_pool()
-        conn = None
-        try:
-            conn = await asyncio.wait_for(pool.get(), timeout=2.0)
-        except asyncio.TimeoutError:
-            conn = self._create_new_connection()
-
+        conn = await pool.get()
         try:
             yield conn
-            if conn:
-                try:
-                    conn.commit()
-                except Exception:
-                    pass
-        except Exception as e:
-            if conn:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-            raise e
         finally:
-            if conn:
-                if not pool.full():
-                    pool.put_nowait(conn)
-                else:
-                    conn.close()
+            await pool.put(conn)
 
-    async def close_all_async(self):
-        if self._async_pool:
-            while not self._async_pool.empty():
-                try:
-                    conn = self._async_pool.get_nowait()
-                    conn.close()
-                except (asyncio.QueueEmpty, Exception):
-                    break
-        self.close_all()
-
-    def close_all(self):
-        if hasattr(self, "_pool"):
+    def close(self):
+        if self._pool:
             while not self._pool.empty():
                 try:
                     conn = self._pool.get_nowait()
