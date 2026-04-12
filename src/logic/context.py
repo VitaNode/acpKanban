@@ -11,18 +11,17 @@ class ContextBuilder:
     Assembles the system prompt and context for ACP sessions.
     Follows the 3-level strategy:
     Level 1 (Global): Project Info, agent.md, Summaries.
-    Level 2 (Related): Other card summaries.
-    Level 3 (Focus): Current card session details.
+    Level 2 (Related): Other card summaries (semantic search).
+    Level 3 (Focus): Current card details and column-specific template.
     """
     def __init__(self, db: KanbanDB):
         self.db = db
 
-    async def build_initial_context(self, card_id: str) -> str:
+    async def build_initial_context(self, card_id: str, column_prompt: Optional[str] = None) -> str:
         """
         Builds the comprehensive initial context string.
-        (Called asynchronously via Dispatcher.create_task)
+        Includes Level 1-3 content and optional column-specific prompt.
         """
-        # Fixed: Repository methods are synchronous (with threads)
         card = self.db.cards.get_by_id(card_id)
         if not card:
             return "Context: Card not found."
@@ -32,32 +31,41 @@ class ContextBuilder:
         
         sections = []
         
-        # 1. Project Info
+        # --- Level 1: Global Context ---
         if project:
-            sections.append(f"# Project: {project['name']}")
+            sections.append(f"# Global Project Context: {project['name']}")
             if project.get("workspace_path"):
-                sections.append(f"Workspace Path: {project['workspace_path']}")
+                sections.append(f"Root Workspace: {project['workspace_path']}")
 
-        # 2. agent.md (Global Instructions)
         agent_md = self._load_agent_md(project.get("workspace_path") if project else None)
         if agent_md:
-            sections.append(f"## Agent Instructions (agent.md)\n{agent_md}")
+            sections.append(f"## System Guidelines (agent.md)\n{agent_md}")
 
-        # 3. Global Summaries (Other cards in the same project)
+        # --- Level 2: Related Context (Summaries) ---
         if project_id:
+            # P3-2 Strategy: Use summaries of other cards to provide awareness
             summaries = self.db.summaries.get_all_for_project(project_id)
             if summaries:
                 summaries_text = "\n".join([
-                    f"- Card: {s['title']}\n  Summary: {s['summary']}"
+                    f"### Card: {s['title']}\nSummary: {s['summary']}"
                     for s in summaries if s['card_id'] != card_id
                 ])
                 if summaries_text:
-                    sections.append(f"## Related Card Summaries\n{summaries_text}")
+                    sections.append(f"## Knowledge Base (Related Cards)\n{summaries_text}")
 
-        # 4. Current Card Info
-        sections.append(f"## Current Card: {card['title']}")
+        # --- Level 3: Focus Context (Current Card & Stage) ---
+        sections.append(f"## Active Card: {card['title']}")
         if card.get("description"):
-            sections.append(f"Description: {card['description']}")
+            sections.append(f"Card Description:\n{card['description']}")
+        
+        if card.get("last_summary"):
+            sections.append(f"Status of previous stage:\n{card['last_summary']}")
+
+        # --- Column Specific Prompt ---
+        if column_prompt:
+            sections.append(f"## Current Workflow Stage Instructions\n{column_prompt}")
+        else:
+            sections.append("## Instructions\nYou are currently working on this card. Focus on completing the described task.")
 
         return "\n\n".join(sections)
 

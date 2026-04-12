@@ -54,6 +54,7 @@ class MessageDispatcher:
     def __init__(self, db: KanbanDB):
         self.db = db
         self.context_builder = ContextBuilder(db)
+        self.summary_service = SummaryService(db) # Phase 3: New Service
         self.engines: Dict[str, SessionEngine] = {}
         self.commands = CommandRegistry()
         self.tasks = TaskRegistry()
@@ -71,6 +72,13 @@ class MessageDispatcher:
         method = data.get("method")
         params = data.get("params", {})
         request_id = data.get("id")
+        
+        # Phase 3: Trigger summary generation on move
+        if method == "cards/move":
+            card_id = params.get("id")
+            if card_id:
+                asyncio.create_task(self.summary_service.generate_and_save_summary(card_id))
+        
         ui_format = params.get("ui_format", "acp")
 
         # Wrap output to handle AG-UI mapping if requested
@@ -271,7 +279,9 @@ class MessageDispatcher:
             if not engine.is_alive or engine.state == SessionState.ERROR:
                 return
 
-            context = await self.context_builder.build_initial_context(card_id)
+            # Pass column prompt template if available
+            column_prompt = getattr(engine, "column_prompt_template", None)
+            context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt)
             logger.info(f"Injecting initial context for card {card_id[:8]} (background)")
             
             # 2. Re-check before starting prompt
@@ -280,7 +290,7 @@ class MessageDispatcher:
 
             async def silent_output(n): pass 
             await engine.process_prompt(
-                "chat/message", 
+                "session/prompt", # Standardized method
                 {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
                 on_notification=silent_output
             )
