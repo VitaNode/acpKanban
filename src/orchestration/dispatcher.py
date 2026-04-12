@@ -119,7 +119,7 @@ class MessageDispatcher:
         # 3. Fallback: Unknown or management methods
         return {"error": {"code": -32601, "message": f"Method {method} not handled by dispatcher"}}
 
-    async def _get_or_create_engine(self, card_id: str) -> (SessionEngine, bool):
+    async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None) -> (SessionEngine, bool):
         # P0-2 FIX: Pre-check without lock
         if card_id in self.engines:
             engine = self.engines[card_id]
@@ -129,7 +129,7 @@ class MessageDispatcher:
         # Acquire lock for this card
         if card_id not in self._engine_creation_locks:
             self._engine_creation_locks[card_id] = asyncio.Lock()
-        
+
         async with self._engine_creation_locks[card_id]:
             # Double check after lock
             if card_id in self.engines:
@@ -137,37 +137,59 @@ class MessageDispatcher:
                 if engine.is_alive:
                     return engine, False
 
-            # Load from DB to get provider
+            # Load from DB to get provider and column strategy
             card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
             if not card:
                 raise ValueError(f"Card {card_id} not found")
 
-            provider_id = card.get("acp_provider_id") or config.default_provider
+            # Get column strategy
+            column = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
+            if not column:
+                raise ValueError(f"Column {card['column_id']} not found")
+
+            # Strategy: Column Provider -> Card Provider -> Default Provider
+            provider_id = column.get("acp_provider_id") or card.get("acp_provider_id") or config.default_provider
             
             # Get project workspace
-            project_id = None
-            column = await asyncio.to_thread(self.db.columns.get_column_simple_for_bridge, card["column_id"])
-            if column:
-                project_id = column["project_id"]
-            
+            project_id = column["project_id"]
             workspace_path = config.get("system.workspace_root")
-            if project_id:
-                project = await asyncio.to_thread(self.db.projects.get_by_id, project_id)
-                if project and project.get("workspace_path"):
-                    workspace_path = project["workspace_path"]
+            project = await asyncio.to_thread(self.db.projects.get_by_id, project_id)
+            if project and project.get("workspace_path"):
+                workspace_path = project["workspace_path"]
 
             engine = SessionEngine(card_id, provider_id, workspace_path)
             engine.acp_session_id = card.get("acp_session_id")
             
-            await engine.start()
+            # Additional column-level metadata could be stored here
+            engine.column_prompt_template = column.get("prompt_template")
+            engine.column_approval_mode = column.get("approval_mode")
+
+            # Pass the handler for server-to-client requests
+            await engine.start(on_request=on_nested_request)
             self.engines[card_id] = engine
             return engine, True
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
         task_key = f"{card_id}_{request_id}"
         try:
-            engine, is_new = await self._get_or_create_engine(card_id)
-            
+            # Local nested request handler
+            async def handle_nested_request(inner_method, inner_params):
+                self.logger.info(f"Forwarding nested request: {inner_method} for card {card_id}")
+                # We need to send this to the UI and wait for result
+                # The 'on_output' callback here is usually used for notifications, 
+                # but for requests we need a blocking wait.
+                # This requires bridge support.
+                if inner_method == "session/request_permission":
+                    # Add card_id to params so UI knows which card is asking
+                    inner_params["card_id"] = card_id
+                    return await on_output({
+                        "jsonrpc": "2.0",
+                        "method": inner_method,
+                        "params": inner_params
+                    }, is_request=True)
+                return {"error": "Method not supported"}
+
+            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request)            
             # P1-2 FIX: Non-blocking context injection
             if is_new or not engine.acp_session_id:
                 # Fire and forget context injection
