@@ -359,6 +359,72 @@ class SessionRepository(BaseRepository):
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_latest_message(self, card_id: str, role: str = None) -> Optional[Dict]:
+        """Gets the most recent message, optionally filtered by role."""
+        with self.db.get_connection() as conn:
+            sql = "SELECT * FROM card_sessions WHERE card_id = ?"
+            params = [card_id]
+            if role:
+                sql += " AND role = ?"
+                params.append(role)
+            sql += " ORDER BY created_at DESC LIMIT 1"
+            
+            cursor = conn.execute(sql, params)
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = True):
+        """Appends content to the last message if role matches, or creates new."""
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            # Check last message
+            cursor = conn.execute(
+                "SELECT id, content FROM card_sessions WHERE card_id = ? AND role = ? AND is_complete = 0 ORDER BY created_at DESC LIMIT 1",
+                (card_id, role)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                new_content = row[1] + content_chunk
+                conn.execute(
+                    "UPDATE card_sessions SET content = ?, is_complete = ?, created_at = ? WHERE id = ?",
+                    (new_content, 1 if is_complete else 0, now, row[0])
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, is_complete, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (card_id, role, content_chunk, 1 if is_complete else 0, now)
+                )
+
+    def update_message_with_metadata(self, card_id: str, meta_key: str, meta_value: Any, new_content: str = None, is_complete: bool = True):
+        """Finds a message by metadata and updates its content/status."""
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            # This is complex in SQLite with JSON, so we fetch and filter
+            cursor = conn.execute(
+                "SELECT id, metadata FROM card_sessions WHERE card_id = ? AND metadata IS NOT NULL ORDER BY created_at DESC LIMIT 50",
+                (card_id,)
+            )
+            rows = cursor.fetchall()
+            target_id = None
+            for row in rows:
+                try:
+                    meta = json.loads(row[1])
+                    if meta.get(meta_key) == meta_value:
+                        target_id = row[0]
+                        break
+                except: continue
+            
+            if target_id:
+                sql = "UPDATE card_sessions SET is_complete = ?, created_at = ?"
+                params = [1 if is_complete else 0, now]
+                if new_content is not None:
+                    sql += ", content = ?"
+                    params.append(new_content)
+                sql += " WHERE id = ?"
+                params.append(target_id)
+                conn.execute(sql, params)
+
 class KanbanDB:
     _instance_lock = threading.Lock()
     _instance = None
