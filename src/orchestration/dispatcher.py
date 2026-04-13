@@ -76,8 +76,19 @@ class MessageDispatcher:
         # Phase 3: Trigger summary generation on move
         if method == "cards/move":
             card_id = params.get("id")
-            if card_id:
-                asyncio.create_task(self.summary_service.generate_and_save_summary(card_id))
+            target_col_id = params.get("target_column_id")
+            if card_id and target_col_id:
+                # Capture current column before move
+                async def trigger_summary_with_context():
+                    card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+                    target_col = await asyncio.to_thread(self.db.columns.get_by_id, target_col_id)
+                    if card and target_col:
+                        source_col = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
+                        from_name = source_col["name"] if source_col else "Unknown"
+                        to_name = target_col["name"]
+                        await self.summary_service.summarize_move(card_id, from_name, to_name)
+                
+                asyncio.create_task(trigger_summary_with_context())
         
         ui_format = params.get("ui_format", "acp")
 

@@ -145,12 +145,23 @@ class SummaryService:
 
     async def generate_and_save_summary(self, card_id: str):
         """
-        Triggers the unified summary task in a thread.
+        Triggers the unified summary task asynchronously.
         """
         # HIGH-NEW: Move import here to break circular dependency with api package
         from api.tasks import generate_card_summary_task
         
-        # Run the robust task from api.tasks in a worker thread
-        await asyncio.to_thread(generate_card_summary_task, card_id)
-        logger.info(f"SummaryService triggered unified task for card {card_id}")
+        # Now generate_card_summary_task is async, we await it directly
+        await generate_card_summary_task(card_id)
+        logger.info(f"SummaryService triggered async task for card {card_id}")
+
+    async def summarize_move(self, card_id: str, from_column: str, to_column: str):
+        """Generates summary and prepends transition context."""
+        await self.generate_and_save_summary(card_id)
+        
+        # PHASE 3: Fetch the generated summary and prepend column info
+        summary_obj = await asyncio.to_thread(self.db.summaries.get_by_card_id, card_id)
+        if summary_obj:
+            wrapped = f"Transition: {from_column} -> {to_column}\nProgress: {summary_obj['summary']}"
+            await asyncio.to_thread(self.db.update_card_summary, card_id, wrapped)
+            logger.info(f"Summary for {card_id} wrapped with transition context")
 
