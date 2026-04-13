@@ -83,7 +83,22 @@ class MessageDispatcher:
         method = data.get("method")
         params = data.get("params", {})
         request_id = data.get("id")
-        
+
+        # Handle initialize request
+        if method == "initialize":
+            return {
+                "protocolVersion": 1,
+                "agentCapabilities": {
+                    "tools": {"supported": True},
+                    "resources": {"supported": True}
+                },
+                "agentInfo": {
+                    "name": "Kanban-Bridge",
+                    "title": "Agent Kanban Bridge",
+                    "version": "1.0.0"
+                }
+            }
+
         if method == "cards/move":
             cid = params.get("id"); tid = params.get("target_column_id")
             if cid and tid:

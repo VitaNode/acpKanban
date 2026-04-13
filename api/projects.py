@@ -78,6 +78,10 @@ async def create_project(request: ProjectCreateRequest):
     """
     Create a new project.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Creating project: name='{request.name}', workspace_path='{request.workspace_path}'")
+    
     db = get_db()
     try:
         project_id = db.create_project(
@@ -96,7 +100,11 @@ async def create_project(request: ProjectCreateRequest):
             updated_at=project["updated_at"],
             card_count=0,
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        logger.error(f"Create project failed: {e}\n{traceback.format_exc()}")
         raise HTTPError(400, str(e))
 
 
