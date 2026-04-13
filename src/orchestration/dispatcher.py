@@ -246,17 +246,19 @@ class MessageDispatcher:
                     # Mark last message as complete
                     await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", is_complete=True)
                     
-                    # Record timeline event for AI action
-                    card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
-                    if card and card.get("project_id"):
-                        # P2-7/NEW-1 FIX: Get latest assistant message for timeline
-                        last_msg = await asyncio.to_thread(self.db.sessions.get_latest_message, card_id, "assistant")
-                        if last_msg:
-                            content = last_msg.get("content", "")
-                            await asyncio.to_thread(
-                                self.db.projects.add_timeline_event,
-                                card["project_id"], card_id, "ai_action", f"[assistant] {content[:100]}"
-                            )
+                    # Record timeline event for AI action (LOW-3: Wrap in try-except)
+                    try:
+                        card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+                        if card and card.get("project_id"):
+                            last_msg = await asyncio.to_thread(self.db.sessions.get_latest_message, card_id, "assistant")
+                            if last_msg:
+                                content = last_msg.get("content", "")
+                                await asyncio.to_thread(
+                                    self.db.projects.add_timeline_event,
+                                    card["project_id"], card_id, "ai_action", f"[assistant] {content[:100]}"
+                                )
+                    except Exception as te:
+                        logger.warning(f"Failed to add timeline event: {te}")
 
                 await on_output(n)
 

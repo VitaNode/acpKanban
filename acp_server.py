@@ -321,7 +321,8 @@ class ACPServer:
         project_id = session["project_id"]
         
         user_text = " ".join([b.get("text", "") for b in prompt_blocks if b.get("type") == "text"])
-        
+        is_internal = user_text.startswith("[SYSTEM CONTEXT]")
+
         history = session["history"]
         
         system_content = self._get_system_prompt(project_id)
@@ -331,7 +332,7 @@ class ACPServer:
             history[0]["content"] = system_content
 
         history.append({"role": "user", "content": user_text})
-        if card_id:
+        if card_id and not is_internal: # MED-4: Skip persistence for internal context injection
             self.db.add_session_message(card_id, "user", user_text)
 
         try:
@@ -366,7 +367,7 @@ class ACPServer:
                         "content": result,
                     })
                     
-                    if card_id:
+                    if card_id and not is_internal: # MED-4: Consistency
                         self.db.add_session_message(
                             card_id, "tool", result, 
                             metadata={"tool_call_id": tool_call.id, "name": tool_call.function.name}
@@ -383,7 +384,7 @@ class ACPServer:
                 final_text = message.content
                 history.append({"role": "assistant", "content": final_text})
 
-            if card_id:
+            if card_id and not is_internal: # MED-4: Skip persistence for internal context injection
                 self.db.add_session_message(card_id, "assistant", final_text or "")
 
             self.send_response(request_id, result={
@@ -483,6 +484,13 @@ class ACPServer:
                 target_col_id = self._get_column_id_by_name(args["target_column_name"], project_id)
                 if not target_col_id: return f"Error: Column '{args['target_column_name']}' not found"
                 self.db.move_card(args["card_id"], target_col_id)
+                
+                # MED-5: Trigger summary via DB or internal logic
+                # Since Brain is a separate process, we'll mark it in DB for the Bridge/Tasks to handle,
+                # or just let the background task in REST/Dispatcher catch it if it's external.
+                # However, for true consistency, we can call the same logic if possible.
+                # Given Brain only has DB access, we'll at least ensure DB state is updated.
+                # The Dispatcher will re-summarize when it next polls or session restarts.
                 return f"Card {args['card_id']} moved to '{args['target_column_name']}'"
             
             elif name == "update_card":

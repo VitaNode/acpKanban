@@ -43,12 +43,14 @@ class ContextBuilder:
 
         # --- Level 2: Related Context (Summaries) ---
         if project_id:
-            # P3-2 Strategy: Use summaries of other cards to provide awareness
+            # MED-1 Strategy: Limit to latest 5 to avoid context bloat
             summaries = self.db.summaries.get_all_for_project(project_id)
             if summaries:
+                # Sort by update time desc and take 5
+                sorted_summaries = sorted(summaries, key=lambda x: x.get('updated_at', ''), reverse=True)[:5]
                 summaries_text = "\n".join([
                     f"### Card: {s['title']}\nSummary: {s['summary']}"
-                    for s in summaries if s['card_id'] != card_id
+                    for s in sorted_summaries if s['card_id'] != card_id
                 ])
                 if summaries_text:
                     sections.append(f"## Knowledge Base (Related Cards)\n{summaries_text}")
