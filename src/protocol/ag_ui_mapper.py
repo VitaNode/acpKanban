@@ -63,6 +63,21 @@ class AGUIMapper:
                 "name": update.get("title") or update.get("tool"),
                 "status": update.get("status", "pending")
             })
+        elif utype == "tool_call_update":
+            ag_event.update({
+                "event": "tool_status_update",
+                "tool_id": update.get("toolCallId"),
+                "status": update.get("status"),
+                "content": update.get("content", [])
+            })
+        elif utype == "session_info_update":
+            info = update.get("info", {})
+            ag_event.update({
+                "event": "session_info_update",
+                "title": info.get("title"),
+                "description": info.get("description"),
+                "updated_at": info.get("updatedAt")
+            })
         elif utype == "stop":
             ag_event.update({"event": "session_stop"})
         else:
