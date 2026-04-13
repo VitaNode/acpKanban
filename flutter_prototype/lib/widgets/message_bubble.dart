@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/card_message.dart';
+import '../models/content_block.dart';
+import '../widgets/content_block_renderer.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
@@ -18,6 +21,18 @@ class MessageBubble extends StatelessWidget {
     this.providerName,
     this.providerIcon,
   });
+
+  List<ContentBlock> _parseContentBlocks() {
+    try {
+      final decoded = jsonDecode(message.content);
+      if (decoded is List) {
+        return decoded
+            .map((json) => ContentBlock.fromJson(json as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (e) {}
+    return [TextContent(text: message.content)];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,21 +72,7 @@ class MessageBubble extends StatelessWidget {
                 ],
                 border: isUser ? null : Border.all(color: Colors.grey[200]!),
               ),
-              child: MarkdownBody(
-                data: message.content,
-                styleSheet: MarkdownStyleSheet(
-                  p: TextStyle(
-                    color: isUser ? Colors.white : Colors.black87,
-                    fontSize: 14,
-                  ),
-                  code: TextStyle(
-                    backgroundColor:
-                        isUser ? Colors.indigo[700] : Colors.grey[100],
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
-                ),
-              ),
+              child: _buildMessageContent(isUser),
             ),
           ],
         ),
@@ -107,6 +108,31 @@ class MessageBubble extends StatelessWidget {
           style: const TextStyle(fontSize: 10, color: Colors.grey),
         ),
       ],
+    );
+  }
+
+  Widget _buildMessageContent(bool isUser) {
+    final blocks = _parseContentBlocks();
+    if (blocks.length == 1 && blocks[0] is TextContent) {
+      return MarkdownBody(
+        data: (blocks[0] as TextContent).text,
+        styleSheet: MarkdownStyleSheet(
+          p: TextStyle(
+            color: isUser ? Colors.white : Colors.black87,
+            fontSize: 14,
+          ),
+          code: TextStyle(
+            backgroundColor: isUser ? Colors.indigo[700] : Colors.grey[100],
+            fontFamily: 'monospace',
+            fontSize: 12,
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children:
+          blocks.map((block) => ContentBlockRenderer(block: block)).toList(),
     );
   }
 
