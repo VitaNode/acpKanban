@@ -17,7 +17,8 @@ import '../constants/app_constants.dart';
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
   final String projectId;
-  const CardDetailScreen({super.key, required this.card, required this.projectId});
+  const CardDetailScreen(
+      {super.key, required this.card, required this.projectId});
   @override
   State<CardDetailScreen> createState() => _CardDetailScreenState();
 }
@@ -36,7 +37,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   AgentPlan? _currentPlan;
   List<ConfigOption> _configOptions = [];
   List<Map<String, dynamic>> _availableCommands = [];
-  
+
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
   OverlayEntry? _commandOverlay;
@@ -45,6 +46,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   StreamSubscription? _planSub;
   StreamSubscription? _configSub;
   StreamSubscription? _commandSub;
+  StreamSubscription? _cardSub;
   Timer? _debounceTimer;
 
   @override
@@ -61,10 +63,26 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   void _setupWebSocket() {
     _wsService.connect(_card.id);
-    _messageSub = _wsService.messages.listen((msgs) { if (mounted) setState(() { _messages = msgs; _isAgentProcessing = msgs.isNotEmpty && msgs.last.role == 'assistant' && !msgs.last.isComplete; }); _scrollToBottom(); });
-    _planSub = _wsService.plan.listen((p) { if (mounted) setState(() => _currentPlan = p); });
-    _configSub = _wsService.configOptions.listen((o) { if (mounted) setState(() => _configOptions = o); });
-    _commandSub = _wsService.availableCommands.listen((c) { if (mounted) setState(() => _availableCommands = c); });
+    _messageSub = _wsService.messages.listen((msgs) {
+      if (mounted)
+        setState(() {
+          _messages = msgs;
+          _isAgentProcessing = msgs.isNotEmpty &&
+              msgs.last.role == 'assistant' &&
+              !msgs.last.isComplete;
+        });
+      _scrollToBottom();
+    });
+    _planSub = _wsService.plan.listen((p) {
+      if (mounted) setState(() => _currentPlan = p);
+    });
+    _configSub = _wsService.configOptions.listen((o) {
+      if (mounted) setState(() => _configOptions = o);
+    });
+    _commandSub = _wsService.availableCommands.listen((c) {
+      if (mounted) setState(() => _availableCommands = c);
+    });
+    _cardSub = _wsService.cardUpdates.listen(_onCardUpdate);
     _wsService.requests.listen((req) {
       if (req['method'] == 'session/request_permission') {
         _showPermissionDialog(req['params'], req['id']);
@@ -72,43 +90,79 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     });
   }
 
-  Future<void> _showPermissionDialog(Map<String, dynamic> params, String requestId) async {
+  void _onCardUpdate(KanbanCard updatedCard) {
+    if (!mounted) return;
+    setState(() {
+      if (updatedCard.title.isNotEmpty && updatedCard.title != _card.title) {
+        _card = _card.copyWith(title: updatedCard.title);
+        _titleController.text = updatedCard.title;
+      }
+      if (updatedCard.description.isNotEmpty &&
+          updatedCard.description != _card.description) {
+        _card = _card.copyWith(description: updatedCard.description);
+        _descriptionController.text = updatedCard.description;
+      }
+    });
+  }
+
+  Future<void> _showPermissionDialog(
+      Map<String, dynamic> params, String requestId) async {
     final toolCall = params['toolCall'] as Map<String, dynamic>?;
-    final options = (params['options'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final options =
+        (params['options'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     if (toolCall == null || options.isEmpty) return;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('权限申请', style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+            const Text('权限申请', style: TextStyle(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Agent 申请执行工具: ${toolCall['name']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text('Agent 申请执行工具: ${toolCall['name']}',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-            Text('参数: ${toolCall['arguments']}', style: const TextStyle(fontSize: 13, color: Colors.grey, fontFamily: 'monospace')),
+            Text('参数: ${toolCall['arguments']}',
+                style: const TextStyle(
+                    fontSize: 13, color: Colors.grey, fontFamily: 'monospace')),
           ],
         ),
-        actions: options.map((opt) => TextButton(
-          onPressed: () {
-            _wsService.sendResponse(requestId, {"outcome": {"outcome": "selected", "optionId": opt['optionId']}});
-            Navigator.pop(context);
-          },
-          child: Text(opt['name'], style: TextStyle(
-            color: opt['kind'].toString().contains('allow') ? const Color(0xFF008080) : Colors.red,
-            fontWeight: opt['kind'].toString().contains('always') ? FontWeight.bold : FontWeight.normal,
-          )),
-        )).toList(),
+        actions: options
+            .map((opt) => TextButton(
+                  onPressed: () {
+                    _wsService.sendResponse(requestId, {
+                      "outcome": {
+                        "outcome": "selected",
+                        "optionId": opt['optionId']
+                      }
+                    });
+                    Navigator.pop(context);
+                  },
+                  child: Text(opt['name'],
+                      style: TextStyle(
+                        color: opt['kind'].toString().contains('allow')
+                            ? const Color(0xFF008080)
+                            : Colors.red,
+                        fontWeight: opt['kind'].toString().contains('always')
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      )),
+                ))
+            .toList(),
       ),
     );
   }
 
   void _onChatChanged() {
     final text = _chatController.text;
-    if (text.startsWith('/') && !text.contains(' ')) { _showCommandsOverlay(); } 
-    else { _hideCommandsOverlay(); }
+    if (text.startsWith('/') && !text.contains(' ')) {
+      _showCommandsOverlay();
+    } else {
+      _hideCommandsOverlay();
+    }
   }
 
   void _showCommandsOverlay() {
@@ -116,49 +170,101 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (_availableCommands.isEmpty) return;
     final renderBox = context.findRenderBox()!;
     final size = renderBox.size;
-    _commandOverlay = OverlayEntry(builder: (context) => Positioned(
-      bottom: 80, left: 16, width: size.width - 32,
-      child: Material(elevation: 8, borderRadius: BorderRadius.circular(12), color: Colors.white, child: Column(mainAxisSize: MainAxisSize.min, children: _availableCommands.map((c) => ListTile(
-        leading: const Icon(Icons.flash_on, size: 18, color: Color(0xFF008080)),
-        title: Text('/${c['name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        subtitle: Text(c['description'] ?? '', style: const TextStyle(fontSize: 12)),
-        onTap: () { _chatController.text = '/${c['name']} '; _chatController.selection = TextSelection.fromPosition(TextPosition(offset: _chatController.text.length)); _hideCommandsOverlay(); },
-      )).toList())),
-    ));
+    _commandOverlay = OverlayEntry(
+        builder: (context) => Positioned(
+              bottom: 80,
+              left: 16,
+              width: size.width - 32,
+              child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: _availableCommands
+                          .map((c) => ListTile(
+                                leading: const Icon(Icons.flash_on,
+                                    size: 18, color: Color(0xFF008080)),
+                                title: Text('/${c['name']}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14)),
+                                subtitle: Text(c['description'] ?? '',
+                                    style: const TextStyle(fontSize: 12)),
+                                onTap: () {
+                                  _chatController.text = '/${c['name']} ';
+                                  _chatController.selection =
+                                      TextSelection.fromPosition(TextPosition(
+                                          offset: _chatController.text.length));
+                                  _hideCommandsOverlay();
+                                },
+                              ))
+                          .toList())),
+            ));
     Overlay.of(context).insert(_commandOverlay!);
   }
 
-  void _hideCommandsOverlay() { _commandOverlay?.remove(); _commandOverlay = null; }
+  void _hideCommandsOverlay() {
+    _commandOverlay?.remove();
+    _commandOverlay = null;
+  }
 
   void _onCardInfoChanged() {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(AppConstants.autoSaveDebounce, () => _autoSaveCard());
+    _debounceTimer =
+        Timer(AppConstants.autoSaveDebounce, () => _autoSaveCard());
   }
 
   Future<void> _autoSaveCard() async {
-    final t = _titleController.text.trim(); final d = _descriptionController.text.trim();
+    final t = _titleController.text.trim();
+    final d = _descriptionController.text.trim();
     if (t.isEmpty || (t == _card.title && d == _card.description)) return;
     setState(() => _isSavingCard = true);
     try {
-      final updated = await _projectService.updateCard(_card.id, title: t, description: d);
-      if (updated != null && mounted) setState(() { _card = updated; _isSavingCard = false; });
-    } catch (e) { if (mounted) setState(() => _isSavingCard = false); }
+      final updated =
+          await _projectService.updateCard(_card.id, title: t, description: d);
+      if (updated != null && mounted)
+        setState(() {
+          _card = updated;
+          _isSavingCard = false;
+        });
+    } catch (e) {
+      if (mounted) setState(() => _isSavingCard = false);
+    }
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) { if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients)
+        _scrollController.animateTo(_scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    });
   }
 
   void _handleSend() {
-    final text = _chatController.text.trim(); if (text.isEmpty) return;
-    _wsService.sendMessage('user', text); _chatController.clear(); _chatFocusNode.requestFocus();
-    setState(() => _isAgentProcessing = true); _hideCommandsOverlay();
+    final text = _chatController.text.trim();
+    if (text.isEmpty) return;
+    _wsService.sendMessage('user', text);
+    _chatController.clear();
+    _chatFocusNode.requestFocus();
+    setState(() => _isAgentProcessing = true);
+    _hideCommandsOverlay();
   }
 
   @override
   void dispose() {
-    _hideCommandsOverlay(); _messageSub?.cancel(); _planSub?.cancel(); _configSub?.cancel(); _commandSub?.cancel(); _debounceTimer?.cancel();
-    _titleController.dispose(); _descriptionController.dispose(); _chatController.dispose(); _scrollController.dispose(); _chatFocusNode.dispose();
+    _hideCommandsOverlay();
+    _messageSub?.cancel();
+    _planSub?.cancel();
+    _configSub?.cancel();
+    _commandSub?.cancel();
+    _cardSub?.cancel();
+    _debounceTimer?.cancel();
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _chatController.dispose();
+    _scrollController.dispose();
+    _chatFocusNode.dispose();
     super.dispose();
   }
 
@@ -166,47 +272,123 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: Text(_card.shortId, style: const TextStyle(fontFamily: 'monospace', fontSize: 14)), elevation: 0, backgroundColor: Colors.white, foregroundColor: Colors.black, actions: [
-        if (_isSavingCard) const Center(child: Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))),
-        IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
-      ]),
+      appBar: AppBar(
+          title: Text(_card.shortId,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          actions: [
+            if (_isSavingCard)
+              const Center(
+                  child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2)))),
+            IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
+          ]),
       body: Column(children: [
         ConfigOptionsBar(options: _configOptions),
-        Expanded(child: ListView(controller: _scrollController, padding: const EdgeInsets.symmetric(vertical: 16), children: [
-          _buildHeader(),
-          if (_currentPlan != null) PlanPanel(plan: _currentPlan!),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: Divider()),
-          if (_messages.isEmpty) const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 40), child: Text('开始对话吧', style: TextStyle(color: Colors.grey))))
-          else ..._messages.map((m) => MessageBubble(message: m, providerName: 'AI Agent')),
-          if (_isAgentProcessing) _buildProcessingIndicator(),
-          const SizedBox(height: 20),
-        ])),
+        Expanded(
+            child: ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                children: [
+              _buildHeader(),
+              if (_currentPlan != null) PlanPanel(plan: _currentPlan!),
+              const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Divider()),
+              if (_messages.isEmpty)
+                const Center(
+                    child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40),
+                        child: Text('开始对话吧',
+                            style: TextStyle(color: Colors.grey))))
+              else
+                ..._messages.map(
+                    (m) => MessageBubble(message: m, providerName: 'AI Agent')),
+              if (_isAgentProcessing) _buildProcessingIndicator(),
+              const SizedBox(height: 20),
+            ])),
         _buildInputArea(),
       ]),
     );
   }
 
   Widget _buildHeader() {
-    return Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      TextField(controller: _titleController, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold), decoration: const InputDecoration(border: InputBorder.none, hintText: '标题'), maxLines: null),
-      TextField(controller: _descriptionController, style: TextStyle(fontSize: 15, color: Colors.grey[700]), decoration: const InputDecoration(border: InputBorder.none, hintText: '描述...'), maxLines: null),
-      const SizedBox(height: 8), Text('Created ${DateFormatter.formatFull(_card.createdAt)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      const SizedBox(height: 16),
-    ]));
+    return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(
+              controller: _titleController,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              decoration: const InputDecoration(
+                  border: InputBorder.none, hintText: '标题'),
+              maxLines: null),
+          TextField(
+              controller: _descriptionController,
+              style: TextStyle(fontSize: 15, color: Colors.grey[700]),
+              decoration: const InputDecoration(
+                  border: InputBorder.none, hintText: '描述...'),
+              maxLines: null),
+          const SizedBox(height: 8),
+          Text('Created ${DateFormatter.formatFull(_card.createdAt)}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(height: 16),
+        ]));
   }
 
   Widget _buildProcessingIndicator() {
-    return Padding(padding: const EdgeInsets.all(16.0), child: Row(children: [
-      const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
-      const SizedBox(width: 12), Text('AI 正在执行...', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-    ]));
+    return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(children: [
+          const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 12),
+          Text('AI 正在执行...',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+        ]));
   }
 
   Widget _buildInputArea() {
-    return Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.grey[200]!))), child: SafeArea(child: Row(children: [
-      Expanded(child: TextField(controller: _chatController, focusNode: _chatFocusNode, decoration: InputDecoration(hintText: '输入指令或 / 命令...', filled: true, fillColor: Colors.grey[100], border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none), contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)), onSubmitted: (_) => _handleSend())),
-      const SizedBox(width: 8), IconButton(icon: const Icon(Icons.send, color: Color(0xFF008080)), onPressed: _handleSend),
-    ])));
+    return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Colors.grey[200]!))),
+        child: SafeArea(
+            child: Row(children: [
+          Expanded(
+              child: TextField(
+                  controller: _chatController,
+                  focusNode: _chatFocusNode,
+                  decoration: InputDecoration(
+                      hintText: '输入指令或 / 命令...',
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8)),
+                  onSubmitted: (_) => _handleSend())),
+          const SizedBox(width: 8),
+          IconButton(
+              icon: const Icon(Icons.send, color: Color(0xFF008080)),
+              onPressed: _handleSend),
+        ])));
   }
 }
-extension RenderBoxExtension on BuildContext { RenderBox? findRenderBox() { final renderObject = findRenderObject(); if (renderObject is RenderBox) return renderObject; return null; } }
+
+extension RenderBoxExtension on BuildContext {
+  RenderBox? findRenderBox() {
+    final renderObject = findRenderObject();
+    if (renderObject is RenderBox) return renderObject;
+    return null;
+  }
+}

@@ -178,9 +178,11 @@ class ProjectService {
     }
   }
 
-  Future<List<KanbanCard>> getCardsByColumn(String columnId, {bool includeCompleted = false}) async {
+  Future<List<KanbanCard>> getCardsByColumn(String columnId,
+      {bool includeCompleted = false}) async {
     try {
-      final response = await _get('/api/columns/$columnId/cards?include_completed=$includeCompleted');
+      final response = await _get(
+          '/api/columns/$columnId/cards?include_completed=$includeCompleted');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
         return data.map((c) {
@@ -331,6 +333,19 @@ class ProjectService {
     } catch (e) {
       debugPrint('updateCardSessionId error: $e');
       return false;
+    }
+  }
+
+  Future<KanbanCard?> getCard(String cardId) async {
+    try {
+      final response = await _get('/api/cards/$cardId');
+      if (response.statusCode == 200) {
+        return KanbanCard.fromJson(jsonDecode(response.body));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getCard error: $e');
+      return null;
     }
   }
 

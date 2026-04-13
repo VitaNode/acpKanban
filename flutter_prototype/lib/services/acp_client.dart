@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import 'smart_connect.dart';
 import 'e2ee_manager.dart';
 import '../models/connection_config.dart';
+import 'file_system_service.dart';
+import 'terminal_service.dart';
 
 class ACPConfig {
   final ConnectionMode mode;
@@ -52,6 +54,8 @@ class ACPClient {
   WebSocketChannel? _channel;
   final _uuid = const Uuid();
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};
+  final _fileSystemService = FileSystemService();
+  final _terminalService = TerminalService();
 
   ConnectionPath activeMode = ConnectionPath.none;
   String? activeUrl;
@@ -68,7 +72,7 @@ class ACPClient {
   Future<void> smartConnect(ACPConfig config) async {
     if (config.sessionKeyHex != null) {
       _e2ee = E2EEManager(config.sessionKeyHex!);
-      print('[ACP] E2EE initialized with pre-shared key');
+      debugPrint('[ACP] E2EE initialized with pre-shared key');
     }
 
     final result = await SmartConnect.connect(
@@ -85,11 +89,11 @@ class ACPClient {
     _channel = result.channel;
     activeMode = result.path;
     activeUrl = result.url;
-    print('[ACP] Connected, E2EE ready: ${_e2ee?.isReady ?? false}');
+    debugPrint('[ACP] Connected, E2EE ready: ${_e2ee?.isReady ?? false}');
     _setupStream();
 
     if (_e2ee == null) {
-      print('[ACP] Initiating ECDH Pairing...');
+      debugPrint('[ACP] Initiating ECDH Pairing...');
       await _performPairing();
     }
   }
@@ -111,9 +115,43 @@ class ACPClient {
       final sharedSecretHex =
           await E2EEManager.deriveSharedSecret(ownKeyPair, peerPublicKeyHex);
       _e2ee = E2EEManager(sharedSecretHex);
-      print('[ACP] Pairing Successful!');
+      debugPrint('[ACP] Pairing Successful!');
     } else {
       throw Exception('Pairing failed');
+    }
+  }
+
+  Future<Map<String, dynamic>> _handleFsRequest(
+      String method, Map<String, dynamic> params) async {
+    switch (method) {
+      case 'fs/read_text_file':
+        return await _fileSystemService.handleReadTextFile(params);
+      case 'fs/write_text_file':
+        return await _fileSystemService.handleWriteTextFile(params);
+      default:
+        return {
+          'error': {'code': -32601, 'message': 'Method not found: $method'}
+        };
+    }
+  }
+
+  Future<Map<String, dynamic>> _handleTerminalRequest(
+      String method, Map<String, dynamic> params) async {
+    switch (method) {
+      case 'terminal/create':
+        return await _terminalService.createTerminal(params);
+      case 'terminal/get_output':
+        return await _terminalService.getTerminalOutput(params);
+      case 'terminal/wait_for_exit':
+        return await _terminalService.waitForExit(params);
+      case 'terminal/kill':
+        return await _terminalService.killTerminal(params);
+      case 'terminal/release':
+        return await _terminalService.releaseTerminal(params);
+      default:
+        return {
+          'error': {'code': -32601, 'message': 'Method not found: $method'}
+        };
     }
   }
 
@@ -158,25 +196,53 @@ class ACPClient {
             }
           }
 
+          final method = data['method'] as String?;
+          final id = data['id']?.toString();
+          final params = data['params'] as Map<String, dynamic>? ?? {};
+
+          if (method != null && id != null) {
+            if (method.startsWith('fs/')) {
+              debugPrint('[ACP] Handling fs request: $method');
+              final result = await _handleFsRequest(method, params);
+              final response = {
+                'jsonrpc': '2.0',
+                'id': id,
+                'result': result,
+              };
+              _channel!.sink.add(jsonEncode(response));
+              return;
+            } else if (method.startsWith('terminal/')) {
+              debugPrint('[ACP] Handling terminal request: $method');
+              final result = await _handleTerminalRequest(method, params);
+              final response = {
+                'jsonrpc': '2.0',
+                'id': id,
+                'result': result,
+              };
+              _channel!.sink.add(jsonEncode(response));
+              return;
+            }
+          }
+
           if (data.containsKey('id')) {
-            final id = data['id'].toString();
-            if (_pendingRequests.containsKey(id)) {
-              _pendingRequests[id]!.complete(data);
-              _pendingRequests.remove(id);
+            final reqId = data['id'].toString();
+            if (_pendingRequests.containsKey(reqId)) {
+              _pendingRequests[reqId]!.complete(data);
+              _pendingRequests.remove(reqId);
             }
           }
           _messageController.add(jsonEncode(data));
         } catch (e) {
-          print('[ACP] Message processing error: $e');
-          print('[ACP] Error stack: ${StackTrace.current}');
+          debugPrint('[ACP] Message processing error: $e');
+          debugPrint('[ACP] Error stack: ${StackTrace.current}');
         }
       },
       onError: (error) {
-        print('[ACP] Stream error: $error');
+        debugPrint('[ACP] Stream error: $error');
         activeMode = ConnectionPath.none;
       },
       onDone: () {
-        print('[ACP] Stream done');
+        debugPrint('[ACP] Stream done');
         activeMode = ConnectionPath.none;
       },
     );
@@ -212,7 +278,7 @@ class ACPClient {
 
   Future<void> initialize([Map<String, dynamic>? systemConfig]) async {
     try {
-      print('[ACP] Sending initialize...');
+      debugPrint('[ACP] Sending initialize...');
       final Map<String, dynamic> params = {
         'protocolVersion': 1,
         'clientCapabilities': {
@@ -234,12 +300,12 @@ class ACPClient {
 
       final response = await sendRequest('initialize', params)
           .timeout(const Duration(seconds: 60));
-      print('[ACP] Initialize success');
+      debugPrint('[ACP] Initialize success');
 
       _agentCapabilities = response['result']?['agentCapabilities'] ?? {};
-      print('[ACP] Agent capabilities: $_agentCapabilities');
+      debugPrint('[ACP] Agent capabilities: $_agentCapabilities');
     } catch (e) {
-      print('[ACP] Initialize warning (proceeding anyway): $e');
+      debugPrint('[ACP] Initialize warning (proceeding anyway): $e');
     }
   }
 

@@ -5,12 +5,25 @@ class TerminalSession {
   final String id;
   final Process process;
   final StreamController<String> outputController;
+  final List<String> _outputBuffer = [];
   int? exitCode;
 
   TerminalSession({
     required this.id,
     required this.process,
   }) : outputController = StreamController<String>.broadcast();
+
+  void addOutput(String text) {
+    _outputBuffer.add(text);
+  }
+
+  String getOutput() {
+    return _outputBuffer.join('');
+  }
+
+  void clearOutput() {
+    _outputBuffer.clear();
+  }
 
   void dispose() {
     outputController.close();
@@ -47,11 +60,15 @@ class TerminalService {
       _sessions[sessionId] = session;
 
       process.stdout.listen((data) {
-        session.outputController.add(String.fromCharCodes(data));
+        final text = String.fromCharCodes(data);
+        session.outputController.add(text);
+        session.addOutput(text);
       });
 
       process.stderr.listen((data) {
-        session.outputController.add(String.fromCharCodes(data));
+        final text = String.fromCharCodes(data);
+        session.outputController.add(text);
+        session.addOutput(text);
       });
 
       final exitCode = await process.exitCode;
@@ -79,7 +96,7 @@ class TerminalService {
       };
     }
 
-    return {'output': ''};
+    return {'output': session.getOutput()};
   }
 
   Future<Map<String, dynamic>> waitForExit(Map<String, dynamic> params) async {
