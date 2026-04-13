@@ -1,7 +1,7 @@
 import asyncio
 import json
 from typing import Dict, Any, Optional, Callable
-from src.logic.engine import SessionEngine, SessionState
+from src.logic.engine import SessionEngine, SessionState, SummaryService
 from src.persistence.database import KanbanDB
 from src.logic.context import ContextBuilder
 from src.protocol.ag_ui_mapper import AGUIMapper
