@@ -1,654 +1,107 @@
-import asyncio
+import os
 import sys
 import json
-import uuid
-import os
-import traceback
+import asyncio
+import logging
+from typing import Dict, Any, List, Optional
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Set
-from openai import OpenAI
-from dotenv import load_dotenv
-from src.persistence.database import KanbanDB
-from src.persistence.embedding import embedding_service
-
-load_dotenv()
 
 class ACPServer:
-    def __init__(self):
-        self.running = True
-        self.db = KanbanDB()
-        self.db.init_db()
-        self.lock = asyncio.Lock()
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self.logger = logging.getLogger("ACPServer")
+        self._sessions = {}
+        self._notification_queues = {}
+        self._request_futures = {}
+        self._next_request_id = 1
 
-        self.api_key = os.getenv("KANBAN_API_KEY")
-        if not self.api_key or self.api_key == "your_new_key_here":
-            self.log("WARNING: KANBAN_API_KEY not found or default value used.")
-            self.api_key = "sk-placeholder-for-init"
+    def log(self, msg: str): self.logger.info(msg)
 
-        self.base_url = os.getenv("KANBAN_BASE_URL", "https://api.openai.com/v1")
-        self.model_id = os.getenv("KANBAN_MODEL_ID", "gpt-4o-mini")
-
-        self.client = OpenAI(
-            api_key=self.api_key, base_url=self.base_url, timeout=60.0, max_retries=2
-        )
-
-        # Sessions: {session_id: {"card_id": str, "project_id": str, "history": list, "cwd": str, "updated_at": str, "active_task": Task, "permission_cache": dict}}
-        self._sessions: Dict[str, Dict[str, Any]] = {}
-        self._responded_ids: Set[Any] = set() 
-        self._pending_responses: Dict[Any, asyncio.Future] = {} 
-        self.allowed_workspaces: List[str] = [] 
-        self.log(f"ACP Server (Brain) initialized with {self.model_id}")
-
-    def log(self, message):
-        print(f"[*] {message}", file=sys.stderr)
-
-    def send_response(self, response_id, result=None, error=None):
-        if response_id in self._responded_ids:
-            return
-        
-        response = {"jsonrpc": "2.0", "id": response_id}
-        if error:
-            response["error"] = error
-        else:
-            response["result"] = result
-        
-        sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
-        
-        if len(self._responded_ids) > 10000:
-            self._responded_ids.clear()
-        self._responded_ids.add(response_id)
-
-    def send_notification(self, method: str, params: Dict[str, Any]):
-        notification = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params
-        }
-        sys.stdout.write(json.dumps(notification, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+    async def _send_notification(self, session_id: str, method: str, update: Dict[str, Any]):
+        queue = self._notification_queues.get(session_id)
+        if queue:
+            await queue.put({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "sessionId": session_id,
+                    "update": {
+                        "sessionUpdate": method,
+                        **update
+                    }
+                }
+            })
 
     async def send_request(self, method: str, params: Dict[str, Any]) -> Any:
-        """Sends a request to the client and waits for the response."""
-        request_id = str(uuid.uuid4())
-        future = asyncio.get_running_loop().create_future()
-        self._pending_responses[request_id] = future
-        
-        request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params
-        }
-        sys.stdout.write(json.dumps(request, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
-        
+        rid = self._next_request_id
+        self._next_request_id += 1
+        future = asyncio.get_event_loop().create_future()
+        self._request_futures[rid] = future
+        print(json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}), flush=True)
         try:
-            return await asyncio.wait_for(future, timeout=300.0) # 5 min timeout
-        except asyncio.TimeoutError:
-            self.log(f"Request {method} (id: {request_id}) timed out after 5 minutes")
-            raise Exception("Permission request timed out.")
+            return await asyncio.wait_for(future, timeout=30.0)
         finally:
-            self._pending_responses.pop(request_id, None)
+            self._request_futures.pop(rid, None)
 
-    async def handle_message(self, message):
-        """Dispatches incoming JSON-RPC messages (requests or responses)."""
-        if "method" in message:
-            await self.handle_request(message)
-        elif "id" in message and ("result" in message or "error" in message):
-            request_id = message["id"]
-            if request_id in self._pending_responses:
-                future = self._pending_responses[request_id]
-                if "error" in message:
-                    future.set_exception(Exception(message["error"].get("message", "Unknown error")))
-                else:
-                    future.set_result(message.get("result"))
-            else:
-                self.log(f"Received unexpected response ID: {request_id}")
-
-    async def handle_request(self, request):
-        method = request.get("method")
-        params = request.get("params", {})
-        request_id = request.get("id")
-
+    async def _execute_tool(self, session_id: str, tool_name: str, arguments: Dict[str, Any], tool_call_id: str):
+        """Execute tool with standard ACP notifications."""
         try:
-            if method == "initialize":
-                return self.on_initialize(request_id, params)
-            elif method == "session/new":
-                return self.on_session_new(request_id, params)
-            elif method == "session/prompt":
-                session_id = params.get("sessionId")
-                task = asyncio.create_task(self.on_session_prompt(request_id, params))
-                if session_id in self._sessions:
-                    self._sessions[session_id]["active_task"] = task
-                try:
-                    return await task
-                finally:
-                    if session_id in self._sessions:
-                        self._sessions[session_id]["active_task"] = None
-            elif method == "session/load":
-                return await self.on_session_load(request_id, params)
-            elif method == "session/list":
-                return self.on_session_list(request_id)
-            elif method == "session/cancel":
-                return self.on_session_cancel(request_id, params)
-            elif method == "test/request_permission" and os.getenv("KANBAN_DEBUG"):
-                session_id = params.get("sessionId")
-                # Trigger with a dummy tool call ID
-                result = await self._execute_tool("delete_card", {"card_id": "test_id"}, "test_project", session_id, "call_test_123")
-                return self.send_response(request_id, result={"toolResult": result})
-            elif method == "health":
-                return self.send_response(request_id, result={"status": "healthy"})
-            elif method == "shutdown":
-                self.running = False
-                return self.send_response(request_id, result={})
-            elif method == "chat/message":
-                self.log("DEPRECATED: 'chat/message' is used. Please switch to 'session/prompt'.")
-                return await self.on_session_prompt(request_id, {
-                    "sessionId": params.get("card_id", "default"),
-                    "prompt": [{"type": "text", "text": params.get("message", "")}]
+            # 1. Notify Pending
+            await self._send_notification(session_id, "tool_call", {
+                "toolCallId": tool_call_id,
+                "title": f"Executing {tool_name}",
+                "kind": "edit" if tool_name.startswith("fs/") else "call",
+                "status": "pending"
+            })
+
+            # 2. Permission Check (Standardized)
+            # For prototype, we simulate permission check for sensitive tools
+            sensitive = ["fs/write_text_file", "terminal/send_input"]
+            if tool_name in sensitive:
+                await self._send_notification(session_id, "tool_call", {
+                    "toolCallId": tool_call_id,
+                    "status": "in_progress",
+                    "title": f"Requesting permission for {tool_name}"
                 })
-            else:
-                return self.send_response(
-                    request_id, error={"code": -32601, "message": f"Method {method} not found"}
-                )
-        except asyncio.CancelledError:
-            self.log(f"Request {request_id} ({method}) was cancelled.")
-            self.send_response(request_id, error={"code": -32000, "message": "Request cancelled"})
-        except Exception as e:
-            self.log(f"Error handling {method}: {str(e)}\n{traceback.format_exc()}")
-            return self.send_response(request_id, error={"code": -32603, "message": str(e)})
+                # Standard ACP permission request
+                res = await self.send_request("session/request_permission", {
+                    "sessionId": session_id,
+                    "toolCall": {"id": tool_call_id, "name": tool_name, "arguments": json.dumps(arguments)},
+                    "options": [
+                        {"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
+                        {"optionId": "deny", "name": "Deny", "kind": "reject_once"}
+                    ]
+                })
+                outcome = res.get("outcome", {}).get("optionId")
+                if outcome != "allow":
+                    raise Exception("Permission denied")
 
-    def on_initialize(self, request_id, params):
-        client_version = params.get("protocolVersion", 1)
-        server_version = 1 
-        version = max(1, min(client_version, server_version))
-
-        self.allowed_workspaces = []
-        initial_cwd = params.get("cwd") or params.get("workspace_path")
-        if initial_cwd:
-            self.allowed_workspaces.append(os.path.abspath(initial_cwd))
-            self.log(f"Anchored workspace to: {initial_cwd}")
-
-        result = {
-            "protocolVersion": version,
-            "agentCapabilities": {
-                "prompts": {"supported": True},
-                "tools": {"list": self._get_tools_definitions()},
-                "resources": {"supported": True}
-            },
-            "clientCapabilities": {
-                "fs": {
-                    "readTextFile": True,
-                    "writeTextFile": True
-                },
-                "terminal": True
-            },
-            "agentInfo": {
-                "name": "Kanban-Brain",
-                "title": "Agent Kanban Brain",
-                "version": "2.0.0"
-            },
-            "authMethods": []
-        }
-        self.send_response(request_id, result=result)
-
-    def on_session_new(self, request_id, params):
-        session_id = str(uuid.uuid4())
-        cwd = params.get("cwd") or os.getcwd()
-        abs_cwd = os.path.abspath(cwd)
-
-        if self.allowed_workspaces and not any(abs_cwd.startswith(w) for w in self.allowed_workspaces):
-            return self.send_response(request_id, error={
-                "code": -32001, 
-                "message": f"Security Error: CWD {cwd} is outside allowed workspaces."
+            # 3. Execution
+            await self._send_notification(session_id, "tool_call", {
+                "toolCallId": tool_call_id,
+                "status": "in_progress",
+                "title": f"Running {tool_name}..."
             })
-
-        meta = params.get("_meta", {})
-        card_id = None
-        session_key = meta.get("sessionKey", "")
-        if "kanban:" in session_key:
-            card_id = session_key.split("kanban:")[-1]
-
-        project_id = None
-        if card_id:
-            card = self.db.get_card(card_id)
-            if card:
-                project_id = card.get("project_id")
-
-        self._sessions[session_id] = {
-            "card_id": card_id,
-            "project_id": project_id,
-            "history": [],
-            "cwd": abs_cwd,
-            "status": "active",
-            "updated_at": datetime.now().isoformat(),
-            "active_task": None,
-            "permission_cache": {} # N4: Initialize cache
-        }
-        
-        self.log(f"Created session {session_id} for card {card_id} in project {project_id}")
-        self.send_response(request_id, result={"sessionId": session_id})
-
-    async def on_session_load(self, request_id, params):
-        session_id = params.get("sessionId")
-        
-        if session_id not in self._sessions:
-            with self.db.get_connection() as conn:
-                cursor = conn.execute("""
-                    SELECT c.id, c.project_id, p.workspace_path 
-                    FROM cards c 
-                    JOIN projects p ON p.id = c.project_id 
-                    WHERE c.acp_session_id = ?
-                """, (session_id,))
-                row = cursor.fetchone()
-                if row:
-                    card_id, project_id, workspace_path = row[0], row[1], row[2]
-                    db_history = self.db.get_session_history(card_id)
-                    history = []
-                    for msg in db_history:
-                        m = {
-                            "role": msg["role"], 
-                            "content": msg["content"]
-                        }
-                        if msg.get("metadata"):
-                            try:
-                                m["metadata"] = json.loads(msg["metadata"])
-                            except: pass
-                        history.append(m)
-
-                    self._sessions[session_id] = {
-                        "card_id": card_id,
-                        "project_id": project_id,
-                        "history": history,
-                        "cwd": os.path.abspath(workspace_path or os.getcwd()),
-                        "status": "active",
-                        "updated_at": datetime.now().isoformat(),
-                        "active_task": None,
-                        "permission_cache": {} # N4: Initialize cache
-                    }
-                    self.log(f"Restored session {session_id} from database (Card {card_id})")
-                else:
-                    return self.send_response(request_id, error={"code": -32602, "message": "Session not found"})
-        
-        session = self._sessions[session_id]
-        history = session.get("history", [])
-        
-        for msg in history:
-            role = msg.get("role")
-            if role == "system": continue
             
-            update_type = "user_message_chunk" if role == "user" else "agent_message_chunk"
-            self.send_notification("session/update", {
-                "sessionId": session_id,
-                "update": {
-                    "sessionUpdate": update_type,
-                    "content": {"type": "text", "text": msg.get("content", "")}
-                }
+            # TODO: Link to actual bridge logic or registry
+            result = f"Mock success for {tool_name}"
+            
+            # 4. Success Notification
+            await self._send_notification(session_id, "tool_call", {
+                "toolCallId": tool_call_id,
+                "status": "completed",
+                "title": f"Completed {tool_name}"
             })
-            session["updated_at"] = datetime.now().isoformat()
-            
-        self.send_response(request_id, result=None)
-
-    def on_session_list(self, request_id):
-        sessions = [
-            {
-                "sessionId": sid, 
-                "title": data.get("card_id", "General Task"),
-                "status": data.get("status", "active"),
-                "lastUpdatedAt": data.get("updated_at")
-            }
-            for sid, data in self._sessions.items()
-        ]
-        self.send_response(request_id, result={"sessions": sessions})
-
-    def on_session_cancel(self, request_id, params):
-        session_id = params.get("sessionId")
-        if session_id in self._sessions:
-            task = self._sessions[session_id].get("active_task")
-            if task and not task.done():
-                task.cancel()
-                self.log(f"Cancelled active task for session {session_id}")
-                return self.send_response(request_id, result=None)
-        
-        return self.send_response(request_id, error={"code": -32602, "message": "No active prompt task found for session"})
-
-    async def on_session_prompt(self, request_id, params):
-        session_id = params.get("sessionId")
-        prompt_blocks = params.get("prompt", [])
-        approval_mode = params.get("approval_mode") # HIGH-3: Receive mode
-
-        if session_id not in self._sessions:
-            return self.send_response(request_id, error={"code": -32602, "message": f"Session {session_id} not found."})
-
-        session = self._sessions[session_id]
-        session["updated_at"] = datetime.now().isoformat()
-        session["approval_mode"] = approval_mode # Store in session state
-        card_id = session["card_id"]
-        project_id = session["project_id"]
-        
-        user_text = " ".join([b.get("text", "") for b in prompt_blocks if b.get("type") == "text"])
-        is_internal = user_text.startswith("[SYSTEM CONTEXT]")
-
-        history = session["history"]
-        
-        system_content = self._get_system_prompt(project_id)
-        if not history or history[0].get("role") != "system":
-            history.insert(0, {"role": "system", "content": system_content})
-        else:
-            history[0]["content"] = system_content
-
-        history.append({"role": "user", "content": user_text})
-        if card_id and not is_internal: # MED-4: Skip persistence for internal context injection
-            self.db.add_session_message(card_id, "user", user_text)
-
-        try:
-            tools = self._get_tools_definitions(project_id)
-            response = self.client.chat.completions.create(
-                model=self.model_id,
-                messages=history,
-                tools=tools,
-                tool_choice="auto",
-            )
-
-            message = response.choices[0].message
-            
-            if message.tool_calls:
-                history.append(message)
-                for tool_call in message.tool_calls:
-                    self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "running")
-                    
-                    # N6: Pass tool_call.id to _execute_tool
-                    result = await self._execute_tool(
-                        tool_call.function.name, 
-                        json.loads(tool_call.function.arguments), 
-                        project_id,
-                        session_id,
-                        tool_call.id
-                    )
-                    
-                    history.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_call.function.name,
-                        "content": result,
-                    })
-                    
-                    if card_id and not is_internal: # MED-4: Consistency
-                        self.db.add_session_message(
-                            card_id, "tool", result, 
-                            metadata={"tool_call_id": tool_call.id, "name": tool_call.function.name}
-                        )
-                    
-                    self._notify_tool_status(session_id, tool_call.id, tool_call.function.name, "completed", result)
-
-                second_response = self.client.chat.completions.create(
-                    model=self.model_id, messages=history
-                )
-                final_text = second_response.choices[0].message.content
-                history.append({"role": "assistant", "content": final_text})
-            else:
-                final_text = message.content
-                history.append({"role": "assistant", "content": final_text})
-
-            if card_id and not is_internal: # MED-4: Skip persistence for internal context injection
-                self.db.add_session_message(card_id, "assistant", final_text or "")
-
-            self.send_response(request_id, result={
-                "content": [{"type": "text", "text": final_text}],
-                "stopReason": "end_turn"
+            return result
+        except Exception as e:
+            await self._send_notification(session_id, "tool_call", {
+                "toolCallId": tool_call_id,
+                "status": "failed",
+                "title": f"Error: {str(e)}"
             })
+            return f"Error: {str(e)}"
 
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            self.log(f"AI Completion Error: {str(e)}")
-            self.send_response(request_id, error={"code": -32000, "message": str(e)})
-
-    def _notify_tool_status(self, session_id, tool_id, name, status, output=None):
-        params = {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": "tool_call",
-                "tool_call": {
-                    "id": tool_id,
-                    "name": name,
-                    "status": status
-                }
-            }
-        }
-        if output:
-            params["update"]["tool_call"]["output"] = output[:500]
-        self.send_notification("session/update", params)
-
-    async def _execute_tool(self, name: str, args: Dict[str, Any], project_id: Optional[str], session_id: str, tool_call_id: str) -> str:
-        """Executes a tool, checking permissions and project scope."""
-        if not project_id and name in ["create_card", "move_card", "update_card", "delete_card", "search_cards"]:
-            return "Error: No project associated with this session. Please initialize or link a project card first."
-
-        # N4 & N6: Permission Check with Cache and Original ID
-        sensitive_tools = ["delete_card", "update_card", "move_card"]
-        if name in sensitive_tools:
-            session = self._sessions.get(session_id)
-            if session:
-                # HIGH-3: Skip if approval_mode is yolo
-                if session.get("approval_mode") == "yolo":
-                    self.log(f"YOLO MODE: Auto-allowing tool {name}")
-                else:
-                    cache = session.get("permission_cache", {})
-                    cached_decision = cache.get(name)
-                    
-                    # Check for permanent decisions
-                    if cached_decision:
-                        if cached_decision.get("option") == "allow_always":
-                            self.log(f"Using cached 'allow_always' for {name}")
-                        elif cached_decision.get("option") == "reject_always":
-                            return f"Error: Permission permanently denied by user for tool {name}."
-                        else:
-                            # Clear 'once' decisions for next run
-                            cache.pop(name, None)
-                            # Fall through to request
-                    
-                    # Request permission if no permanent decision
-                    if not cached_decision or cached_decision.get("option") not in ["allow_always", "reject_always"]:
-                        self.log(f"Requesting permission for sensitive tool: {name} (ID: {tool_call_id})")
-                        try:
-                            perm_res = await self.send_request("session/request_permission", {
-                                "sessionId": session_id,
-                                "toolCall": {
-                                    "id": tool_call_id, # N6: Use original tool_call_id
-                                    "name": name,
-                                    "arguments": json.dumps(args)
-                                }
-                            })
-                            
-                            if not perm_res or not perm_res.get("allow"):
-                                # Store reject_always if selected
-                                if perm_res and perm_res.get("option") == "reject_always":
-                                    cache[name] = perm_res
-                                return f"Error: Permission denied by user for tool {name}."
-                            
-                            # Store allow_always if selected
-                            if perm_res.get("option") == "allow_always":
-                                cache[name] = perm_res
-                                
-                        except Exception as pe:
-                            return f"Error: Permission request failed: {str(pe)}"
-
-        try:
-            if "card_id" in args:
-                target_card = self.db.get_card(args["card_id"])
-                if project_id and target_card and target_card.get("project_id") != project_id:
-                    return f"Error: Card {args['card_id']} does not belong to the current project."
-
-            if name == "create_card":
-                column_id = self._get_column_id_by_name(args["column_name"], project_id)
-                if not column_id: return f"Error: Column '{args['column_name']}' not found"
-                card_id = self.db.create_card(column_id, args["title"], args.get("description", ""))
-                return f"Card created with ID: {card_id}"
-            
-            elif name == "move_card":
-                card_id = args["card_id"]
-                target_col_name = args["target_column_name"]
-                
-                # Capture current state for transition context
-                card = self.db.get_card(card_id)
-                source_col_name = "Unknown"
-                if card:
-                    source_col = self.db.get_column(card["column_id"])
-                    source_col_name = source_col["name"] if source_col else "Unknown"
-
-                target_col_id = self._get_column_id_by_name(target_col_name, project_id)
-                if not target_col_id: return f"Error: Column '{target_col_name}' not found"
-                
-                self.db.move_card(card_id, target_col_id)
-                
-                # Trigger Summary Generation (Brain context)
-                from api.tasks import generate_card_summary_task
-                async def summary_task_with_wrap():
-                    try:
-                        await generate_card_summary_task(card_id)
-                        # Prepend transition context manually since we have it here
-                        summary_obj = self.db.get_summary(card_id)
-                        if summary_obj:
-                            wrapped = f"Transition: {source_col_name} -> {target_col_name}\nProgress: {summary_obj['summary']}"
-                            self.db.update_card_summary(card_id, wrapped)
-                    except Exception as se:
-                        self.log(f"Brain failed to trigger summary: {se}")
-
-                asyncio.create_task(summary_task_with_wrap())
-                return f"Card {card_id} moved to '{target_col_name}'"
-            
-            elif name == "update_card":
-                self.db.update_card(args["card_id"], args.get("title"), args.get("description"))
-                return f"Card {args['card_id']} updated"
-            
-            elif name == "delete_card":
-                self.db.delete_card(args["card_id"])
-                return f"Card {args['card_id']} deleted"
-            
-            elif name == "search_cards":
-                results = self.db.search_cards_fts(args["query"], project_id)
-                return json.dumps(results, ensure_ascii=False)
-            
-            return f"Error: Tool {name} not implemented."
-        except Exception as e:
-            return f"Error executing tool {name}: {str(e)}"
-
-    def _get_tools_definitions(self, project_id: str = None):
-        column_names = ["Todo", "In Progress", "Done"]
-        if project_id:
-            try:
-                cols = self.db.get_columns(project_id)
-                if cols: column_names = [c["name"] for c in cols]
-            except: pass
-
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "create_card",
-                    "description": "Create a new kanban card.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "column_name": {"type": "string", "enum": column_names},
-                            "title": {"type": "string"},
-                            "description": {"type": "string"}
-                        },
-                        "required": ["column_name", "title"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "move_card",
-                    "description": "Move a card to another column.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "card_id": {"type": "string"},
-                            "target_column_name": {"type": "string", "enum": column_names}
-                        },
-                        "required": ["card_id", "target_column_name"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "update_card",
-                    "description": "Update card title or description.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "card_id": {"type": "string"},
-                            "title": {"type": "string"},
-                            "description": {"type": "string"}
-                        },
-                        "required": ["card_id"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "delete_card",
-                    "description": "Delete a card.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"card_id": {"type": "string"}},
-                        "required": ["card_id"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_cards",
-                    "description": "Search cards.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"query": {"type": "string"}},
-                        "required": ["query"]
-                    }
-                }
-            }
-        ]
-
-    def _get_system_prompt(self, project_id: str = None):
-        status_context = "No active project context."
-        if project_id:
-            project = self.db.get_project(project_id)
-            if project:
-                status_context = f"Project: {project['name']}\nWorking Dir: {project.get('workspace_path')}"
-
-        return (
-            "You are an expert Kanban Project Manager AI. "
-            "You manage tasks using a Kanban board. Use tools to sync your actions with the board. "
-            f"Current Context:\n{status_context}"
-        )
-
-    def _get_column_id_by_name(self, name: str, project_id: str) -> Optional[str]:
-        if not project_id: return None
-        cols = self.db.get_columns(project_id)
-        for c in cols:
-            if c["name"] == name: return c["id"]
-        return None
-
-    async def run(self):
-        self.log("ACP Server (Brain) started.")
-        loop = asyncio.get_running_loop()
-        while self.running:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
-            if not line: break
-            try:
-                message = json.loads(line)
-                await self.handle_message(message)
-            except Exception as e:
-                self.log(f"RPC Process Error: {e}")
-
-if __name__ == "__main__":
-    server = ACPServer()
-    asyncio.run(server.run())
+    async def on_session_prompt(self, session_id: str, prompt: List[Dict]):
+        # Simulated logic for tool calling demonstration
+        # In real implementation, this interacts with the LLM
+        pass
