@@ -7,6 +7,8 @@ import sys
 import argparse
 import time
 import signal
+import uuid
+from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -69,6 +71,9 @@ class UnifiedBridge:
             logger.info(f"Generated new ECDH key pair for user: {self.user_id}")
 
         self.e2ee = E2EEManager(session_key_hex=session_key)
+        
+        # N3: Track requests sent to Flutter App
+        self._pending_app_responses: Dict[str, asyncio.Future] = {}
 
     async def stop(self):
         """Gracefully stop the bridge and all child processes."""
@@ -167,6 +172,21 @@ class UnifiedBridge:
             else "relay"
         )
         try:
+            # Handle Response from App (N3: Link closure)
+            try:
+                raw_data = json.loads(message)
+                if "id" in raw_data and ("result" in raw_data or "error" in raw_data) and "method" not in raw_data:
+                    resp_id = raw_data["id"]
+                    if resp_id in self._pending_app_responses:
+                        logger.info(f"Received Response from App for internal request {resp_id}")
+                        future = self._pending_app_responses.pop(resp_id)
+                        if "error" in raw_data:
+                            future.set_exception(Exception(raw_data["error"].get("message", "App error")))
+                        else:
+                            future.set_result(raw_data.get("result"))
+                        return
+            except: pass
+
             data = json.loads(message)
             req_id = data.get("id")
             set_request_id(req_id if isinstance(req_id, str) else None)
@@ -193,8 +213,25 @@ class UnifiedBridge:
                     return
 
             # --- ROUTE TO DISPATCHER ---
-            async def on_output(output_data):
-                await self._send_acp_response(None, output_data, source_ws, original_was_e2ee, is_raw=True)
+            async def on_output(output_data, is_request=False):
+                if not is_request:
+                    await self._send_acp_response(None, output_data, source_ws, original_was_e2ee, is_raw=True)
+                else:
+                    # Send Request to App and WAIT for response
+                    internal_req_id = output_data.get("id") or str(uuid.uuid4())
+                    output_data["id"] = internal_req_id
+                    
+                    future = asyncio.get_running_loop().create_future()
+                    self._pending_app_responses[internal_req_id] = future
+                    
+                    logger.info(f"Sending Nested Request to App: {output_data.get('method')} (id: {internal_req_id})")
+                    await self._send_acp_response(None, output_data, source_ws, original_was_e2ee, is_raw=True)
+                    
+                    try:
+                        return await asyncio.wait_for(future, timeout=60.0) 
+                    except asyncio.TimeoutError:
+                        self._pending_app_responses.pop(internal_req_id, None)
+                        return {"allow": False, "error": "Timeout waiting for user approval"}
 
             response = await self.dispatcher.dispatch(data, on_output=on_output)
             
