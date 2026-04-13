@@ -1,4 +1,5 @@
 import json
+import traceback
 from functools import wraps
 from typing import Optional
 from fastapi import HTTPException, Request
@@ -103,6 +104,12 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 
 async def general_exception_handler(request: Request, exc: Exception):
+    import sys
+    tb = traceback.format_exc()
+    msg = f"\n❌ Unhandled exception for {request.method} {request.url.path}:\n{tb}\n"
+    print(msg, file=sys.stderr)
+    print(msg)  # Also print to stdout for tee to capture
+    
     return JSONResponse(
         status_code=500,
         content={

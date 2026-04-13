@@ -480,6 +480,7 @@ class KanbanDB:
     def get_project_agent_status(self, project_id: str) -> Optional[Dict]: return self.projects.get_project_agent_status(project_id)
 
     def get_columns(self, project_id: str) -> List[Dict]: return self.columns.get_by_project(project_id)
+    def get_column(self, column_id: str) -> Optional[Dict]: return self.columns.get_by_id(column_id)
     def create_column(self, project_id: str, name: str, position: int = None, color: str = "#808080") -> str: return self.columns.create(project_id, name, position, color)
     def update_column(self, column_id: str, name: str = None, color: str = None): return self.columns.update(column_id, name, color)
     def delete_column(self, column_id: str, move_to_column_id: str = None): return self.columns.delete(column_id, move_to_column_id)
@@ -556,6 +557,10 @@ class KanbanDB:
         conn = self._pool.get()
         try:
             yield conn
+            conn.commit()  # Auto-commit on success
+        except Exception:
+            conn.rollback()  # Rollback on error
+            raise
         finally:
             self._pool.put(conn)
 

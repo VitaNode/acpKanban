@@ -71,26 +71,48 @@ class UnifiedBridge:
             async for message in websocket:
                 try:
                     data = json.loads(message)
-                    self.logger.debug(f"Received: {data.get('method', 'N/A')}")
-                    
+                    self.logger.info(f"Received: {data.get('method', 'N/A')} (id: {data.get('id')})")
+
                     # Handle E2EE pairing request
                     if data.get('method') == 'pairing/exchange':
                         await self._handle_pairing_exchange(websocket, data)
                         continue
-                    
+
                     # Handle E2EE encrypted messages
                     if data.get('method') == 'e2ee/envelope':
                         secret = self._client_e2ee_secrets.get(websocket)
                         if not secret:
                             self.logger.warning("Received encrypted message but no shared secret (pairing not done)")
                             continue
-                        
+
                         # Decrypt
                         inner_data = self._decrypt_message(secret, data.get('params', {}))
                         if inner_data:
-                            self.logger.debug(f"Decrypted: {inner_data.get('method', 'N/A')}")
-                            # Process RPC
-                            result = await self.handle_rpc(inner_data, lambda n: self._send_response(websocket, n, secret))
+                            self.logger.info(f"Decrypted: {inner_data.get('method', 'N/A')} (id: {inner_data.get('id')})")
+                            # Process RPC and send encrypted response
+                            request_id = inner_data.get('id')
+                            
+                            async def encrypted_output(n):
+                                self._send_response(websocket, n, secret)
+                            
+                            result = await self.handle_rpc(inner_data, encrypted_output)
+                            
+                            # If handle_rpc returned a result (for request-response), send it back
+                            if result and request_id is not None:
+                                # Check if it's an error
+                                if isinstance(result, dict) and "error" in result:
+                                    response = {
+                                        "jsonrpc": "2.0",
+                                        "id": request_id,
+                                        "error": result["error"]
+                                    }
+                                else:
+                                    response = {
+                                        "jsonrpc": "2.0",
+                                        "id": request_id,
+                                        "result": result
+                                    }
+                                self._send_response(websocket, response, secret)
                             continue
                         else:
                             self.logger.error("Decryption failed")
