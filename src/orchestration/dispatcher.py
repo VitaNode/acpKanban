@@ -60,6 +60,7 @@ class MessageDispatcher:
         self.tasks = TaskRegistry()
         self._setup_local_commands()
         self._engine_creation_locks: Dict[str, asyncio.Lock] = {}
+        self._internal_sessions: Set[str] = set() # Track internal prompt sessions
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -113,21 +114,26 @@ class MessageDispatcher:
 
         # 2. Route to SessionEngine for Conversation
         card_id = params.get("card_id")
+        session_id = params.get("sessionId")
+        is_internal = session_id in self._internal_sessions
+
         if card_id and method in ("chat/message", "session/prompt"):
             # P0-1 FIX: Save user message immediately
             prompt_text = params.get("message") or params.get("prompt")
             if isinstance(prompt_text, list):
                 prompt_text = " ".join([p.get("text", "") for p in prompt_text if p.get("type") == "text"])
             
-            await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text)
-            
-            # Record timeline for user message
-            card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
-            if card and card.get("project_id"):
-                await asyncio.to_thread(
-                    self.db.projects.add_timeline_event, 
-                    card["project_id"], card_id, "user_message", f"[user] {prompt_text[:100]}"
-                )
+            if not is_internal:
+                await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text)
+                
+                # Record timeline for user message
+                card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+                if card and card.get("project_id"):
+                    await asyncio.to_thread(
+                        self.db.projects.add_timeline_event, 
+                        card["project_id"], card_id, "user_message", f"[user] {prompt_text[:100]}"
+                    )
+
 
             # Background the long-running prompt
             task_key = f"{card_id}_{request_id}"
@@ -195,6 +201,10 @@ class MessageDispatcher:
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
         task_key = f"{card_id}_{request_id}"
+        session_id = params.get("sessionId")
+        # MED-4: Detect internal session to avoid history pollution
+        is_internal = session_id in self._internal_sessions
+
         try:
             # Local nested request handler
             async def handle_nested_request(inner_method, inner_params):
@@ -223,6 +233,11 @@ class MessageDispatcher:
                 if "params" in n:
                     n["params"]["card_id"] = card_id
                 
+                # MED-4: Skip persistence for internal prompts (SYSTEM CONTEXT injection)
+                if is_internal:
+                    await on_output(n)
+                    return
+
                 # P0-1 FIX: Persist ACP notifications
                 update = n.get("params", {}).get("update", {})
                 update_type = update.get("sessionUpdate")
@@ -292,6 +307,11 @@ class MessageDispatcher:
 
     async def _inject_context_async(self, card_id: str, engine: SessionEngine):
         """Background task to inject system context."""
+        # MED-4: Generate a session-scoped internal ID
+        import uuid
+        internal_id = f"internal-{uuid.uuid4()}"
+        self._internal_sessions.add(internal_id)
+        
         try:
             # 1. Quick check if engine is already in error state
             if not engine.is_alive or engine.state == SessionState.ERROR:
@@ -309,11 +329,16 @@ class MessageDispatcher:
             async def silent_output(n): pass 
             await engine.process_prompt(
                 "session/prompt", # Standardized method
-                {"message": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context and wait for user input."},
+                {
+                    "sessionId": internal_id, # Link to internal tracking
+                    "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge this context."}]
+                },
                 on_notification=silent_output
             )
         except Exception as ce:
             logger.warning(f"Background context injection failed: {ce}")
+        finally:
+            self._internal_sessions.discard(internal_id)
 
     async def _handle_status_cmd(self, params, request_id):
         engine_stats = {cid: eng.state for cid, eng in self.engines.items() if eng.is_alive}

@@ -43,17 +43,24 @@ class ContextBuilder:
 
         # --- Level 2: Related Context (Summaries) ---
         if project_id:
-            # MED-1 Strategy: Limit to latest 5 to avoid context bloat
+            # MED-1/EXISTING: Limit to latest 5 to avoid context bloat
+            # In the future, this will use db.cards.search_cards_semantic
             summaries = self.db.summaries.get_all_for_project(project_id)
             if summaries:
-                # Sort by update time desc and take 5
-                sorted_summaries = sorted(summaries, key=lambda x: x.get('updated_at', ''), reverse=True)[:5]
-                summaries_text = "\n".join([
-                    f"### Card: {s['title']}\nSummary: {s['summary']}"
-                    for s in sorted_summaries if s['card_id'] != card_id
-                ])
-                if summaries_text:
-                    sections.append(f"## Knowledge Base (Related Cards)\n{summaries_text}")
+                # Sort by updated_at desc (if exists) and deduplicate by card_id
+                unique_summaries = {}
+                for s in sorted(summaries, key=lambda x: x.get('updated_at', ''), reverse=True):
+                    if s['card_id'] != card_id and s['card_id'] not in unique_summaries:
+                        unique_summaries[s['card_id']] = s
+                
+                top_summaries = list(unique_summaries.values())[:5]
+                
+                if top_summaries:
+                    summaries_text = "\n".join([
+                        f"### Related Card: {s['title']}\nStatus Summary: {s['summary']}"
+                        for s in top_summaries
+                    ])
+                    sections.append(f"## Contextual Knowledge (Related Cards)\n{summaries_text}")
 
         # --- Level 3: Focus Context (Current Card & Stage) ---
         sections.append(f"## Active Card: {card['title']}")

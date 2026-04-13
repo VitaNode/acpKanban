@@ -386,9 +386,10 @@ class SessionRepository(BaseRepository):
             
             if row:
                 new_content = row[1] + content_chunk
+                # MED-NEW: Do NOT update created_at during append to keep original start time
                 conn.execute(
-                    "UPDATE card_sessions SET content = ?, is_complete = ?, created_at = ? WHERE id = ?",
-                    (new_content, 1 if is_complete else 0, now, row[0])
+                    "UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?",
+                    (new_content, 1 if is_complete else 0, row[0])
                 )
             else:
                 conn.execute(
@@ -400,24 +401,27 @@ class SessionRepository(BaseRepository):
         """Finds a message by metadata and updates its content/status."""
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # This is complex in SQLite with JSON, so we fetch and filter
+            # MED-NEW: Filter by is_complete=0 to avoid updating already finished tool calls
             cursor = conn.execute(
-                "SELECT id, metadata FROM card_sessions WHERE card_id = ? AND metadata IS NOT NULL ORDER BY created_at DESC LIMIT 50",
+                "SELECT id, metadata FROM card_sessions WHERE card_id = ? AND metadata IS NOT NULL AND is_complete = 0 ORDER BY created_at DESC LIMIT 50",
                 (card_id,)
             )
             rows = cursor.fetchall()
             target_id = None
             for row in rows:
+                meta_str = row[1]
+                if not meta_str: continue
                 try:
-                    meta = json.loads(row[1])
-                    if meta.get(meta_key) == meta_value:
+                    meta = json.loads(meta_str)
+                    if isinstance(meta, dict) and meta.get(meta_key) == meta_value:
                         target_id = row[0]
                         break
-                except: continue
+                except (json.JSONDecodeError, TypeError): 
+                    continue
             
             if target_id:
-                sql = "UPDATE card_sessions SET is_complete = ?, created_at = ?"
-                params = [1 if is_complete else 0, now]
+                sql = "UPDATE card_sessions SET is_complete = ?"
+                params = [1 if is_complete else 0]
                 if new_content is not None:
                     sql += ", content = ?"
                     params.append(new_content)
