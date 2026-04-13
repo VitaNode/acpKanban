@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+from datetime import datetime
 from src.persistence.database import KanbanDB
 from src.persistence.embedding import embedding_service
 import json
@@ -36,6 +37,9 @@ def generate_card_summary_task(card_id: str, max_retries: int = 3):
             if summary_obj:
                 summary = summary_obj['summary']
                 logger.info(f"Summary already exists for card {card_id}")
+                
+                # Ensure card table also has it
+                db.cards.update_card_summary(card_id, summary)
                 break # Move to embedding phase
             
             # 4. Generate summary using LLM
@@ -49,6 +53,9 @@ def generate_card_summary_task(card_id: str, max_retries: int = 3):
             
             # 5. Save summary to database
             db.save_summary(card_id, summary)
+            # HIGH-4: Also update the card table's fast-access summary field
+            db.cards.update_card_summary(card_id, summary)
+            
             logger.info(f"Summary generated and saved for card {card_id}")
             break # Success, move to embedding phase
             

@@ -490,6 +490,11 @@ class KanbanDB:
     def search_cards_fts(self, query: str, project_id: str = None) -> List[Dict]: return self.cards.search_cards_fts(query, project_id)
     def update_card_session_id(self, card_id: str, session_id: str): return self.cards.update_card_session_id(card_id, session_id)
     def update_card_provider(self, card_id: str, provider_id: str): return self.cards.update_provider(card_id, provider_id)
+    def update_card_summary(self, card_id: str, summary: str):
+        now = datetime.now().isoformat()
+        with self.get_connection() as conn:
+            conn.execute("UPDATE cards SET last_summary = ?, updated_at = ? WHERE id = ?", (summary, now, card_id))
+    
     def complete_card(self, card_id: str): return self.cards.complete_card(card_id)
     def uncomplete_card(self, card_id: str): return self.cards.uncomplete_card(card_id)
     def search_cards_semantic(self, embedding_vector: List[float], project_id: str = None, limit: int = 5) -> List[Dict]: return self.cards.search_cards_semantic(embedding_vector, project_id, limit)

@@ -135,63 +135,21 @@ class SessionEngine:
                 if self.state != SessionState.ERROR:
                     self.state = SessionState.IDLE
 
+from api.tasks import generate_card_summary_task
+
 class SummaryService:
     """
-    Generates concise summaries of card activities for context hand-off.
-    Used during column moves and card completion.
+    Unified summary service that delegates to api.tasks for robustness.
+    Ensures both summaries and embeddings are generated consistently.
     """
     def __init__(self, db: KanbanDB):
         self.db = db
-        self.api_key = os.getenv("KANBAN_API_KEY")
-        self.base_url = os.getenv("KANBAN_BASE_URL", "https://api.openai.com/v1")
-        self.model_id = os.getenv("KANBAN_MODEL_ID", "gpt-4o-mini")
-        
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
 
-    async def generate_and_save_summary(self, card_id: str) -> Optional[str]:
+    async def generate_and_save_summary(self, card_id: str):
         """
-        Retrieves card history, generates a summary, and saves it to DB.
+        Triggers the unified summary task in a thread.
         """
-        # 1. Load history (sync repository call in thread)
-        history = await asyncio.to_thread(self.db.sessions.get_history, card_id, limit=100)
-        if not history:
-            return None
+        # Run the robust task from api.tasks in a worker thread
+        await asyncio.to_thread(generate_card_summary_task, card_id)
+        logger.info(f"SummaryService triggered unified task for card {card_id}")
 
-        formatted_history = []
-        for msg in history:
-            role = msg["role"]
-            content = msg["content"]
-            if role == "system": continue
-            formatted_history.append(f"{role.upper()}: {content[:500]}")
-
-        history_text = "\n".join(formatted_history)
-        
-        try:
-            prompt = (
-                "Summarize the technical progress and current status of this task. "
-                "Be concise (max 200 words). Focus on results."
-            )
-            
-            response = await asyncio.to_thread(
-                self.client.chat.completions.create,
-                model=self.model_id,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": f"History:\n{history_text}"}
-                ],
-                max_tokens=300
-            )
-            
-            summary = response.choices[0].message.content
-            await asyncio.to_thread(self.db.summaries.upsert, card_id, summary)
-            # Update last_summary on the card
-            with self.db.get_connection() as conn:
-                conn.execute("UPDATE cards SET last_summary = ?, updated_at = ? WHERE id = ?", (summary, datetime.now().isoformat(), card_id))
-            
-            return summary
-        except Exception as e:
-            logger.error(f"Summary failed: {e}")
-            return None
