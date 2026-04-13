@@ -31,11 +31,6 @@ class ConfigOptionsBar extends StatelessWidget {
   }
 
   Widget _buildOptionChip(BuildContext context, ConfigOption option) {
-    final selectedValue = option.options.firstWhere(
-      (v) => v.value == option.value,
-      orElse: () => option.options.first,
-    );
-
     return InkWell(
       onTap: () => _showOptionPicker(context, option),
       borderRadius: BorderRadius.circular(8.0),
@@ -44,10 +39,10 @@ class ConfigOptionsBar extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(_getIconForOption(option.name), size: 16, color: const Color(0xFF008080)),
+            Icon(_getIconForOption(option.id), size: 16, color: const Color(0xFF008080)),
             const SizedBox(width: 8.0),
             Text(
-              selectedValue.label,
+              option.currentValue,
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -76,7 +71,7 @@ class ConfigOptionsBar extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
-                  '选择 ${option.label}',
+                  '选择 ${option.name}',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -87,16 +82,15 @@ class ConfigOptionsBar extends StatelessWidget {
                   itemCount: option.options.length,
                   itemBuilder: (context, index) {
                     final val = option.options[index];
-                    final isSelected = val.value == option.value;
+                    final isSelected = val == option.currentValue;
                     return ListTile(
-                      title: Text(val.label, style: TextStyle(
+                      title: Text(val, style: TextStyle(
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         color: isSelected ? const Color(0xFF008080) : null,
                       )),
-                      subtitle: val.description != null ? Text(val.description!) : null,
                       trailing: isSelected ? const Icon(Icons.check, color: Color(0xFF008080)) : null,
                       onTap: () {
-                        SessionWebSocketService().setConfigOption(option.name, val.value);
+                        SessionWebSocketService().setConfigOption(option.id, val);
                         Navigator.pop(context);
                       },
                     );
@@ -110,10 +104,10 @@ class ConfigOptionsBar extends StatelessWidget {
     );
   }
 
-  IconData _getIconForOption(String name) {
-    if (name.contains('model')) return Icons.smart_toy;
-    if (name.contains('mode')) return Icons.security;
-    if (name.contains('thought')) return Icons.psychology;
+  IconData _getIconForOption(String id) {
+    if (id.contains('model')) return Icons.smart_toy;
+    if (id.contains('mode')) return Icons.security;
+    if (id.contains('thought')) return Icons.psychology;
     return Icons.settings;
   }
 }
