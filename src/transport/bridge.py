@@ -4,8 +4,14 @@ import logging
 import uuid
 import argparse
 import sys
+import os
+import base64
 import websockets
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, Set
+import hashlib
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from src.orchestration.dispatcher import MessageDispatcher
 from src.persistence.database import KanbanDB
 from src.transport.bus import bus
@@ -20,7 +26,12 @@ class UnifiedBridge:
         self.db = KanbanDB()
         self.dispatcher = MessageDispatcher(self.db)
         self._pending_ui_requests: Dict[str, asyncio.Future] = {}
-        self._local_clients = set()
+        self._local_clients: Set[websockets.WebSocketServerProtocol] = set()
+        self._client_e2ee_secrets: Dict[websockets.WebSocketServerProtocol, bytes] = {}
+        
+        # Generate Bridge X25519 Key Pair for E2EE
+        self._bridge_private_key = X25519PrivateKey.generate()
+        self._bridge_public_key_hex = self._bridge_private_key.public_key().public_bytes().hex()
 
     async def start(self):
         """Starts both local and relay servers."""
@@ -31,7 +42,6 @@ class UnifiedBridge:
             asyncio.create_task(self._run_relay_loop())
 
         # 2. Start Local WebSocket Server (port 8766) for direct tool access
-        # Note: websockets.serve() returns a Server object, not a coroutine
         server = await websockets.serve(
             self._handle_local_client,
             "0.0.0.0",
@@ -39,7 +49,7 @@ class UnifiedBridge:
             ping_interval=20,
             ping_timeout=20,
         )
-        self.logger.info("Local tool bridge started on ws://0.0.0.0:8766")
+        self.logger.info(f"Local tool bridge started on ws://0.0.0.0:8766 (PubKey: {self._bridge_public_key_hex[:16]}...)")
         
         # Keep the server running
         try:
@@ -63,7 +73,26 @@ class UnifiedBridge:
                         await self._handle_pairing_exchange(websocket, data)
                         continue
                     
-                    await self.handle_rpc(data, lambda n: websocket.send(json.dumps(n)))
+                    # Handle E2EE encrypted messages
+                    if data.get('method') == 'e2ee/envelope':
+                        secret = self._client_e2ee_secrets.get(websocket)
+                        if not secret:
+                            self.logger.warning("Received encrypted message but no shared secret (pairing not done)")
+                            continue
+                        
+                        # Decrypt
+                        inner_data = self._decrypt_message(secret, data.get('params', {}))
+                        if inner_data:
+                            self.logger.debug(f"Decrypted: {inner_data.get('method', 'N/A')}")
+                            # Process RPC
+                            result = await self.handle_rpc(inner_data, lambda n: self._send_response(websocket, n, secret))
+                            continue
+                        else:
+                            self.logger.error("Decryption failed")
+                            continue
+
+                    # Handle unencrypted RPC
+                    await self.handle_rpc(data, lambda n: self._send_response(websocket, n, None))
                 except json.JSONDecodeError:
                     self.logger.warning(f"Invalid JSON: {message[:100]}")
                 except Exception as e:
@@ -74,28 +103,100 @@ class UnifiedBridge:
             self.logger.error(f"Client error: {e}", exc_info=True)
         finally:
             self._local_clients.discard(websocket)
+            self._client_e2ee_secrets.pop(websocket, None)
             self.logger.info(f"Client removed: {websocket.remote_address}")
 
     async def _handle_pairing_exchange(self, websocket, data):
-        """Handle E2EE pairing/exchange request."""
+        """Handle E2EE pairing/exchange request with real crypto."""
         request_id = data.get('id')
         params = data.get('params', {})
-        client_public_key = params.get('publicKey')
+        client_public_key_hex = params.get('publicKey')
         
-        self.logger.info(f"Pairing request received, client public key: {client_public_key[:20]}...")
+        if not client_public_key_hex:
+            self.logger.error("Pairing request missing publicKey")
+            return
         
-        # For now, accept pairing without generating our own key
-        # In production, we would generate our own key pair here
-        response = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "publicKey": "bridge-public-key-placeholder"
+        self.logger.info(f"Pairing request from {websocket.remote_address}, client public key: {client_public_key_hex[:20]}...")
+        
+        try:
+            # Derive shared secret (ECDH)
+            client_public_key_bytes = bytes.fromhex(client_public_key_hex)
+            client_public_key = X25519PublicKey.from_public_bytes(client_public_key_bytes)
+            shared_secret = self._bridge_private_key.exchange(client_public_key)
+            
+            # Store secret for this websocket
+            self._client_e2ee_secrets[websocket] = shared_secret
+            
+            # Send response with Bridge public key
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "publicKey": self._bridge_public_key_hex
+                }
             }
-        }
+            
+            # Send unencrypted (pairing response is plaintext)
+            await websocket.send(json.dumps(response))
+            
+            self.logger.info("Pairing response sent (unencrypted)")
+            
+        except Exception as e:
+            self.logger.error(f"Pairing exchange failed: {e}", exc_info=True)
+            await websocket.send(json.dumps({
+                "jsonrpc": "2.0", "id": request_id,
+                "error": {"code": -32603, "message": f"Pairing failed: {str(e)}"}
+            }))
+
+    def _decrypt_message(self, shared_secret: bytes, envelope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Decrypt an E2EE envelope."""
+        try:
+            iv = bytes.fromhex(envelope['iv'])
+            ciphertext = bytes.fromhex(envelope['ciphertext'])
+            tag = bytes.fromhex(envelope['authTag'])
+            
+            # AES-GCM key derivation (SHA256 of shared secret)
+            key = hashlib.sha256(shared_secret).digest()
+            
+            aesgcm = AESGCM(key)
+            # ciphertext + tag
+            ct_with_tag = ciphertext + tag
+            plaintext = aesgcm.decrypt(iv, ct_with_tag, None)
+            
+            return json.loads(plaintext.decode('utf-8'))
+        except Exception as e:
+            self.logger.error(f"Decryption failed: {e}")
+            return None
+
+    def _send_response(self, websocket, data: Any, shared_secret: Optional[bytes]):
+        """Send response, encrypting if shared secret exists."""
+        if shared_secret and isinstance(data, dict):
+            # Encrypt
+            try:
+                key = hashlib.sha256(shared_secret).digest()
+                aesgcm = AESGCM(key)
+                
+                iv = os.urandom(12)
+                plaintext = json.dumps(data).encode('utf-8')
+                ct_with_tag = aesgcm.encrypt(iv, plaintext, None)
+                
+                ciphertext = ct_with_tag[:-16]
+                tag = ct_with_tag[-16:]
+                
+                envelope = {
+                    "method": "e2ee/envelope",
+                    "params": {
+                        "iv": iv.hex(),
+                        "ciphertext": ciphertext.hex(),
+                        "authTag": tag.hex()
+                    }
+                }
+                data = envelope
+            except Exception as e:
+                self.logger.error(f"Encryption failed: {e}")
         
-        await websocket.send(json.dumps(response))
-        self.logger.info("Pairing response sent")
+        future = websocket.send(json.dumps(data))
+        asyncio.ensure_future(future)
 
     async def _run_relay_loop(self):
         headers = {"X-User-ID": self.user_id}
