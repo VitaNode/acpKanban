@@ -1,6 +1,9 @@
 import asyncio
 import json
-from typing import Dict, Any, Optional, Callable
+import uuid
+import re
+from pathlib import Path
+from typing import Dict, Any, Optional, Callable, Set
 from src.logic.engine import SessionEngine, SessionState, SummaryService
 from src.persistence.database import KanbanDB
 from src.logic.context import ContextBuilder
@@ -115,11 +118,15 @@ class MessageDispatcher:
                 logger.info(f"Detected file references in prompt: {file_refs}")
                 if "prompt" not in params:
                     params["prompt"] = [{"type": "text", "text": prompt_text}]
-                
-                workspace_root = config.get("system.workspace_root")
+                workspace_root = Path(config.get("system.workspace_root")).resolve()
                 for ref in file_refs:
                     try:
-                        ref_path = Path(workspace_root) / ref
+                        ref_path = (workspace_root / ref).resolve()
+                        # MED-3: Safety check - ensure resolved path is inside workspace
+                        if workspace_root not in ref_path.parents and workspace_root != ref_path:
+                            logger.warning(f"Security: Blocked resource access outside workspace: {ref}")
+                            continue
+
                         if ref_path.exists() and ref_path.is_file():
                             with open(ref_path, 'r', encoding='utf-8') as f:
                                 content = f.read()
@@ -236,10 +243,7 @@ class MessageDispatcher:
             # Local nested request handler
             async def handle_nested_request(inner_method, inner_params):
                 self.logger.info(f"Forwarding nested request: {inner_method} for card {card_id}")
-                # We need to send this to the UI and wait for result
-                # The 'on_output' callback here is usually used for notifications, 
-                # but for requests we need a blocking wait.
-                # This requires bridge support.
+                
                 if inner_method == "session/request_permission":
                     # Add card_id to params so UI knows which card is asking
                     inner_params["card_id"] = card_id
@@ -248,7 +252,13 @@ class MessageDispatcher:
                         "method": inner_method,
                         "params": inner_params
                     }, is_request=True)
-                return {"error": "Method not supported"}
+                
+                # CRIT-1 FIX: Forward all other requests (fs/*, terminal/*) to the bridge
+                return await on_output({
+                    "jsonrpc": "2.0",
+                    "method": inner_method,
+                    "params": inner_params
+                }, is_request=True)
 
             engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request)            
             # P1-2 FIX: Non-blocking context injection
