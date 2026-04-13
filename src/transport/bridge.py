@@ -57,17 +57,45 @@ class UnifiedBridge:
                 try:
                     data = json.loads(message)
                     self.logger.debug(f"Received: {data.get('method', 'N/A')}")
+                    
+                    # Handle E2EE pairing request
+                    if data.get('method') == 'pairing/exchange':
+                        await self._handle_pairing_exchange(websocket, data)
+                        continue
+                    
                     await self.handle_rpc(data, lambda n: websocket.send(json.dumps(n)))
                 except json.JSONDecodeError:
                     self.logger.warning(f"Invalid JSON: {message[:100]}")
                 except Exception as e:
-                    self.logger.error(f"RPC handling error: {e}")
+                    self.logger.error(f"RPC handling error: {e}", exc_info=True)
         except websockets.exceptions.ConnectionClosed:
             self.logger.info(f"Client disconnected: {websocket.remote_address}")
         except Exception as e:
-            self.logger.error(f"Client error: {e}")
+            self.logger.error(f"Client error: {e}", exc_info=True)
         finally:
-            self._local_clients.remove(websocket)
+            self._local_clients.discard(websocket)
+            self.logger.info(f"Client removed: {websocket.remote_address}")
+
+    async def _handle_pairing_exchange(self, websocket, data):
+        """Handle E2EE pairing/exchange request."""
+        request_id = data.get('id')
+        params = data.get('params', {})
+        client_public_key = params.get('publicKey')
+        
+        self.logger.info(f"Pairing request received, client public key: {client_public_key[:20]}...")
+        
+        # For now, accept pairing without generating our own key
+        # In production, we would generate our own key pair here
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "publicKey": "bridge-public-key-placeholder"
+            }
+        }
+        
+        await websocket.send(json.dumps(response))
+        self.logger.info("Pairing response sent")
 
     async def _run_relay_loop(self):
         headers = {"X-User-ID": self.user_id}
@@ -107,7 +135,8 @@ class UnifiedBridge:
         # Wrap the output to await it correctly
         async def safe_send(msg):
             try: await send_output(msg)
-            except: pass
+            except Exception as e:
+                self.logger.error(f"Failed to send output: {e}")
 
         async def on_ui_request(method, params):
             rid = str(uuid.uuid4())
@@ -120,7 +149,21 @@ class UnifiedBridge:
                 self._pending_ui_requests.pop(rid, None)
                 return {"error": {"code": -32000, "message": "UI Request Timeout"}}
 
-        return await self.dispatcher.dispatch(data, on_ui_request)
+        result = await self.dispatcher.dispatch(data, on_ui_request)
+        
+        # If dispatcher returned an error, send it back to the client
+        if result and "error" in result:
+            request_id = data.get("id")
+            if request_id is not None:
+                error_response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": result["error"]
+                }
+                await safe_send(error_response)
+                self.logger.warning(f"Sent error to client: {result['error']}")
+        
+        return result
 
     async def shutdown(self):
         await self.dispatcher.shutdown()
