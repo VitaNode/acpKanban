@@ -108,6 +108,33 @@ class MessageDispatcher:
             if isinstance(prompt_text, list):
                 prompt_text = " ".join([p.get("text", "") for p in prompt_text if p.get("type") == "text"])
             
+            # --- Phase 4.2: Resource Reference (@filename) ---
+            import re
+            file_refs = re.findall(r"@([\w\.\-/]+)", prompt_text)
+            if file_refs:
+                logger.info(f"Detected file references in prompt: {file_refs}")
+                if "prompt" not in params:
+                    params["prompt"] = [{"type": "text", "text": prompt_text}]
+                
+                workspace_root = config.get("system.workspace_root")
+                for ref in file_refs:
+                    try:
+                        ref_path = Path(workspace_root) / ref
+                        if ref_path.exists() and ref_path.is_file():
+                            with open(ref_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                            params["prompt"].append({
+                                "type": "resource",
+                                "resource": {
+                                    "uri": f"file://{ref}",
+                                    "text": content,
+                                    "mimeType": "text/plain"
+                                }
+                            })
+                            logger.info(f"Injected resource: {ref}")
+                    except Exception as re:
+                        logger.warning(f"Failed to resolve resource @{ref}: {re}")
+
             handler = self.commands.get_handler(prompt_text)
             if handler:
                 return await handler(params, request_id)

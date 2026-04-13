@@ -41,13 +41,14 @@ class ConnectionState:
         return self.relay_ws is not None and not self.relay_ws.closed
 
 class TerminalProcess:
-    def __init__(self, terminal_id, command, args, cwd, env=None, output_limit=1048576):
+    def __init__(self, terminal_id, command, args, cwd, env=None, output_limit=1048576, on_output=None):
         self.terminal_id = terminal_id
         self.command = command
         self.args = args
         self.cwd = cwd
         self.env = env
         self.output_limit = output_limit
+        self.on_output_callback = on_output # Callback for streaming
         
         self.process = None
         self.output = ""
@@ -76,6 +77,8 @@ class TerminalProcess:
         except Exception as e:
             self.exit_code = -1
             self.output = f"Failed to start process: {str(e)}"
+            if self.on_output_callback:
+                asyncio.create_task(self.on_output_callback(self.output))
             logger.error(f"Terminal start failed: {e}")
 
     async def _read_output(self):
@@ -88,6 +91,10 @@ class TerminalProcess:
                 text = line.decode('utf-8', errors='replace')
                 self.output += text
                 
+                # Proactive stream
+                if self.on_output_callback:
+                    asyncio.create_task(self.on_output_callback(text))
+                
                 # Truncate if limit exceeded
                 if len(self.output) > self.output_limit:
                     self.output = self.output[-self.output_limit:]
@@ -95,7 +102,10 @@ class TerminalProcess:
             
             self.exit_code = await self.process.wait()
         except Exception as e:
-            self.output += f"\n[Error reading output: {e}]"
+            err_msg = f"\n[Error reading output: {e}]"
+            self.output += err_msg
+            if self.on_output_callback:
+                asyncio.create_task(self.on_output_callback(err_msg))
         finally:
             logger.info(f"Terminal {self.terminal_id} exited with {self.exit_code}")
 
@@ -468,16 +478,40 @@ class UnifiedBridge:
         
         return {"error": f"Method {method} not implemented"}
 
-    async def _handle_terminal_method(self, method, params):
+    async def _handle_terminal_method(self, method, params, source_ws, was_e2ee):
         if method == "terminal/create":
             terminal_id = f"term_{uuid.uuid4().hex[:8]}"
+            session_id = params.get("sessionId")
+            
+            # Streaming callback
+            async def stream_handler(chunk):
+                # Send terminal update notification
+                notif = {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": session_id,
+                        "update": {
+                            "sessionUpdate": "tool_call",
+                            "kind": "execute",
+                            "title": "Terminal Output",
+                            "status": "in_progress",
+                            "content": [
+                                {"type": "text", "text": f"Terminal `{terminal_id}` output:"},
+                                {"type": "text", "text": f"```\n{chunk}\n```"}
+                            ]
+                        }
+                    }
+                }
+                await self._send_acp_response(None, notif, source_ws, was_e2ee, is_raw=True)
+
             command = params.get("command")
             args = params.get("args", [])
             cwd = params.get("cwd") or self._workspace_cwd
             env = params.get("env", [])
             limit = params.get("outputByteLimit", 1048576)
             
-            term = TerminalProcess(terminal_id, command, args, cwd, env, limit)
+            term = TerminalProcess(terminal_id, command, args, cwd, env, limit, on_output=stream_handler)
             await term.start()
             self._terminals[terminal_id] = term
             return {"terminalId": terminal_id}
