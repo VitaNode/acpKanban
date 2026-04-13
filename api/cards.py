@@ -154,7 +154,6 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
         card = db.get_card(card_id)
         if not card:
             raise HTTPError(404, "Card not found after move")
-        return card
         return format_card_response(card)
     except HTTPException:
         raise
