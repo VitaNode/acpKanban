@@ -17,5 +17,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.transport.bridge import main
 
+bridge_instance = None
+
+async def run_with_export():
+    global bridge_instance
+    from src.transport.bridge import UnifiedBridge
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--user-id"); p.add_argument("--relay-url"); p.add_argument("--token"); p.add_argument("--e2ee-key"); p.add_argument("--workspace-cwd")
+    args, unknown = p.parse_known_args()
+    
+    bridge_instance = UnifiedBridge(args.user_id, args.relay_url, token=args.token, session_key=args.e2ee_key, workspace_cwd=args.workspace_cwd)
+    await bridge_instance.start()
+
 if __name__ == "__main__":
-    main()
+    import asyncio
+    try:
+        asyncio.run(run_with_export())
+    except:
+        pass

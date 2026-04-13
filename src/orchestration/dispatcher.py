@@ -33,7 +33,7 @@ class TaskRegistry:
         self._tasks.pop(key, None)
     async def cancel_all(self):
         if not self._tasks: return
-        for task in self._tasks.values(): task.cancel()
+        for t in self._tasks.values(): t.cancel()
         await asyncio.gather(*self._tasks.values(), return_exceptions=True)
         self._tasks.clear()
 
@@ -72,15 +72,15 @@ class MessageDispatcher:
         request_id = data.get("id")
         
         if method == "cards/move":
-            card_id = params.get("id"); target_col_id = params.get("target_column_id")
-            if card_id and target_col_id:
-                async def trigger_sum():
-                    card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
-                    target_col = await asyncio.to_thread(self.db.columns.get_by_id, target_col_id)
-                    if card and target_col:
-                        source_col = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
-                        await self.summary_service.summarize_move(card_id, source_col["name"] if source_col else "Manual", target_col["name"])
-                asyncio.create_task(trigger_sum())
+            cid = params.get("id"); tid = params.get("target_column_id")
+            if cid and tid:
+                async def trigger():
+                    card = await asyncio.to_thread(self.db.cards.get_by_id, cid)
+                    target = await asyncio.to_thread(self.db.columns.get_by_id, tid)
+                    if card and target:
+                        source = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
+                        await self.summary_service.summarize_move(cid, source["name"] if source else "Manual", target["name"])
+                asyncio.create_task(trigger())
 
         ui_format = params.get("ui_format", "acp")
         async def wrapped_output(output_data):
@@ -128,7 +128,7 @@ class MessageDispatcher:
         
         return {"error": {"code": -32601, "message": f"Method {method} not handled"}}
 
-    async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None) -> (SessionEngine, bool):
+    async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None, on_output: Optional[Callable] = None) -> (SessionEngine, bool):
         if card_id in self.engines and self.engines[card_id].is_alive: return self.engines[card_id], False
         if card_id not in self._engine_creation_locks: self._engine_creation_locks[card_id] = asyncio.Lock()
         async with self._engine_creation_locks[card_id]:
@@ -143,6 +143,13 @@ class MessageDispatcher:
             engine.acp_session_id = card.get("acp_session_id")
             await engine.start(on_request=on_nested_request)
             self.engines[card_id] = engine
+            
+            # Phase 5.1 & 5.2: Advertise Commands AND Config Options immediately (CRIT-3 FIX)
+            if engine.acp_session_id and on_output:
+                await self._advertise_commands(engine.acp_session_id, on_output)
+                if engine.current_config_options:
+                    bus.publish(card_id, {"type": "config_options", "options": engine.current_config_options})
+            
             return engine, True
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
@@ -154,14 +161,12 @@ class MessageDispatcher:
                 if inner_method == "session/request_permission": inner_params["card_id"] = card_id
                 return await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
-            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request)            
-            if engine.acp_session_id and not is_internal: await self._advertise_commands(engine.acp_session_id, on_output)
+            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)            
             if is_new or not engine.acp_session_id: asyncio.create_task(self._inject_context_async(card_id, engine))
 
             async def forward_notif(n):
                 if "params" in n: n["params"]["card_id"] = card_id
                 if is_internal: await on_output(n); return
-
                 update = n.get("params", {}).get("update", {})
                 utype = update.get("sessionUpdate")
                 if utype == "agent_message_chunk":
@@ -200,10 +205,19 @@ class MessageDispatcher:
             await engine.process_prompt("session/prompt", {"sessionId": internal_id, "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]}, on_notification=silent)
         finally: self._internal_sessions.discard(internal_id)
 
-    async def _handle_status_cmd(self, params, request_id): return {"message": "Active"}
-    async def _handle_summarize_cmd(self, params, request_id): return {"message": "Started"}
-    async def _handle_reset_cmd(self, params, request_id): return {"message": "Reset"}
-    async def _handle_help_cmd(self, params, request_id): return {"message": "Help"}
+    async def handle_set_config_option(self, card_id: str, name: str, value: Any):
+        """Phase 5.2: Set config via engine (CRIT-2 FIX)."""
+        engine, _ = await self._get_or_create_engine(card_id)
+        new_options = await engine.set_config_option(name, value)
+        if new_options:
+            bus.publish(card_id, {"type": "config_options", "options": new_options})
+        return new_options
+
+    async def _handle_status_cmd(self, p, rid): return {"message": "Active"}
+    async def _handle_summarize_cmd(self, p, rid): return {"message": "Started"}
+    async def _handle_reset_cmd(self, p, rid): return {"message": "Reset"}
+    async def _handle_help_cmd(self, p, rid): return {"message": "Help"}
     async def shutdown(self):
         await self.tasks.cancel_all()
         await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)
+        self.engines.clear()

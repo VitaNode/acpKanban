@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any, Callable
-from openai import OpenAI
 from src.protocol.client import ACPClient
 from src.protocol.adapter import ACPProtocolAdapter
 from src.persistence.database import KanbanDB
@@ -20,148 +19,91 @@ class SessionState(Enum):
     ERROR = "error"
 
 class SessionEngine:
-    """
-    Manages the lifecycle and state machine of a single ACP session for a card.
-    """
     def __init__(self, card_id: str, provider_id: str, workspace_path: str, column_id: str):
         self.card_id = card_id
         self.provider_id = provider_id
         self.workspace_path = workspace_path
-        self.column_id = column_id # HIGH-2: Track starting column
-
+        self.column_id = column_id
         self.logger = setup_logger(f"SessionEngine[{card_id[:8]}]")
         self.state = SessionState.IDLE
         self.last_active = time.time()
-
         self.acp_client: Optional[ACPClient] = None
         self.adapter: Optional[ACPProtocolAdapter] = None
         self.acp_session_id: Optional[str] = None
-        
-        # Phase 3: Column-level strategies
         self.column_prompt_template: Optional[str] = None
         self.column_approval_mode: Optional[str] = None
-
+        self.current_config_options = [] # Phase 5.2: Store runtime options
         self._lock = asyncio.Lock()
-        self._stop_event = asyncio.Event()
 
     @property
     def is_alive(self) -> bool:
-        return (
-            self.acp_client is not None
-            and self.acp_client.process is not None
-            and self.acp_client.process.returncode is None
-        )
+        return self.acp_client is not None and self.acp_client.process is not None and self.acp_client.process.returncode is None
 
     async def start(self, fallback_command=None, on_request: Optional[Callable] = None):
-        """Initialize ACP process and adapter."""
         async with self._lock:
-            if self.is_alive:
-                return
-
+            if self.is_alive: return
             try:
-                provider_cfg = self._get_provider_config(self.provider_id)
-                command = list(provider_cfg["command"])
-                supports_yolo = provider_cfg.get("supports_yolo", False)
-            except ValueError:
-                if fallback_command:
-                    command = list(fallback_command)
-                    supports_yolo = False
-                else:
-                    raise
-
-            # Auto-yolo for Gemini
-            if supports_yolo and self.provider_id == "gemini":
-                if "--approval-mode=yolo" not in command:
-                    command.extend(["--approval-mode", "yolo"])
-
-            self.acp_client = ACPClient(command=command, name=f"ACP-{self.provider_id}")
-            await self.acp_client.start()
-
-            self.adapter = ACPProtocolAdapter(
-                self.acp_client, 
-                workspace_cwd=self.workspace_path, 
-                provider_id=self.provider_id,
-                on_request=on_request # Link nested requests
-            )
-            self.state = SessionState.IDLE
-            self.logger.info(f"Started session engine with provider {self.provider_id}")
-
-    def _get_provider_config(self, provider_id: str) -> dict:
-        for p in config.providers:
-            if p["id"] == provider_id:
-                return p
-        raise ValueError(f"Provider '{provider_id}' not found")
+                cfg = next((p for p in config.get("providers", []) if p["id"] == self.provider_id), None)
+                if not cfg: raise ValueError(f"Provider {self.provider_id} not found")
+                
+                self.acp_client = ACPClient(cfg["command"], self.workspace_path)
+                await self.acp_client.start()
+                self.adapter = ACPProtocolAdapter(self.acp_client)
+                
+                # session/new
+                res = await self.adapter.handle_request("session/new", {"workspace_cwd": self.workspace_path}, on_request=on_request)
+                self.acp_session_id = res.get("sessionId")
+                self.current_config_options = res.get("configOptions", [])
+                
+                self.state = SessionState.IDLE
+                return self.acp_session_id
+            except Exception as e:
+                self.state = SessionState.ERROR
+                raise
 
     async def stop(self):
-        """Gracefully stop the session."""
         async with self._lock:
             if self.acp_client:
                 await self.acp_client.stop()
-            self.state = SessionState.IDLE
-            self.logger.info("Session engine stopped")
+                self.acp_client = None
+                self.adapter = None
 
-    async def process_prompt(self, method: str, params: Dict[str, Any], on_notification: Callable):
-        """Execute a prompt request through the adapter with lock protection."""
-        async with self._lock:
-            if self.state != SessionState.IDLE:
-                raise RuntimeError(f"Engine is busy (state={self.state})")
+    async def set_config_option(self, name: str, value: Any):
+        """Phase 5.2: Set agent config at runtime."""
+        if not self.adapter or not self.acp_session_id: return None
+        try:
+            res = await self.adapter.handle_request("session/set_config_option", {
+                "sessionId": self.acp_session_id,
+                "name": name,
+                "value": value
+            })
+            if "configOptions" in res:
+                self.current_config_options = res["configOptions"]
+            return self.current_config_options
+        except Exception as e:
+            self.logger.error(f"Failed to set config: {e}")
+            return None
 
-            self.state = SessionState.THINKING
-            self.last_active = time.time()
-
-            try:
-                # Prepare params with session recovery info and strategy
-                params_with_recovery = dict(params)
-                params_with_recovery["acp_session_id"] = self.acp_session_id
-                params_with_recovery["workspace_path"] = self.workspace_path
-                
-                # HIGH-3: Pass column strategy to Brain
-                params_with_recovery["approval_mode"] = self.column_approval_mode
-
-                result = await self.adapter.handle_request(
-                    method, params_with_recovery, on_notification=on_notification
-                )
-
-                # Update internal session ID if it changed
-                if isinstance(result, dict) and "session_id" in result:
-                    self.acp_session_id = result["session_id"]
-
-                return result
-            except Exception as e:
-                self.state = SessionState.ERROR
-                self.logger.error(f"Error processing prompt: {e}")
-                raise
-            finally:
-                if self.state != SessionState.ERROR:
-                    self.state = SessionState.IDLE
+    async def process_prompt(self, method: str, params: Dict, on_notification: Optional[Callable] = None):
+        if not self.is_alive: await self.start()
+        self.last_active = time.time()
+        self.state = SessionState.THINKING
+        try:
+            if self.acp_session_id: params["sessionId"] = self.acp_session_id
+            res = await self.adapter.handle_request(method, params, on_notification=on_notification)
+            if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
+            return res
+        finally:
+            if self.state != SessionState.ERROR: self.state = SessionState.IDLE
 
 class SummaryService:
-    """
-    Unified summary service that delegates to api.tasks for robustness.
-    Ensures both summaries and embeddings are generated consistently.
-    """
-    def __init__(self, db: KanbanDB):
-        self.db = db
-
+    def __init__(self, db: KanbanDB): self.db = db
     async def generate_and_save_summary(self, card_id: str):
-        """
-        Triggers the unified summary task asynchronously.
-        """
-        # HIGH-NEW: Move import here to break circular dependency with api package
         from api.tasks import generate_card_summary_task
-        
-        # Now generate_card_summary_task is async, we await it directly
         await generate_card_summary_task(card_id)
-        logger.info(f"SummaryService triggered async task for card {card_id}")
-
-    async def summarize_move(self, card_id: str, from_column: str, to_column: str):
-        """Generates summary and prepends transition context."""
+    async def summarize_move(self, card_id: str, from_col: str, to_col: str):
         await self.generate_and_save_summary(card_id)
-        
-        # PHASE 3: Fetch the generated summary and prepend column info
-        summary_obj = await asyncio.to_thread(self.db.summaries.get_by_card_id, card_id)
-        if summary_obj:
-            wrapped = f"Transition: {from_column} -> {to_column}\nProgress: {summary_obj['summary']}"
+        obj = await asyncio.to_thread(self.db.summaries.get_by_card_id, card_id)
+        if obj:
+            wrapped = f"Transition: {from_col} -> {to_col}\nProgress: {obj['summary']}"
             await asyncio.to_thread(self.db.update_card_summary, card_id, wrapped)
-            logger.info(f"Summary for {card_id} wrapped with transition context")
-

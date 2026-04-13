@@ -58,8 +58,22 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 role = message.get("role", "user")
                 content = message.get("content", "")
                 db.add_session_message(card_id, role, content)
-                # No need to send message_added, history reload will handle it via refresh notif
             
+            elif msg_type == "set_config_option":
+                # Phase 5.2: Route config change to dispatcher (CRIT-2 FIX)
+                from src.transport.bridge import UnifiedBridge
+                # We need access to the bridge's dispatcher
+                # For prototype simplicity, we'll use a globally accessible dispatcher or recreate/find it
+                # Note: UnifiedBridge main() creates one, here we simulate the link
+                name = message.get("name")
+                value = message.get("value")
+                
+                # We'll use a hack for prototype: reach into the global bridge if available
+                # In production, this would be handled by a proper Service Container
+                from run_bridge import bridge_instance # Assuming we add this export
+                if bridge_instance:
+                    await bridge_instance.dispatcher.handle_set_config_option(card_id, name, value)
+
             elif msg_type == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
 
