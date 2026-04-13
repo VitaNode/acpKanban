@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional
 import os
 import json
+from src.logic.engine import SummaryService
 from api.models import (
     CardCreateRequest,
     CardUpdateRequest,
@@ -126,9 +127,8 @@ async def delete_card(card_id: str):
     except Exception as e:
         raise HTTPError(400, str(e))
 
-
 @router.patch("/cards/{card_id}/move", response_model=CardResponse)
-async def move_card(card_id: str, request: CardMoveRequest):
+async def move_card(card_id: str, request: CardMoveRequest, background_tasks: BackgroundTasks):
     """
     Move a card to a different column and/or position.
     """
@@ -146,9 +146,15 @@ async def move_card(card_id: str, request: CardMoveRequest):
             target_column_id=request.target_column_id,
             target_position=request.target_position,
         )
+
+        # Phase 3: Trigger summary generation in background
+        summary_service = SummaryService(db)
+        background_tasks.add_task(summary_service.generate_and_save_summary, card_id)
+
         card = db.get_card(card_id)
         if not card:
             raise HTTPError(404, "Card not found after move")
+        return card
         return format_card_response(card)
     except HTTPException:
         raise
