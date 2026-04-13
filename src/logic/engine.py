@@ -23,10 +23,11 @@ class SessionEngine:
     """
     Manages the lifecycle and state machine of a single ACP session for a card.
     """
-    def __init__(self, card_id: str, provider_id: str, workspace_path: str):
+    def __init__(self, card_id: str, provider_id: str, workspace_path: str, column_id: str):
         self.card_id = card_id
         self.provider_id = provider_id
         self.workspace_path = workspace_path
+        self.column_id = column_id # HIGH-2: Track starting column
 
         self.logger = setup_logger(f"SessionEngine[{card_id[:8]}]")
         self.state = SessionState.IDLE
@@ -109,10 +110,13 @@ class SessionEngine:
             self.last_active = time.time()
 
             try:
-                # Prepare params with session recovery info
+                # Prepare params with session recovery info and strategy
                 params_with_recovery = dict(params)
                 params_with_recovery["acp_session_id"] = self.acp_session_id
                 params_with_recovery["workspace_path"] = self.workspace_path
+                
+                # HIGH-3: Pass column strategy to Brain
+                params_with_recovery["approval_mode"] = self.column_approval_mode
 
                 result = await self.adapter.handle_request(
                     method, params_with_recovery, on_notification=on_notification

@@ -309,12 +309,14 @@ class ACPServer:
     async def on_session_prompt(self, request_id, params):
         session_id = params.get("sessionId")
         prompt_blocks = params.get("prompt", [])
-        
+        approval_mode = params.get("approval_mode") # HIGH-3: Receive mode
+
         if session_id not in self._sessions:
             return self.send_response(request_id, error={"code": -32602, "message": f"Session {session_id} not found."})
 
         session = self._sessions[session_id]
         session["updated_at"] = datetime.now().isoformat()
+        session["approval_mode"] = approval_mode # Store in session state
         card_id = session["card_id"]
         project_id = session["project_id"]
         
@@ -421,45 +423,49 @@ class ACPServer:
         if name in sensitive_tools:
             session = self._sessions.get(session_id)
             if session:
-                cache = session.get("permission_cache", {})
-                cached_decision = cache.get(name)
-                
-                # Check for permanent decisions
-                if cached_decision:
-                    if cached_decision.get("option") == "allow_always":
-                        self.log(f"Using cached 'allow_always' for {name}")
-                    elif cached_decision.get("option") == "reject_always":
-                        return f"Error: Permission permanently denied by user for tool {name}."
-                    else:
-                        # Clear 'once' decisions for next run
-                        cache.pop(name, None)
-                        # Fall through to request
-                
-                # Request permission if no permanent decision
-                if not cached_decision or cached_decision.get("option") not in ["allow_always", "reject_always"]:
-                    self.log(f"Requesting permission for sensitive tool: {name} (ID: {tool_call_id})")
-                    try:
-                        perm_res = await self.send_request("session/request_permission", {
-                            "sessionId": session_id,
-                            "toolCall": {
-                                "id": tool_call_id, # N6: Use original tool_call_id
-                                "name": name,
-                                "arguments": json.dumps(args)
-                            }
-                        })
-                        
-                        if not perm_res or not perm_res.get("allow"):
-                            # Store reject_always if selected
-                            if perm_res and perm_res.get("option") == "reject_always":
-                                cache[name] = perm_res
-                            return f"Error: Permission denied by user for tool {name}."
-                        
-                        # Store allow_always if selected
-                        if perm_res.get("option") == "allow_always":
-                            cache[name] = perm_res
+                # HIGH-3: Skip if approval_mode is yolo
+                if session.get("approval_mode") == "yolo":
+                    self.log(f"YOLO MODE: Auto-allowing tool {name}")
+                else:
+                    cache = session.get("permission_cache", {})
+                    cached_decision = cache.get(name)
+                    
+                    # Check for permanent decisions
+                    if cached_decision:
+                        if cached_decision.get("option") == "allow_always":
+                            self.log(f"Using cached 'allow_always' for {name}")
+                        elif cached_decision.get("option") == "reject_always":
+                            return f"Error: Permission permanently denied by user for tool {name}."
+                        else:
+                            # Clear 'once' decisions for next run
+                            cache.pop(name, None)
+                            # Fall through to request
+                    
+                    # Request permission if no permanent decision
+                    if not cached_decision or cached_decision.get("option") not in ["allow_always", "reject_always"]:
+                        self.log(f"Requesting permission for sensitive tool: {name} (ID: {tool_call_id})")
+                        try:
+                            perm_res = await self.send_request("session/request_permission", {
+                                "sessionId": session_id,
+                                "toolCall": {
+                                    "id": tool_call_id, # N6: Use original tool_call_id
+                                    "name": name,
+                                    "arguments": json.dumps(args)
+                                }
+                            })
                             
-                    except Exception as pe:
-                        return f"Error: Permission request failed: {str(pe)}"
+                            if not perm_res or not perm_res.get("allow"):
+                                # Store reject_always if selected
+                                if perm_res and perm_res.get("option") == "reject_always":
+                                    cache[name] = perm_res
+                                return f"Error: Permission denied by user for tool {name}."
+                            
+                            # Store allow_always if selected
+                            if perm_res.get("option") == "allow_always":
+                                cache[name] = perm_res
+                                
+                        except Exception as pe:
+                            return f"Error: Permission request failed: {str(pe)}"
 
         try:
             if "card_id" in args:

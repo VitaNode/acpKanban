@@ -139,16 +139,21 @@ class MessageDispatcher:
             self._engine_creation_locks[card_id] = asyncio.Lock()
 
         async with self._engine_creation_locks[card_id]:
-            # Double check after lock
-            if card_id in self.engines:
-                engine = self.engines[card_id]
-                if engine.is_alive:
-                    return engine, False
-
-            # Load from DB to get provider and column strategy
+            # Load current card state
             card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
             if not card:
                 raise ValueError(f"Card {card_id} not found")
+
+            # HIGH-2: Check if existing engine belongs to a different column
+            if card_id in self.engines:
+                engine = self.engines[card_id]
+                if engine.is_alive:
+                    if engine.column_id == card["column_id"]:
+                        return engine, False
+                    else:
+                        logger.info(f"Card {card_id[:8]} moved columns. Restarting session.")
+                        await engine.stop()
+                        self.engines.pop(card_id, None)
 
             # Get column strategy
             column = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
@@ -165,7 +170,7 @@ class MessageDispatcher:
             if project and project.get("workspace_path"):
                 workspace_path = project["workspace_path"]
 
-            engine = SessionEngine(card_id, provider_id, workspace_path)
+            engine = SessionEngine(card_id, provider_id, workspace_path, card["column_id"])
             engine.acp_session_id = card.get("acp_session_id")
             
             # Additional column-level metadata could be stored here
