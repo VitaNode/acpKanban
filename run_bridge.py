@@ -32,7 +32,12 @@ async def run_with_export():
 
 if __name__ == "__main__":
     import asyncio
+    import traceback
     try:
         asyncio.run(run_with_export())
-    except:
-        pass
+    except KeyboardInterrupt:
+        print("\nBridge stopped by user.")
+    except Exception as e:
+        print(f"\n❌ Bridge crashed with error: {e}")
+        traceback.print_exc()
+        sys.exit(1)

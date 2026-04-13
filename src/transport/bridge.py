@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional, Callable, Set
 import hashlib
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from src.orchestration.dispatcher import MessageDispatcher
 from src.persistence.database import KanbanDB
@@ -31,7 +32,10 @@ class UnifiedBridge:
         
         # Generate Bridge X25519 Key Pair for E2EE
         self._bridge_private_key = X25519PrivateKey.generate()
-        self._bridge_public_key_hex = self._bridge_private_key.public_key().public_bytes().hex()
+        self._bridge_public_key_hex = self._bridge_private_key.public_key().public_bytes(
+            encoding=Encoding.Raw,
+            format=PublicFormat.Raw
+        ).hex()
 
     async def start(self):
         """Starts both local and relay servers."""
