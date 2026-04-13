@@ -204,6 +204,11 @@ class MessageDispatcher:
                     is_complete = status in ["completed", "failed"]
                     await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, None, is_complete)
                     bus.publish(card_id, {"type": "refresh"})
+                elif utype == "session_info_update":
+                    info = update.get("info", {})
+                    if info:
+                        await asyncio.to_thread(self.db.cards.update_card, card_id, title=info.get("title"), description=info.get("description"))
+                        bus.publish(card_id, {"type": "refresh"})
                 elif utype == "stop":
                     await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
                     bus.publish(card_id, {"type": "refresh"})

@@ -43,6 +43,14 @@ class ACPServer:
         finally:
             self._request_futures.pop(rid, None)
 
+    async def update_session_info(self, session_id: str, title: Optional[str] = None, description: Optional[str] = None):
+        """Phase 2.2: Standardized session_info_update."""
+        info = {}
+        if title: info["title"] = title
+        if description: info["description"] = description
+        if info:
+            await self._send_notification(session_id, "session_info_update", {"info": info})
+
     async def _execute_tool(self, session_id: str, tool_name: str, arguments: Dict[str, Any], tool_call_id: str):
         """Execute tool with standard ACP notifications."""
         try:
