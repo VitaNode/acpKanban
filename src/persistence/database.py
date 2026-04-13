@@ -223,9 +223,12 @@ class CardRepository(BaseRepository):
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def get_by_column(self, column_id: str) -> List[Dict]:
+    def get_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]:
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM cards WHERE column_id = ? AND status = 'active' ORDER BY position", (column_id,))
+            if include_completed:
+                cursor = conn.execute("SELECT * FROM cards WHERE column_id = ? ORDER BY position", (column_id,))
+            else:
+                cursor = conn.execute("SELECT * FROM cards WHERE column_id = ? AND status = 'active' ORDER BY position", (column_id,))
             return [dict(row) for row in cursor.fetchall()]
 
     def update(self, card_id: str, title: str = None, description: str = None):
@@ -488,7 +491,7 @@ class KanbanDB:
     
     def create_card(self, column_id: str, title: str, description: str = None, parent_id: str = None) -> str: return self.cards.create(column_id, title, description, parent_id)
     def get_card(self, card_id: str) -> Optional[Dict]: return self.cards.get_by_id(card_id)
-    def get_cards_by_column(self, column_id: str) -> List[Dict]: return self.cards.get_by_column(column_id)
+    def get_cards_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]: return self.cards.get_by_column(column_id, include_completed)
     def update_card(self, card_id: str, title: str = None, description: str = None): return self.cards.update(card_id, title, description)
     def move_card(self, card_id: str, target_column_id: str, target_position: int = None): return self.cards.move(card_id, target_column_id, target_position)
     def delete_card(self, card_id: str): return self.cards.delete(card_id)
