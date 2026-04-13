@@ -162,6 +162,14 @@ class MessageDispatcher:
                     bus.publish(card_id, {"type": "config_options", "options": engine.current_config_options})
             return engine, True
 
+    def _is_safe_path(self, workspace_root: Path, target_path: str) -> bool:
+        """Strict sandbox check for fs operations."""
+        try:
+            resolved = (workspace_root / target_path).resolve()
+            return workspace_root in resolved.parents or workspace_root == resolved
+        except:
+            return False
+
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
         task_key = f"{card_id}_{request_id}"
         session_id = params.get("sessionId")
