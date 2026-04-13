@@ -57,14 +57,27 @@ class MessageDispatcher:
 
     def _get_available_commands(self):
         return [
-            {"name": "summarize", "description": "Generate summary."},
-            {"name": "reset", "description": "Reset session."},
-            {"name": "status", "description": "Show health."},
-            {"name": "help", "description": "List commands."}
+            {"name": "summarize", "description": "Generate an immediate summary of progress."},
+            {"name": "reset", "description": "Reset the AI session."},
+            {"name": "status", "description": "Show AI engine status."},
+            {"name": "help", "description": "List all commands."}
         ]
 
     async def _advertise_commands(self, session_id: str, on_output: Callable):
-        await on_output({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session_id, "update": {"sessionUpdate": "available_commands_update", "availableCommands": self._get_available_commands()}}})
+        # Phase 5.1: Advertise to UI via standard notification
+        notif = {
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": self._get_available_commands()
+                }
+            }
+        }
+        await on_output(notif)
+        # Also publish via bus for API-level subscribers
+        bus.publish(session_id, {"type": "available_commands", "commands": self._get_available_commands()})
 
     async def dispatch(self, data: Dict[str, Any], on_output: Callable) -> Optional[Dict[str, Any]]:
         method = data.get("method")
@@ -143,13 +156,10 @@ class MessageDispatcher:
             engine.acp_session_id = card.get("acp_session_id")
             await engine.start(on_request=on_nested_request)
             self.engines[card_id] = engine
-            
-            # Phase 5.1 & 5.2: Advertise Commands AND Config Options immediately (CRIT-3 FIX)
             if engine.acp_session_id and on_output:
                 await self._advertise_commands(engine.acp_session_id, on_output)
                 if engine.current_config_options:
                     bus.publish(card_id, {"type": "config_options", "options": engine.current_config_options})
-            
             return engine, True
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):
@@ -206,18 +216,24 @@ class MessageDispatcher:
         finally: self._internal_sessions.discard(internal_id)
 
     async def handle_set_config_option(self, card_id: str, name: str, value: Any):
-        """Phase 5.2: Set config via engine (CRIT-2 FIX)."""
         engine, _ = await self._get_or_create_engine(card_id)
         new_options = await engine.set_config_option(name, value)
-        if new_options:
-            bus.publish(card_id, {"type": "config_options", "options": new_options})
+        if new_options: bus.publish(card_id, {"type": "config_options", "options": new_options})
         return new_options
 
-    async def _handle_status_cmd(self, p, rid): return {"message": "Active"}
-    async def _handle_summarize_cmd(self, p, rid): return {"message": "Started"}
-    async def _handle_reset_cmd(self, p, rid): return {"message": "Reset"}
-    async def _handle_help_cmd(self, p, rid): return {"message": "Help"}
+    async def _handle_status_cmd(self, p, rid): return {"message": f"Engines active: {len(self.engines)}"}
+    async def _handle_summarize_cmd(self, p, rid):
+        cid = p.get("card_id")
+        if not cid: return {"error": "Missing card_id"}
+        asyncio.create_task(self.summary_service.summarize_move(cid, "Manual", "Current"))
+        return {"message": "Summary task started."}
+    async def _handle_reset_cmd(self, p, rid):
+        cid = p.get("card_id")
+        if cid in self.engines: await self.engines[cid].stop(); del self.engines[cid]
+        await asyncio.to_thread(self.db.cards.update_card_session_id, cid, None)
+        return {"message": "Reset complete."}
+    async def _handle_help_cmd(self, p, rid):
+        return {"message": "Available:\n" + "\n".join([f"- `/{c['name']}`: {c['description']}" for c in self._get_available_commands()])}
     async def shutdown(self):
         await self.tasks.cancel_all()
         await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)
-        self.engines.clear()

@@ -3,13 +3,13 @@ enum PlanStepStatus { pending, inProgress, completed, failed }
 enum PlanStepPriority { high, medium, low }
 
 class PlanStep {
-  final String title;
+  final String content;
   final PlanStepStatus status;
   final PlanStepPriority priority;
   final String? description;
 
   PlanStep({
-    required this.title,
+    required this.content,
     required this.status,
     required this.priority,
     this.description,
@@ -17,7 +17,7 @@ class PlanStep {
 
   factory PlanStep.fromJson(Map<String, dynamic> json) {
     return PlanStep(
-      title: json['title'] ?? '',
+      content: json['content'] ?? json['title'] ?? '',
       status: _parseStatus(json['status']),
       priority: _parsePriority(json['priority']),
       description: json['description'],

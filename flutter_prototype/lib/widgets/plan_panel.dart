@@ -15,7 +15,6 @@ class _PlanPanelState extends State<PlanPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final completedCount = widget.plan.steps.where((s) => s.status == PlanStepStatus.completed).length;
 
     return Container(
@@ -117,7 +116,7 @@ class _PlanPanelState extends State<PlanPanel> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  step.title,
+                  step.content, // Changed from title to content
                   style: TextStyle(
                     fontSize: 14,
                     color: step.status == PlanStepStatus.completed 
@@ -137,7 +136,7 @@ class _PlanPanelState extends State<PlanPanel> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: _getPriorityColor(step.priority).withOpacity(0.1),
+                        color: _getPriorityColor(step.priority).withAlpha(25), // Fix withOpacity
                         borderRadius: BorderRadius.circular(4.0),
                       ),
                       child: Text(
