@@ -84,7 +84,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         leading: const Icon(Icons.flash_on, size: 18, color: Color(0xFF008080)),
         title: Text('/${c['name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
         subtitle: Text(c['description'] ?? '', style: const TextStyle(fontSize: 12)),
-        onTap: () { _chatController.text = '/${c['name']} '; _chatController.selection = TextSelection.fromPosition(TextSelectionPosition(offset: _chatController.text.length)); _hideCommandsOverlay(); },
+        onTap: () { _chatController.text = '/${c['name']} '; _chatController.selection = TextSelection.fromPosition(TextPosition(offset: _chatController.text.length)); _hideCommandsOverlay(); },
       )).toList())),
     ));
     Overlay.of(context).insert(_commandOverlay!);
