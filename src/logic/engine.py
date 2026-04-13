@@ -135,8 +135,6 @@ class SessionEngine:
                 if self.state != SessionState.ERROR:
                     self.state = SessionState.IDLE
 
-from api.tasks import generate_card_summary_task
-
 class SummaryService:
     """
     Unified summary service that delegates to api.tasks for robustness.
@@ -149,6 +147,9 @@ class SummaryService:
         """
         Triggers the unified summary task in a thread.
         """
+        # HIGH-NEW: Move import here to break circular dependency with api package
+        from api.tasks import generate_card_summary_task
+        
         # Run the robust task from api.tasks in a worker thread
         await asyncio.to_thread(generate_card_summary_task, card_id)
         logger.info(f"SummaryService triggered unified task for card {card_id}")
