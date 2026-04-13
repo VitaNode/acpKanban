@@ -832,9 +832,6 @@ class _MainScreenState extends State<MainScreen> {
                   builder: (context) => CardDetailScreen(
                     card: card,
                     projectId: _currentProject!.id,
-                    workspacePath: _currentProject?.workspacePath,
-                    acpClient: _acpClient,
-                    providers: _providers,
                   ),
                 ),
               ).then((_) {
@@ -850,9 +847,6 @@ class _MainScreenState extends State<MainScreen> {
                   builder: (context) => CardDetailScreen(
                     card: card,
                     projectId: _currentProject!.id,
-                    workspacePath: _currentProject?.workspacePath,
-                    acpClient: _acpClient,
-                    providers: _providers,
                   ),
                 ),
               ).then((_) {
