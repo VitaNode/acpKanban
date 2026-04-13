@@ -50,17 +50,30 @@ class UnifiedBridge:
     async def _run_relay_loop(self):
         headers = {"X-User-ID": self.user_id}
         if self.token: headers["Authorization"] = f"Bearer {self.token}"
-        
+
         while True:
             try:
-                async with websockets.connect(self.relay_url, extra_headers=headers) as ws:
-                    self.logger.info("Connected to Relay Server")
-                    async for message in ws:
-                        data = json.loads(message)
-                        asyncio.create_task(self.handle_rpc(data, lambda n: ws.send(json.dumps(n))))
+                # websockets >= 13.0 uses additional_headers instead of extra_headers
+                connect_kwargs = {"additional_headers": headers}
+                # Fallback for older versions
+                try:
+                    async with websockets.connect(self.relay_url, **connect_kwargs) as ws:
+                        await self._handle_relay_connection(ws)
+                except TypeError:
+                    # Old version fallback
+                    connect_kwargs = {"extra_headers": headers}
+                    async with websockets.connect(self.relay_url, **connect_kwargs) as ws:
+                        await self._handle_relay_connection(ws)
             except Exception as e:
                 self.logger.error(f"Relay error: {e}. Retrying in 5s...")
                 await asyncio.sleep(5)
+
+    async def _handle_relay_connection(self, ws):
+        """Handle an established relay connection."""
+        self.logger.info("Connected to Relay Server")
+        async for message in ws:
+            data = json.loads(message)
+            asyncio.create_task(self.handle_rpc(data, lambda n: ws.send(json.dumps(n))))
 
     async def on_ui_response(self, request_id: str, result: Any):
         """Phase 3.2: Standardized UI Response Resolver."""
