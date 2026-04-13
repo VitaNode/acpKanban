@@ -481,17 +481,36 @@ class ACPServer:
                 return f"Card created with ID: {card_id}"
             
             elif name == "move_card":
-                target_col_id = self._get_column_id_by_name(args["target_column_name"], project_id)
-                if not target_col_id: return f"Error: Column '{args['target_column_name']}' not found"
-                self.db.move_card(args["card_id"], target_col_id)
+                card_id = args["card_id"]
+                target_col_name = args["target_column_name"]
                 
-                # MED-5: Trigger summary via DB or internal logic
-                # Since Brain is a separate process, we'll mark it in DB for the Bridge/Tasks to handle,
-                # or just let the background task in REST/Dispatcher catch it if it's external.
-                # However, for true consistency, we can call the same logic if possible.
-                # Given Brain only has DB access, we'll at least ensure DB state is updated.
-                # The Dispatcher will re-summarize when it next polls or session restarts.
-                return f"Card {args['card_id']} moved to '{args['target_column_name']}'"
+                # Capture current state for transition context
+                card = self.db.get_card(card_id)
+                source_col_name = "Unknown"
+                if card:
+                    source_col = self.db.get_column(card["column_id"])
+                    source_col_name = source_col["name"] if source_col else "Unknown"
+
+                target_col_id = self._get_column_id_by_name(target_col_name, project_id)
+                if not target_col_id: return f"Error: Column '{target_col_name}' not found"
+                
+                self.db.move_card(card_id, target_col_id)
+                
+                # Trigger Summary Generation (Brain context)
+                from api.tasks import generate_card_summary_task
+                async def summary_task_with_wrap():
+                    try:
+                        await generate_card_summary_task(card_id)
+                        # Prepend transition context manually since we have it here
+                        summary_obj = self.db.get_summary(card_id)
+                        if summary_obj:
+                            wrapped = f"Transition: {source_col_name} -> {target_col_name}\nProgress: {summary_obj['summary']}"
+                            self.db.update_card_summary(card_id, wrapped)
+                    except Exception as se:
+                        self.log(f"Brain failed to trigger summary: {se}")
+
+                asyncio.create_task(summary_task_with_wrap())
+                return f"Card {card_id} moved to '{target_col_name}'"
             
             elif name == "update_card":
                 self.db.update_card(args["card_id"], args.get("title"), args.get("description"))
