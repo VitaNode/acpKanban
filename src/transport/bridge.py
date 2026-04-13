@@ -309,7 +309,7 @@ class UnifiedBridge:
                     if method.startswith("fs/"):
                         return await self._handle_fs_method(method, params, source_ws, original_was_e2ee)
                     elif method.startswith("terminal/"):
-                        return await self._handle_terminal_method(method, params)
+                        return await self._handle_terminal_method(method, params, source_ws, original_was_e2ee)
 
                     # Send Request to App and WAIT for response
                     internal_req_id = output_data.get("id") or str(uuid.uuid4())
@@ -378,7 +378,17 @@ class UnifiedBridge:
                 logger.error(f"Relay send error: {e}")
 
     async def handle_pairing(self, data):
-...
+        peer_public = data.get("params", {}).get("publicKey")
+        if not peer_public:
+            return {"error": "Missing publicKey"}
+
+        try:
+            shared_secret = E2EEManager.derive_shared_secret(
+                self.private_key, peer_public
+            )
+            self.e2ee.setup_session(shared_secret)
+            logger.info("ECDH Pairing Successful. Session key derived.")
+            return {"result": {"publicKey": self.public_key_hex, "status": "paired"}}
         except Exception as e:
             logger.error(f"Pairing failed: {e}")
             return {"error": "Pairing calculation error"}
