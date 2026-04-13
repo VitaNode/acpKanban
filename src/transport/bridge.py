@@ -48,7 +48,7 @@ class TerminalProcess:
         self.cwd = cwd
         self.env = env
         self.output_limit = output_limit
-        self.on_output_callback = on_output # Callback for streaming
+        self.on_output_callback = on_output
         
         self.process = None
         self.output = ""
@@ -56,6 +56,8 @@ class TerminalProcess:
         self.exit_code = None
         self.signal = None
         self._read_task = None
+        self._queue = asyncio.Queue() # HIGH-1: Output buffer queue
+        self._stream_task = None
 
     async def start(self):
         full_env = os.environ.copy()
@@ -73,12 +75,14 @@ class TerminalProcess:
                 env=full_env
             )
             self._read_task = asyncio.create_task(self._read_output())
+            # HIGH-1: Single worker for streaming
+            self._stream_task = asyncio.create_task(self._process_queue())
             logger.info(f"Terminal {self.terminal_id} started: {self.command}")
         except Exception as e:
             self.exit_code = -1
             self.output = f"Failed to start process: {str(e)}"
             if self.on_output_callback:
-                asyncio.create_task(self.on_output_callback(self.output))
+                await self._queue.put(self.output)
             logger.error(f"Terminal start failed: {e}")
 
     async def _read_output(self):
@@ -91,25 +95,38 @@ class TerminalProcess:
                 text = line.decode('utf-8', errors='replace')
                 self.output += text
                 
-                # Proactive stream
-                if self.on_output_callback:
-                    asyncio.create_task(self.on_output_callback(text))
+                # HIGH-1: Put into queue instead of creating new task
+                await self._queue.put(text)
                 
-                # Truncate if limit exceeded
                 if len(self.output) > self.output_limit:
                     self.output = self.output[-self.output_limit:]
                     self.truncated = True
             
             self.exit_code = await self.process.wait()
+            # Mark end of stream
+            await self._queue.put(None)
         except Exception as e:
             err_msg = f"\n[Error reading output: {e}]"
             self.output += err_msg
-            if self.on_output_callback:
-                asyncio.create_task(self.on_output_callback(err_msg))
+            await self._queue.put(err_msg)
         finally:
             logger.info(f"Terminal {self.terminal_id} exited with {self.exit_code}")
 
+    async def _process_queue(self):
+        """HIGH-1: Serial consumer for terminal output."""
+        while True:
+            chunk = await self._queue.get()
+            if chunk is None: break
+            if self.on_output_callback:
+                try:
+                    await self.on_output_callback(chunk)
+                except Exception as e:
+                    logger.error(f"Failed to stream terminal chunk: {e}")
+            self._queue.task_done()
+
     async def kill(self):
+        if self._stream_task:
+            self._stream_task.cancel()
         if self.process and self.process.returncode is None:
             try:
                 self.process.terminate()
@@ -441,19 +458,19 @@ class UnifiedBridge:
                 old_content = ""
                 file_existed = abs_path.exists()
                 
-                # 1. Read old content for diff if file exists
+                # 1. Read old content for diff
                 if file_existed:
                     try:
                         with open(abs_path, 'r', encoding='utf-8') as f:
                             old_content = f.read()
                     except: pass
 
-                # 2. Perform the write
+                # 2. Perform write
                 abs_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(abs_path, 'w', encoding='utf-8') as f:
                     f.write(new_content)
 
-                # 3. Generate Diff and notify UI
+                # 3. Diff Notification
                 if old_content != new_content:
                     diff = "".join(difflib.unified_diff(
                         old_content.splitlines(keepends=True),
@@ -462,8 +479,6 @@ class UnifiedBridge:
                         tofile=f"b/{abs_path.name}"
                     ))
                     
-                    # Send an out-of-band notification to the UI to render the diff
-                    # We link this to the current card via metadata if available
                     diff_notification = {
                         "jsonrpc": "2.0",
                         "method": "session/update",
@@ -482,7 +497,8 @@ class UnifiedBridge:
                     }
                     await self._send_acp_response(None, diff_notification, source_ws, was_e2ee, is_raw=True)
 
-                return None
+                # HIGH-2: Return empty result instead of None to complete RPC
+                return {}
             except Exception as e:
                 return {"error": f"Write failed: {e}"}
         
@@ -493,9 +509,8 @@ class UnifiedBridge:
             terminal_id = f"term_{uuid.uuid4().hex[:8]}"
             session_id = params.get("sessionId")
             
-            # Streaming callback
+            # HIGH-3: Scope is correct as source_ws/was_e2ee are passed from on_output
             async def stream_handler(chunk):
-                # Send terminal update notification
                 notif = {
                     "jsonrpc": "2.0",
                     "method": "session/update",
@@ -547,12 +562,12 @@ class UnifiedBridge:
 
         elif method == "terminal/kill":
             await term.kill()
-            return None
+            return {} # HIGH-2: Return valid result object
 
         elif method == "terminal/release":
             await term.kill()
             self._terminals.pop(terminal_id, None)
-            return None
+            return {} # HIGH-2: Return valid result object
 
         return {"error": f"Method {method} not implemented"}
 
