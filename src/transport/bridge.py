@@ -8,10 +8,11 @@ import os
 import base64
 import websockets
 from typing import Dict, Any, Optional, Callable, Set
-import hashlib
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
 from src.orchestration.dispatcher import MessageDispatcher
 from src.persistence.database import KanbanDB
@@ -153,19 +154,36 @@ class UnifiedBridge:
             }))
 
     def _decrypt_message(self, shared_secret: bytes, envelope: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Decrypt an E2EE envelope."""
+        """Decrypt an E2EE envelope (Flutter-compatible format).
+        
+        Flutter format: {"payload": "<base64(Nonce 12B + Ciphertext + Tag 16B)>"}
+        """
         try:
-            iv = bytes.fromhex(envelope['iv'])
-            ciphertext = bytes.fromhex(envelope['ciphertext'])
-            tag = bytes.fromhex(envelope['authTag'])
+            payload_b64 = envelope.get('payload')
+            if not payload_b64:
+                self.logger.error("Missing 'payload' in envelope")
+                return None
             
-            # AES-GCM key derivation (SHA256 of shared secret)
-            key = hashlib.sha256(shared_secret).digest()
+            # Decode base64 payload
+            payload = base64.b64decode(payload_b64)
             
+            # Parse Flutter format: Nonce (12B) + Ciphertext + Tag (16B)
+            nonce = payload[:12]
+            tag = payload[-16:]
+            ciphertext = payload[12:-16]
+            
+            # Derive key using HKDF (same as Flutter)
+            hkdf = HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=None,
+                info=b'mybot-e2ee-x25519-context',
+            )
+            key = hkdf.derive(shared_secret)
+            
+            # Decrypt
             aesgcm = AESGCM(key)
-            # ciphertext + tag
-            ct_with_tag = ciphertext + tag
-            plaintext = aesgcm.decrypt(iv, ct_with_tag, None)
+            plaintext = aesgcm.decrypt(nonce, ciphertext + tag, None)
             
             return json.loads(plaintext.decode('utf-8'))
         except Exception as e:
@@ -173,29 +191,30 @@ class UnifiedBridge:
             return None
 
     def _send_response(self, websocket, data: Any, shared_secret: Optional[bytes]):
-        """Send response, encrypting if shared secret exists."""
+        """Send response, encrypting if shared secret exists (Flutter-compatible format)."""
         if shared_secret and isinstance(data, dict):
-            # Encrypt
             try:
-                key = hashlib.sha256(shared_secret).digest()
+                # Derive key using HKDF (same as Flutter)
+                hkdf = HKDF(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=None,
+                    info=b'mybot-e2ee-x25519-context',
+                )
+                key = hkdf.derive(shared_secret)
+                
+                # Encrypt
                 aesgcm = AESGCM(key)
-                
-                iv = os.urandom(12)
+                nonce = os.urandom(12)
                 plaintext = json.dumps(data).encode('utf-8')
-                ct_with_tag = aesgcm.encrypt(iv, plaintext, None)
+                ct_with_tag = aesgcm.encrypt(nonce, plaintext, None)
                 
-                ciphertext = ct_with_tag[:-16]
-                tag = ct_with_tag[-16:]
-                
-                envelope = {
+                # Flutter format: base64(Nonce + Ciphertext + Tag)
+                payload = base64.b64encode(nonce + ct_with_tag).decode('utf-8')
+                data = {
                     "method": "e2ee/envelope",
-                    "params": {
-                        "iv": iv.hex(),
-                        "ciphertext": ciphertext.hex(),
-                        "authTag": tag.hex()
-                    }
+                    "params": {"payload": payload}
                 }
-                data = envelope
             except Exception as e:
                 self.logger.error(f"Encryption failed: {e}")
         
