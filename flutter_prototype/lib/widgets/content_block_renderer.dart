@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../models/content_block.dart';
 import 'diff_viewer.dart';
 
@@ -61,24 +62,148 @@ class _ImageRenderer extends StatelessWidget {
   }
 }
 
-class _AudioRenderer extends StatelessWidget {
+class _AudioRenderer extends StatefulWidget {
   final AudioContent content;
   const _AudioRenderer(this.content);
 
   @override
+  State<_AudioRenderer> createState() => _AudioRendererState();
+}
+
+class _AudioRendererState extends State<_AudioRenderer> {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+  bool _isLoading = false;
+  bool _hasAudio = false;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasAudio = widget.content.data != null;
+    _setupAudioPlayer();
+  }
+
+  void _setupAudioPlayer() {
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() => _isPlaying = state == PlayerState.playing);
+      }
+    });
+
+    _audioPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+
+    _audioPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+
+    if (_hasAudio) {
+      _loadAudioFromData();
+    }
+  }
+
+  Future<void> _loadAudioFromData() async {
+    if (widget.content.data == null) return;
+    setState(() => _isLoading = true);
+    try {
+      final bytes = widget.content.decodedData;
+      if (bytes != null && bytes.isNotEmpty) {
+        await _audioPlayer.setSourceBytes(bytes);
+      }
+    } catch (e) {
+      debugPrint('Failed to load audio from data: $e');
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  Future<void> _togglePlayPause() async {
+    if (_isPlaying) {
+      await _audioPlayer.pause();
+    } else {
+      await _audioPlayer.resume();
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(d.inMinutes.remainder(60));
+    final seconds = twoDigits(d.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.purple.shade50,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.purple.shade200),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.audiotrack, color: Colors.purple),
-          const SizedBox(width: 12),
-          Text('Audio (${content.mimeType})',
-              style: const TextStyle(fontSize: 13)),
+          Row(
+            children: [
+              const Icon(Icons.audiotrack, color: Colors.purple),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.content.mimeType,
+                  style: const TextStyle(fontSize: 12, color: Colors.purple),
+                ),
+              ),
+              if (_isLoading)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                IconButton(
+                  icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+                  color: Colors.purple,
+                  onPressed: _hasAudio ? _togglePlayPause : null,
+                ),
+            ],
+          ),
+          if (_hasAudio) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  _formatDuration(_position),
+                  style: const TextStyle(fontSize: 10, fontFamily: 'monospace'),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: _position.inMilliseconds.toDouble(),
+                    max: _duration.inMilliseconds
+                        .toDouble()
+                        .clamp(1, double.infinity),
+                    onChanged: (value) {
+                      _audioPlayer.seek(Duration(milliseconds: value.toInt()));
+                    },
+                    activeColor: Colors.purple,
+                    inactiveColor: Colors.purple.shade200,
+                  ),
+                ),
+                Text(
+                  _formatDuration(_duration),
+                  style: const TextStyle(fontSize: 10, fontFamily: 'monospace'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -165,9 +290,40 @@ class _ResourceLinkRenderer extends StatelessWidget {
   }
 }
 
-class _TerminalRenderer extends StatelessWidget {
+class _TerminalRenderer extends StatefulWidget {
   final TerminalContent content;
   const _TerminalRenderer(this.content);
+
+  @override
+  State<_TerminalRenderer> createState() => _TerminalRendererState();
+}
+
+class _TerminalRendererState extends State<_TerminalRenderer> {
+  final ScrollController _scrollController = ScrollController();
+  String _output = 'Terminal session: ${''}';
+  bool _isSessionActive = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _output = 'Terminal session: ${widget.content.terminalId}\n';
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,12 +336,29 @@ class _TerminalRenderer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.terminal, size: 16, color: Colors.green),
-              SizedBox(width: 8),
-              Text('Terminal',
-                  style: TextStyle(color: Colors.green, fontSize: 13)),
+              const Icon(Icons.terminal, size: 16, color: Colors.green),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Terminal - ${widget.content.terminalId}',
+                  style: const TextStyle(color: Colors.green, fontSize: 13),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _isSessionActive
+                      ? Colors.green.shade700
+                      : Colors.grey.shade700,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  _isSessionActive ? 'ACTIVE' : 'ENDED',
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -195,11 +368,30 @@ class _TerminalRenderer extends StatelessWidget {
               color: Colors.black,
               borderRadius: BorderRadius.circular(4),
             ),
-            child: Center(
-              child: Text('Terminal ID: ${content.terminalId}',
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(8),
+              children: [
+                Text(
+                  _output,
                   style: const TextStyle(
-                      color: Colors.green, fontFamily: 'monospace')),
+                    color: Colors.green,
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                  ),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                '${_output.split('\n').length - 1} lines',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 10),
+              ),
+            ],
           ),
         ],
       ),

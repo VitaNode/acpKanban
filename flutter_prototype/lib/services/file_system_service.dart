@@ -23,10 +23,11 @@ class FileSystemService {
 
       if (line != null || limit != null) {
         final lines = content.split('\n');
-        final startLine = line != null ? line - 1 : 0;
-        final endLine = limit != null ? startLine + limit : lines.length;
-        content =
-            lines.sublist(startLine, endLine.clamp(0, lines.length)).join('\n');
+        final lineCount = lines.length;
+        final startLine = line != null ? (line - 1).clamp(0, lineCount) : 0;
+        final endLine =
+            limit != null ? (startLine + limit).clamp(0, lineCount) : lineCount;
+        content = lines.sublist(startLine, endLine).join('\n');
       }
 
       return {'content': content};

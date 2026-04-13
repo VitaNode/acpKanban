@@ -30,7 +30,9 @@ class MessageBubble extends StatelessWidget {
             .map((json) => ContentBlock.fromJson(json as Map<String, dynamic>))
             .toList();
       }
-    } catch (e) {}
+    } catch (e) {
+      // Not JSON, treat as plain text
+    }
     return [TextContent(text: message.content)];
   }
 
@@ -65,7 +67,7 @@ class MessageBubble extends StatelessWidget {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withAlpha(13),
                     blurRadius: 5,
                     offset: const Offset(0, 2),
                   ),
@@ -169,7 +171,7 @@ class MessageBubble extends StatelessWidget {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withAlpha(5),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
