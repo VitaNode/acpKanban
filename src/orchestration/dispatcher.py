@@ -183,7 +183,7 @@ class MessageDispatcher:
                     await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", update.get("content", {}).get("text", ""), False)
                     bus.publish(card_id, {"type": "refresh"})
                 elif utype == "plan":
-                    bus.publish(card_id, {"type": "agent_plan", "plan": {"steps": update.get("steps", []), "progress": update.get("progress")}})
+                    bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
                 elif utype == "config_option_update":
                     bus.publish(card_id, {"type": "config_options", "options": update.get("availableOptions", [])})
                 elif utype == "tool_call":
