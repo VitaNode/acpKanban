@@ -25,25 +25,47 @@ class UnifiedBridge:
     async def start(self):
         """Starts both local and relay servers."""
         self.logger.info(f"Bridge starting for user {self.user_id}...")
-        
+
         # 1. Start Relay Connection (if URL provided)
         if self.relay_url:
             asyncio.create_task(self._run_relay_loop())
-        
-        # 2. Start Local WebSocket Server (port 8766) for direct tool access
-        server = await websockets.serve(self._handle_local_client, "0.0.0.0", 8766)
-        self.logger.info("Local tool bridge started on ws://localhost:8766")
-        await server.wait_closed()
 
-    async def _handle_local_client(self, websocket, path=None):
+        # 2. Start Local WebSocket Server (port 8766) for direct tool access
+        # Note: websockets.serve() returns a Server object, not a coroutine
+        server = await websockets.serve(
+            self._handle_local_client,
+            "0.0.0.0",
+            8766,
+            ping_interval=20,
+            ping_timeout=20,
+        )
+        self.logger.info("Local tool bridge started on ws://0.0.0.0:8766")
+        
+        # Keep the server running
+        try:
+            await asyncio.Future()  # Run forever
+        except asyncio.CancelledError:
+            server.close()
+            await server.wait_closed()
+
+    async def _handle_local_client(self, websocket):
+        """Handle incoming WebSocket connections from Flutter or local tools."""
         self._local_clients.add(websocket)
+        self.logger.info(f"Client connected: {websocket.remote_address}")
         try:
             async for message in websocket:
-                data = json.loads(message)
-                # Handle raw ACP from local tools
-                await self.handle_rpc(data, lambda n: websocket.send(json.dumps(n)))
-        except:
-            pass
+                try:
+                    data = json.loads(message)
+                    self.logger.debug(f"Received: {data.get('method', 'N/A')}")
+                    await self.handle_rpc(data, lambda n: websocket.send(json.dumps(n)))
+                except json.JSONDecodeError:
+                    self.logger.warning(f"Invalid JSON: {message[:100]}")
+                except Exception as e:
+                    self.logger.error(f"RPC handling error: {e}")
+        except websockets.exceptions.ConnectionClosed:
+            self.logger.info(f"Client disconnected: {websocket.remote_address}")
+        except Exception as e:
+            self.logger.error(f"Client error: {e}")
         finally:
             self._local_clients.remove(websocket)
 
