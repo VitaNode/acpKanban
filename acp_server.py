@@ -175,7 +175,7 @@ class ACPServer:
             "agentCapabilities": {
                 "prompts": {"supported": True},
                 "tools": {"list": self._get_tools_definitions()},
-                "resources": {"supported": False}
+                "resources": {"supported": True}
             },
             "clientCapabilities": {
                 "fs": {

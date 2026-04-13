@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+import json
+import asyncio
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 from api.dependencies import (
     get_db,
@@ -9,6 +11,72 @@ from api.dependencies import (
 )
 
 router = APIRouter(prefix="/api", tags=["sessions"])
+
+# Move Dispatcher import inside handler to avoid circular deps if any
+_dispatcher = None
+
+def get_dispatcher():
+    global _dispatcher
+    if _dispatcher is None:
+        from src.transport.bridge import UnifiedBridge
+        # In a real app, this would be a shared instance
+        # For prototype, we'll assume the Bridge manages its own Dispatcher
+        # but the API can access it.
+        pass
+    return _dispatcher
+
+@router.websocket("/ws/session/{card_id}")
+async def session_websocket(websocket: WebSocket, card_id: str):
+    await websocket.accept()
+    db = get_db()
+    
+    # We need access to the central dispatcher to route messages to AI
+    # For the prototype, we'll use a simplified bridge-to-api link
+    from src.config.manager import config
+    from src.transport.bridge import UnifiedBridge
+    
+    # In this architecture, the API acts as a client or co-host to the Bridge
+    # Let's assume we have a global bridge instance or we create a dedicated one
+    # For now, we'll use the KanbanDB to get history and simulate the loop
+    
+    async def send_to_ui(data):
+        try:
+            await websocket.send_text(json.dumps(data))
+        except: pass
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            msg_type = message.get("type")
+
+            if msg_type == "get_history":
+                history = db.get_session_history(card_id)
+                await send_to_ui({
+                    "type": "history",
+                    "messages": [format_session_message(m) for m in history]
+                })
+            
+            elif msg_type == "send_message":
+                role = message.get("role", "user")
+                content = message.get("content", "")
+                
+                # 1. Save to DB
+                db.add_session_message(card_id, role, content)
+                await send_to_ui({"type": "message_added"})
+                
+                # 2. In this prototype, the Bridge (running separately) 
+                # will pick up the new message or we can trigger it if we have a reference.
+                # Since Bridge and API share the DB, the context will be correct.
+
+            elif msg_type == "set_config_option":
+                # Forward to Bridge logic
+                name = message.get("name")
+                value = message.get("value")
+                # print(f"Setting config {name} to {value}")
+
+    except WebSocketDisconnect:
+        pass
 
 
 class SessionMessageRequest(BaseModel):

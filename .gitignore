@@ -2,9 +2,13 @@
 .venv/
 __pycache__/
 *.pyc
-project_notes.md
+docs/
 .DS_Store
 *.log
 .vscode/
 .ruff_cache/
 *.db
+.agents/
+.gemini/
+.qwen/
+conductor/

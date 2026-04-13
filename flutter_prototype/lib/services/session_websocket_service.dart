@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/card_message.dart';
+import '../models/agent_plan.dart';
+import '../models/config_option.dart';
 
 class SessionWebSocketService {
   static final SessionWebSocketService _instance = SessionWebSocketService._internal();
@@ -17,6 +19,10 @@ class SessionWebSocketService {
   WebSocketChannel? _channel;
   final _messageController = StreamController<List<CardMessage>>.broadcast();
   final _statusController = StreamController<String>.broadcast();
+  
+  // Phase 5.2: New controllers for Plan and Config
+  final _planController = StreamController<AgentPlan?>.broadcast();
+  final _configController = StreamController<List<ConfigOption>>.broadcast();
 
   String? _currentCardId;
   bool _isConnected = false;
@@ -27,60 +33,56 @@ class SessionWebSocketService {
 
   Stream<List<CardMessage>> get messages => _messageController.stream;
   Stream<String> get status => _statusController.stream;
+  Stream<AgentPlan?> get plan => _planController.stream;
+  Stream<List<ConfigOption>> get configOptions => _configController.stream;
+  
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
-    // If already connecting to the same card, ignore
     if (_channel != null && _currentCardId == cardId && _isConnected) {
       _statusController.add('connected');
       return true;
     }
 
-    // Clear old messages if switching cards
     if (_currentCardId != cardId) {
       _messageController.add([]);
-      _reconnectCount = 0; // Reset count on manual switch
+      _planController.add(null);
+      _configController.add([]);
+      _reconnectCount = 0;
     }
 
     await disconnect();
     _currentCardId = cardId;
 
     try {
-      final uri = Uri.parse(
-          '${_baseUrl.replaceFirst('http', 'ws')}/ws/session/$cardId');
+      final uri = Uri.parse('${_baseUrl.replaceFirst('http', 'ws')}/ws/session/$cardId');
       _channel = WebSocketChannel.connect(uri);
-
       await _channel!.ready;
       _isConnected = true;
-      _reconnectCount = 0; // Reset on success
+      _reconnectCount = 0;
       _statusController.add('connected');
       _startHeartbeat();
 
       _channel!.stream.listen(
         (data) => _handleMessage(data as String),
-        onError: (error) {
+        onError: (e) {
           _isConnected = false;
-          _statusController.add('error: $error');
-          _stopHeartbeat();
+          _statusController.add('error: $e');
           _reconnectIfNecessary();
         },
         onDone: () {
           _isConnected = false;
           _statusController.add('disconnected');
-          _stopHeartbeat();
           _reconnectIfNecessary();
         },
       );
-
       await _requestHistory();
       return true;
     } catch (e) {
       _isConnected = false;
       _statusController.add('connection_failed: $e');
-      
-      // Initial connection retry (manual/first-time)
       if (retryCount < 3) {
-        await Future.delayed(Duration(seconds: 2 * (retryCount + 1)));
+        await Future.delayed(Duration(seconds: 2));
         return connect(cardId, retryCount: retryCount + 1);
       }
       return false;
@@ -91,14 +93,9 @@ class SessionWebSocketService {
     _reconnectTimer?.cancel();
     if (_currentCardId != null && _reconnectCount < _maxReconnectAttempts) {
       _reconnectCount++;
-      _statusController.add('reconnecting');
       _reconnectTimer = Timer(Duration(seconds: 5 * _reconnectCount), () {
-        if (!_isConnected && _currentCardId != null) {
-          connect(_currentCardId!);
-        }
+        if (!_isConnected && _currentCardId != null) connect(_currentCardId!);
       });
-    } else if (_reconnectCount >= _maxReconnectAttempts) {
-      _statusController.add('max_reconnect_reached');
     }
   }
 
@@ -106,28 +103,17 @@ class SessionWebSocketService {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (_isConnected && _channel != null) {
-        try {
-          _channel!.sink.add(jsonEncode({'type': 'ping'}));
-        } catch (e) {
-          _isConnected = false;
-          _statusController.add('disconnected');
-          _stopHeartbeat();
-          _reconnectIfNecessary();
-        }
+        try { _channel!.sink.add(jsonEncode({'type': 'ping'})); } 
+        catch (e) { _isConnected = false; _reconnectIfNecessary(); }
       }
     });
   }
 
-  void _stopHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-  }
+  void _stopHeartbeat() { _heartbeatTimer?.cancel(); _heartbeatTimer = null; }
 
   Future<void> _requestHistory() async {
     if (_channel != null && _isConnected) {
-      _channel?.sink.add(jsonEncode({
-        'type': 'get_history',
-      }));
+      _channel?.sink.add(jsonEncode({'type': 'get_history'}));
     }
   }
 
@@ -135,55 +121,41 @@ class SessionWebSocketService {
     try {
       final message = jsonDecode(data) as Map<String, dynamic>;
       final type = message['type'];
-
       switch (type) {
         case 'history':
-          final messages = (message['messages'] as List?)
-                  ?.map((m) => CardMessage.fromJson(m))
-                  .toList() ??
-              [];
+          final messages = (message['messages'] as List?)?.map((m) => CardMessage.fromJson(m)).toList() ?? [];
           _messageController.add(messages);
+          break;
+        case 'agent_plan':
+          _planController.add(message['plan'] != null ? AgentPlan.fromJson(message['plan']) : null);
+          break;
+        case 'config_options':
+          final options = (message['options'] as List?)?.map((o) => ConfigOption.fromJson(o)).toList() ?? [];
+          _configController.add(options);
           break;
         case 'message_added':
         case 'refresh':
           _requestHistory();
           break;
-        case 'pong':
-          // Heartbeat received
-          break;
       }
-    } catch (e) {
-      // Ignore parse errors
-    }
+    } catch (e) {}
   }
 
-  Future<void> sendMessage(String role, String content,
-      {Map<String, dynamic>? metadata}) async {
-    if (_channel == null || !_isConnected) {
-      throw Exception('Not connected to WebSocket');
-    }
+  Future<void> setConfigOption(String name, String value) async {
+    if (_channel == null || !_isConnected) return;
+    _channel!.sink.add(jsonEncode({'type': 'set_config_option', 'name': name, 'value': value}));
+  }
 
-    _channel!.sink.add(jsonEncode({
-      'type': 'send_message',
-      'role': role,
-      'content': content,
-      'metadata': metadata,
-    }));
+  Future<void> sendMessage(String role, String content, {Map<String, dynamic>? metadata}) async {
+    if (_channel == null || !_isConnected) throw Exception('Not connected');
+    _channel!.sink.add(jsonEncode({'type': 'send_message', 'role': role, 'content': content, 'metadata': metadata}));
   }
 
   Future<void> disconnect() async {
-    _stopHeartbeat();
-    _reconnectTimer?.cancel();
-    if (_channel != null) {
-      await _channel!.sink.close();
-      _channel = null;
-    }
+    _stopHeartbeat(); _reconnectTimer?.cancel();
+    if (_channel != null) { await _channel!.sink.close(); _channel = null; }
     _isConnected = false;
-    _statusController.add('disconnected');
   }
 
-  void dispose() {
-    _currentCardId = null;
-    disconnect();
-  }
+  void dispose() { _currentCardId = null; disconnect(); }
 }
