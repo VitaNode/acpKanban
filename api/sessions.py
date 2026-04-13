@@ -74,6 +74,16 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 if bridge_instance:
                     await bridge_instance.dispatcher.handle_set_config_option(card_id, name, value)
 
+            elif msg_type == "rpc_response":
+                # Phase 3.2: Forward response back to the specific bridge/dispatcher request
+                from run_bridge import bridge_instance
+                rid = message.get("id")
+                result = message.get("result")
+                if bridge_instance and rid:
+                    # The dispatcher manages pending tool/permission requests
+                    # and will resolve the future associated with this ID
+                    await bridge_instance.on_ui_response(rid, result)
+
             elif msg_type == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
 

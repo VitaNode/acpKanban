@@ -65,6 +65,44 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _planSub = _wsService.plan.listen((p) { if (mounted) setState(() => _currentPlan = p); });
     _configSub = _wsService.configOptions.listen((o) { if (mounted) setState(() => _configOptions = o); });
     _commandSub = _wsService.availableCommands.listen((c) { if (mounted) setState(() => _availableCommands = c); });
+    _wsService.requests.listen((req) {
+      if (req['method'] == 'session/request_permission') {
+        _showPermissionDialog(req['params'], req['id']);
+      }
+    });
+  }
+
+  Future<void> _showPermissionDialog(Map<String, dynamic> params, String requestId) async {
+    final toolCall = params['toolCall'] as Map<String, dynamic>?;
+    final options = (params['options'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    if (toolCall == null || options.isEmpty) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('权限申请', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Agent 申请执行工具: ${toolCall['name']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            Text('参数: ${toolCall['arguments']}', style: const TextStyle(fontSize: 13, color: Colors.grey, fontFamily: 'monospace')),
+          ],
+        ),
+        actions: options.map((opt) => TextButton(
+          onPressed: () {
+            _wsService.sendResponse(requestId, {"outcome": {"outcome": "selected", "optionId": opt['optionId']}});
+            Navigator.pop(context);
+          },
+          child: Text(opt['name'], style: TextStyle(
+            color: opt['kind'].toString().contains('allow') ? const Color(0xFF008080) : Colors.red,
+            fontWeight: opt['kind'].toString().contains('always') ? FontWeight.bold : FontWeight.normal,
+          )),
+        )).toList(),
+      ),
+    );
   }
 
   void _onChatChanged() {

@@ -76,13 +76,23 @@ class ACPServer:
                     "sessionId": session_id,
                     "toolCall": {"id": tool_call_id, "name": tool_name, "arguments": json.dumps(arguments)},
                     "options": [
-                        {"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
-                        {"optionId": "deny", "name": "Deny", "kind": "reject_once"}
+                        {"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"},
+                        {"optionId": "allow-always", "name": "Allow always", "kind": "allow_always"},
+                        {"optionId": "reject-once", "name": "Deny", "kind": "reject_once"},
+                        {"optionId": "reject-always", "name": "Deny always", "kind": "reject_always"}
                     ]
                 })
-                outcome = res.get("outcome", {}).get("optionId")
-                if outcome != "allow":
-                    raise Exception("Permission denied")
+                
+                outcome = res.get("outcome", {})
+                selected_id = outcome.get("optionId")
+                
+                if selected_id not in ["allow-once", "allow-always"]:
+                    # TODO: Store permanent rejection in cache
+                    raise Exception(f"Permission denied: {selected_id}")
+                
+                if selected_id == "allow-always":
+                    # TODO: Store permanent allowance in cache
+                    pass
 
             # 3. Execution
             await self._send_notification(session_id, "tool_call", {

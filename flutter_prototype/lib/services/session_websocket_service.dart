@@ -17,6 +17,7 @@ class SessionWebSocketService {
   final _planController = StreamController<AgentPlan?>.broadcast();
   final _configController = StreamController<List<ConfigOption>>.broadcast();
   final _commandController = StreamController<List<Map<String, dynamic>>>.broadcast();
+  final _requestController = StreamController<Map<String, dynamic>>.broadcast();
 
   String? _currentCardId;
   bool _isConnected = false;
@@ -29,6 +30,7 @@ class SessionWebSocketService {
   Stream<AgentPlan?> get plan => _planController.stream;
   Stream<List<ConfigOption>> get configOptions => _configController.stream;
   Stream<List<Map<String, dynamic>>> get availableCommands => _commandController.stream;
+  Stream<Map<String, dynamic>> get requests => _requestController.stream;
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
@@ -75,6 +77,10 @@ class SessionWebSocketService {
   void _handleMessage(String data) {
     try {
       final m = jsonDecode(data) as Map<String, dynamic>;
+      if (m['method'] != null && m['id'] != null) {
+        _requestController.add(m);
+        return;
+      }
       switch (m['type']) {
         case 'history': _messageController.add((m['messages'] as List?)?.map((x) => CardMessage.fromJson(x)).toList() ?? []); break;
         case 'agent_plan': _planController.add(m['plan'] != null ? AgentPlan.fromJson(m['plan']) : null); break;
@@ -93,6 +99,12 @@ class SessionWebSocketService {
   Future<void> sendMessage(String role, String content) async {
     if (_channel == null || !_isConnected) throw Exception('Not connected');
     _channel!.sink.add(jsonEncode({'type': 'send_message', 'role': role, 'content': content}));
+  }
+
+  Future<void> sendResponse(String id, Map<String, dynamic> result) async {
+    if (_channel != null && _isConnected) {
+      _channel!.sink.add(jsonEncode({'type': 'rpc_response', 'id': id, 'result': result}));
+    }
   }
 
   Future<void> disconnect() async { _heartbeatTimer?.cancel(); _reconnectTimer?.cancel(); if (_channel != null) { await _channel!.sink.close(); _channel = null; } _isConnected = false; }
