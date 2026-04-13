@@ -39,6 +39,72 @@ class ConnectionState:
     def is_relay_connected(self) -> bool:
         return self.relay_ws is not None and not self.relay_ws.closed
 
+class TerminalProcess:
+    def __init__(self, terminal_id, command, args, cwd, env=None, output_limit=1048576):
+        self.terminal_id = terminal_id
+        self.command = command
+        self.args = args
+        self.cwd = cwd
+        self.env = env
+        self.output_limit = output_limit
+        
+        self.process = None
+        self.output = ""
+        self.truncated = False
+        self.exit_code = None
+        self.signal = None
+        self._read_task = None
+
+    async def start(self):
+        full_env = os.environ.copy()
+        if self.env:
+            for e in self.env:
+                full_env[e['name']] = str(e['value'])
+
+        try:
+            self.process = await asyncio.create_subprocess_exec(
+                self.command,
+                *self.args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=self.cwd,
+                env=full_env
+            )
+            self._read_task = asyncio.create_task(self._read_output())
+            logger.info(f"Terminal {self.terminal_id} started: {self.command}")
+        except Exception as e:
+            self.exit_code = -1
+            self.output = f"Failed to start process: {str(e)}"
+            logger.error(f"Terminal start failed: {e}")
+
+    async def _read_output(self):
+        try:
+            while True:
+                line = await self.process.stdout.readline()
+                if not line:
+                    break
+                
+                text = line.decode('utf-8', errors='replace')
+                self.output += text
+                
+                # Truncate if limit exceeded
+                if len(self.output) > self.output_limit:
+                    self.output = self.output[-self.output_limit:]
+                    self.truncated = True
+            
+            self.exit_code = await self.process.wait()
+        except Exception as e:
+            self.output += f"\n[Error reading output: {e}]"
+        finally:
+            logger.info(f"Terminal {self.terminal_id} exited with {self.exit_code}")
+
+    async def kill(self):
+        if self.process and self.process.returncode is None:
+            try:
+                self.process.terminate()
+                await self.process.wait()
+            except: pass
+
 class UnifiedBridge:
     def __init__(
         self,
@@ -74,6 +140,9 @@ class UnifiedBridge:
         
         # N3: Track requests sent to Flutter App
         self._pending_app_responses: Dict[str, asyncio.Future] = {}
+        
+        # Phase 4.1: Client Capabilities state
+        self._terminals: Dict[str, TerminalProcess] = {}
 
     async def stop(self):
         """Gracefully stop the bridge and all child processes."""
@@ -83,6 +152,11 @@ class UnifiedBridge:
         logger.info("Graceful shutdown initiated...")
         self.state.running = False
         self.local_discovery.stop_broadcast()
+        
+        # Phase 4.1: Kill all terminals
+        for term in list(self._terminals.values()):
+            await term.kill()
+        self._terminals.clear()
         
         # 1. Stop all engines and tasks via dispatcher
         await self.dispatcher.shutdown()
@@ -217,6 +291,15 @@ class UnifiedBridge:
                 if not is_request:
                     await self._send_acp_response(None, output_data, source_ws, original_was_e2ee, is_raw=True)
                 else:
+                    method = output_data.get("method")
+                    params = output_data.get("params", {})
+                    
+                    # Phase 4.1: Handle FS and Terminal methods locally if they are nested requests
+                    if method.startswith("fs/"):
+                        return await self._handle_fs_method(method, params)
+                    elif method.startswith("terminal/"):
+                        return await self._handle_terminal_method(method, params)
+
                     # Send Request to App and WAIT for response
                     internal_req_id = output_data.get("id") or str(uuid.uuid4())
                     output_data["id"] = internal_req_id
@@ -284,20 +367,99 @@ class UnifiedBridge:
                 logger.error(f"Relay send error: {e}")
 
     async def handle_pairing(self, data):
-        peer_public = data.get("params", {}).get("publicKey")
-        if not peer_public:
-            return {"error": "Missing publicKey"}
-
-        try:
-            shared_secret = E2EEManager.derive_shared_secret(
-                self.private_key, peer_public
-            )
-            self.e2ee.setup_session(shared_secret)
-            logger.info("ECDH Pairing Successful. Session key derived.")
-            return {"result": {"publicKey": self.public_key_hex, "status": "paired"}}
+...
         except Exception as e:
             logger.error(f"Pairing failed: {e}")
             return {"error": "Pairing calculation error"}
+
+    async def _handle_fs_method(self, method, params):
+        path_str = params.get("path")
+        if not path_str:
+            return {"error": "Missing path"}
+        
+        # Security: Normalize and resolve
+        try:
+            abs_path = Path(path_str).resolve()
+            # P4 Security: In production, verify abs_path starts with self._workspace_cwd
+        except Exception as e:
+            return {"error": f"Invalid path: {e}"}
+
+        if method == "fs/read_text_file":
+            try:
+                line_start = params.get("line", 1)
+                limit = params.get("limit")
+                
+                if not abs_path.exists():
+                    return {"error": f"File not found: {path_str}"}
+
+                with open(abs_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    
+                start_idx = max(0, line_start - 1)
+                if limit:
+                    lines = lines[start_idx : start_idx + limit]
+                else:
+                    lines = lines[start_idx:]
+                    
+                return {"content": "".join(lines)}
+            except Exception as e:
+                return {"error": f"Read failed: {e}"}
+
+        elif method == "fs/write_text_file":
+            try:
+                content = params.get("content", "")
+                abs_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(abs_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                return None
+            except Exception as e:
+                return {"error": f"Write failed: {e}"}
+        
+        return {"error": f"Method {method} not implemented"}
+
+    async def _handle_terminal_method(self, method, params):
+        if method == "terminal/create":
+            terminal_id = f"term_{uuid.uuid4().hex[:8]}"
+            command = params.get("command")
+            args = params.get("args", [])
+            cwd = params.get("cwd") or self._workspace_cwd
+            env = params.get("env", [])
+            limit = params.get("outputByteLimit", 1048576)
+            
+            term = TerminalProcess(terminal_id, command, args, cwd, env, limit)
+            await term.start()
+            self._terminals[terminal_id] = term
+            return {"terminalId": terminal_id}
+
+        terminal_id = params.get("terminalId")
+        term = self._terminals.get(terminal_id)
+        if not term:
+            return {"error": f"Terminal {terminal_id} not found"}
+
+        if method == "terminal/output":
+            result = {
+                "output": term.output,
+                "truncated": term.truncated
+            }
+            if term.exit_code is not None:
+                result["exitStatus"] = {"exitCode": term.exit_code, "signal": term.signal}
+            return result
+
+        elif method == "terminal/wait_for_exit":
+            while term.exit_code is None:
+                await asyncio.sleep(0.5)
+            return {"exitCode": term.exit_code, "signal": term.signal}
+
+        elif method == "terminal/kill":
+            await term.kill()
+            return None
+
+        elif method == "terminal/release":
+            await term.kill()
+            self._terminals.pop(terminal_id, None)
+            return None
+
+        return {"error": f"Method {method} not implemented"}
 
     async def health_check_loop(self):
         while self.state.running:

@@ -177,6 +177,13 @@ class ACPServer:
                 "tools": {"list": self._get_tools_definitions()},
                 "resources": {"supported": False}
             },
+            "clientCapabilities": {
+                "fs": {
+                    "readTextFile": True,
+                    "writeTextFile": True
+                },
+                "terminal": True
+            },
             "agentInfo": {
                 "name": "Kanban-Brain",
                 "title": "Agent Kanban Brain",
