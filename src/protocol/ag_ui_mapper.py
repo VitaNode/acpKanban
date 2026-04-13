@@ -30,7 +30,6 @@ class AGUIMapper:
                 "text": update.get("content", {}).get("text", "")
             })
         elif utype == "plan":
-            # Phase 5.1: Map standardized 'entries' to AG-UI plan
             ag_event.update({
                 "event": "plan_update",
                 "steps": [
@@ -42,7 +41,6 @@ class AGUIMapper:
                 ]
             })
         elif utype == "config_option_update":
-            # Phase 5.1: Map standardized 'availableOptions' to AG-UI config
             ag_event.update({
                 "event": "config_update",
                 "options": [
@@ -52,6 +50,11 @@ class AGUIMapper:
                         "value": o.get("currentValue")
                     } for o in update.get("availableOptions", [])
                 ]
+            })
+        elif utype == "available_commands_update":
+            ag_event.update({
+                "event": "commands_update",
+                "commands": update.get("availableCommands", [])
             })
         elif utype == "tool_call":
             ag_event.update({
