@@ -187,10 +187,22 @@ class MessageDispatcher:
                 elif utype == "config_option_update":
                     bus.publish(card_id, {"type": "config_options", "options": update.get("availableOptions", [])})
                 elif utype == "tool_call":
-                    await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{update.get('title') or update.get('tool')}**", {"type": "tool_call", "toolCallId": update.get("toolCallId")}, False)
+                    tcid = update.get("toolCallId")
+                    status = update.get("status", "pending")
+                    title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
+                    
+                    if status == "pending":
+                        await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"}, False)
+                    else:
+                        is_complete = status in ["completed", "failed"]
+                        await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, f"🛠️ **{title}**", is_complete)
                     bus.publish(card_id, {"type": "refresh"})
                 elif utype == "tool_call_update":
-                    await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", update.get("toolCallId"), None, update.get("status") in ["completed", "failed"])
+                    # Backward compatibility or standard update
+                    tcid = update.get("toolCallId")
+                    status = update.get("status")
+                    is_complete = status in ["completed", "failed"]
+                    await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, None, is_complete)
                     bus.publish(card_id, {"type": "refresh"})
                 elif utype == "stop":
                     await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
