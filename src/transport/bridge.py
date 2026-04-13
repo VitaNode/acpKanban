@@ -8,6 +8,7 @@ import argparse
 import time
 import signal
 import uuid
+import difflib
 from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 from pathlib import Path
@@ -294,9 +295,9 @@ class UnifiedBridge:
                     method = output_data.get("method")
                     params = output_data.get("params", {})
                     
-                    # Phase 4.1: Handle FS and Terminal methods locally if they are nested requests
+                    # Phase 4.1: Handle FS and Terminal methods locally
                     if method.startswith("fs/"):
-                        return await self._handle_fs_method(method, params)
+                        return await self._handle_fs_method(method, params, source_ws, original_was_e2ee)
                     elif method.startswith("terminal/"):
                         return await self._handle_terminal_method(method, params)
 
@@ -372,7 +373,15 @@ class UnifiedBridge:
             logger.error(f"Pairing failed: {e}")
             return {"error": "Pairing calculation error"}
 
-    async def _handle_fs_method(self, method, params):
+    def _is_safe_path(self, path: Path) -> bool:
+        """Checks if the path is within the allowed workspace."""
+        try:
+            workspace_root = Path(self._workspace_cwd).resolve()
+            return workspace_root in path.parents or workspace_root == path
+        except:
+            return False
+
+    async def _handle_fs_method(self, method, params, source_ws, was_e2ee):
         path_str = params.get("path")
         if not path_str:
             return {"error": "Missing path"}
@@ -380,7 +389,8 @@ class UnifiedBridge:
         # Security: Normalize and resolve
         try:
             abs_path = Path(path_str).resolve()
-            # P4 Security: In production, verify abs_path starts with self._workspace_cwd
+            if not self._is_safe_path(abs_path):
+                return {"error": f"Security Error: Path {path_str} is outside of workspace."}
         except Exception as e:
             return {"error": f"Invalid path: {e}"}
 
@@ -407,10 +417,51 @@ class UnifiedBridge:
 
         elif method == "fs/write_text_file":
             try:
-                content = params.get("content", "")
+                new_content = params.get("content", "")
+                old_content = ""
+                file_existed = abs_path.exists()
+                
+                # 1. Read old content for diff if file exists
+                if file_existed:
+                    try:
+                        with open(abs_path, 'r', encoding='utf-8') as f:
+                            old_content = f.read()
+                    except: pass
+
+                # 2. Perform the write
                 abs_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(abs_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
+                    f.write(new_content)
+
+                # 3. Generate Diff and notify UI
+                if old_content != new_content:
+                    diff = "".join(difflib.unified_diff(
+                        old_content.splitlines(keepends=True),
+                        new_content.splitlines(keepends=True),
+                        fromfile=f"a/{abs_path.name}",
+                        tofile=f"b/{abs_path.name}"
+                    ))
+                    
+                    # Send an out-of-band notification to the UI to render the diff
+                    # We link this to the current card via metadata if available
+                    diff_notification = {
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": {
+                            "sessionId": params.get("sessionId"),
+                            "update": {
+                                "sessionUpdate": "tool_call",
+                                "kind": "info",
+                                "title": f"Edited {abs_path.name}",
+                                "content": [
+                                    {"type": "text", "text": f"Modified file: `{abs_path.relative_to(self._workspace_cwd)}`"},
+                                    {"type": "text", "text": f"```diff\n{diff}\n```"}
+                                ]
+                            }
+                        }
+                    }
+                    await self._send_acp_response(None, diff_notification, source_ws, was_e2ee, is_raw=True)
+
                 return None
             except Exception as e:
                 return {"error": f"Write failed: {e}"}
