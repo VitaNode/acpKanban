@@ -15,7 +15,7 @@ class _PlanPanelState extends State<PlanPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final completedCount = widget.plan.steps.where((s) => s.status == PlanStepStatus.completed).length;
+    final completedCount = widget.plan.entries.where((s) => s.status == PlanStepStatus.completed).length;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -52,7 +52,7 @@ class _PlanPanelState extends State<PlanPanel> {
                       const SizedBox(width: 12.0),
                       Expanded(
                         child: Text(
-                          '执行计划 ($completedCount/${widget.plan.steps.length})',
+                          '执行计划 ($completedCount/${widget.plan.entries.length})',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -95,7 +95,7 @@ class _PlanPanelState extends State<PlanPanel> {
             Padding(
               padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 16.0),
               child: Column(
-                children: widget.plan.steps.map((step) => _buildStepItem(step)).toList(),
+                children: widget.plan.entries.map((step) => _buildStepItem(step)).toList(),
               ),
             ),
         ],
@@ -116,7 +116,7 @@ class _PlanPanelState extends State<PlanPanel> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  step.content, // Changed from title to content
+                  step.content,
                   style: TextStyle(
                     fontSize: 14,
                     color: step.status == PlanStepStatus.completed 
@@ -136,7 +136,7 @@ class _PlanPanelState extends State<PlanPanel> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: _getPriorityColor(step.priority).withAlpha(25), // Fix withOpacity
+                        color: _getPriorityColor(step.priority).withAlpha(25),
                         borderRadius: BorderRadius.circular(4.0),
                       ),
                       child: Text(

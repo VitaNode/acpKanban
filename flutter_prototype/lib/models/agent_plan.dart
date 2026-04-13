@@ -43,25 +43,20 @@ class PlanStep {
 }
 
 class AgentPlan {
-  final List<PlanStep> steps;
-  final double progress; // 0.0 to 1.0
+  final List<PlanStep> entries;
 
-  AgentPlan({required this.steps, required this.progress});
+  AgentPlan({required this.entries});
 
   factory AgentPlan.fromJson(Map<String, dynamic> json) {
-    final steps = (json['steps'] as List?)
-            ?.map((e) => PlanStep.fromJson(e as Map<String, dynamic>))
-            .toList() ?? [];
-    
-    // Calculate progress if not provided
-    double prog = 0.0;
-    if (json['progress'] != null) {
-      prog = (json['progress'] as num).toDouble();
-    } else if (steps.isNotEmpty) {
-      final completed = steps.where((s) => s.status == PlanStepStatus.completed).length;
-      prog = completed / steps.length;
-    }
+    final list = (json['entries'] ?? json['steps'] ?? []) as List;
+    return AgentPlan(
+      entries: list.map((e) => PlanStep.fromJson(e as Map<String, dynamic>)).toList(),
+    );
+  }
 
-    return AgentPlan(steps: steps, progress: prog);
+  double get progress {
+    if (entries.isEmpty) return 0.0;
+    final completed = entries.where((s) => s.status == PlanStepStatus.completed).length;
+    return completed / entries.length;
   }
 }
