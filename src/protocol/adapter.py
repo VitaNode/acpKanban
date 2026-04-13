@@ -245,6 +245,12 @@ class ACPProtocolAdapter:
                 acp_session_id=params.get("acp_session_id"),
                 on_notification=on_notification,
             )
+        elif method.startswith("fs/") or method.startswith("terminal/"):
+            if self.on_request:
+                result = await self.on_request(method, params)
+                if result is not None:
+                    await self.acp.respond(params.get("_request_id"), result=result)
+            return {"status": "delegated"}
         else:
             response = await self.acp.request(method, params)
             if "error" in response: return {"error": response["error"]}

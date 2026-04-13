@@ -60,6 +60,9 @@ class ACPClient {
   final _messageController = StreamController<String>.broadcast();
   Stream<String> get messages => _messageController.stream;
 
+  Map<String, dynamic> _agentCapabilities = {};
+  Map<String, dynamic> get agentCapabilities => _agentCapabilities;
+
   ACPClient();
 
   Future<void> smartConnect(ACPConfig config) async {
@@ -115,14 +118,14 @@ class ACPClient {
   }
 
   void _setupStream() {
-    debugPrint('[ACP] Setting up stream, E2EE ready: ${_e2ee?.isReady ?? false}');
+    debugPrint(
+        '[ACP] Setting up stream, E2EE ready: ${_e2ee?.isReady ?? false}');
     _channel!.stream.listen(
       (message) async {
         try {
           debugPrint(
               '[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
 
-          // Defensive decoding: handle both String and direct JSON
           dynamic decoded = message;
           if (message is String) {
             try {
@@ -133,9 +136,9 @@ class ACPClient {
             }
           }
 
-          // Ensure we have a Map
           if (decoded is! Map<String, dynamic>) {
-            debugPrint('[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
+            debugPrint(
+                '[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
             return;
           }
 
@@ -211,32 +214,44 @@ class ACPClient {
     try {
       print('[ACP] Sending initialize...');
       final Map<String, dynamic> params = {
-        'clientInfo': {'name': 'KanbanMobile', 'version': '1.5.0'}
+        'protocolVersion': 1,
+        'clientCapabilities': {
+          'fs': {
+            'readTextFile': true,
+            'writeTextFile': true,
+          },
+          'terminal': true,
+        },
+        'clientInfo': {
+          'name': 'KanbanMobile',
+          'title': 'Agent Kanban',
+          'version': '2.0.0',
+        },
       };
       if (systemConfig != null) {
         params['systemConfig'] = systemConfig;
       }
-      
-      // Short timeout for initialize, proceed even if it fails/times out
-      await sendRequest('initialize', params).timeout(const Duration(seconds: 60));
+
+      final response = await sendRequest('initialize', params)
+          .timeout(const Duration(seconds: 60));
       print('[ACP] Initialize success');
+
+      _agentCapabilities = response['result']?['agentCapabilities'] ?? {};
+      print('[ACP] Agent capabilities: $_agentCapabilities');
     } catch (e) {
       print('[ACP] Initialize warning (proceeding anyway): $e');
     }
   }
 
   Future<String> sendMessage(String message) async {
-    // Gemini CLI uses 'session/prompt'
     try {
       final response =
           await sendRequest('session/prompt', {'message': message});
       if (response.containsKey('result')) {
         final result = response['result'];
-        // Standard ACP often returns { "text": "response..." }
         if (result is Map && result.containsKey('text')) {
           return result['text'].toString();
         }
-        // Fallback: check for 'message' key (legacy/custom)
         if (result is Map && result.containsKey('message')) {
           return result['message'].toString();
         }
@@ -251,7 +266,6 @@ class ACPClient {
         throw Exception(error.toString());
       }
     } catch (e) {
-      // If session/prompt fails, try legacy chat/message (for acp_server.py compat)
       try {
         final legacyResponse =
             await sendRequest('chat/message', {'message': message});
@@ -260,7 +274,6 @@ class ACPClient {
           return result['message'].toString();
         return result.toString();
       } catch (_) {
-        // Throw original error if legacy also fails
         rethrow;
       }
     }
@@ -274,7 +287,6 @@ class ACPClient {
     _e2ee = null;
   }
 
-  /// Cancel a pending request by ID
   void cancelPendingRequest(String id) {
     if (_pendingRequests.containsKey(id)) {
       final completer = _pendingRequests.remove(id);
@@ -285,7 +297,6 @@ class ACPClient {
     }
   }
 
-  /// Cancel all pending requests
   void cancelAllPendingRequests() {
     final ids = List<String>.from(_pendingRequests.keys);
     for (final id in ids) {

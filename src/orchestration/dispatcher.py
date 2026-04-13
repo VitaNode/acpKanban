@@ -96,11 +96,11 @@ class MessageDispatcher:
                 asyncio.create_task(trigger())
 
         ui_format = params.get("ui_format", "acp")
-        async def wrapped_output(output_data):
+        async def wrapped_output(output_data, is_request=False):
             if ui_format == "ag_ui":
                 mapped = AGUIMapper.map_notification(output_data)
-                if mapped: await on_output(mapped)
-            else: await on_output(output_data)
+                if mapped: return await on_output(mapped) if is_request else await on_output(mapped)
+            else: return await on_output(output_data) if is_request else await on_output(output_data)
 
         if method in ("chat/message", "session/prompt"):
             prompt_text = params.get("message") or params.get("prompt")
@@ -176,7 +176,14 @@ class MessageDispatcher:
         is_internal = session_id in self._internal_sessions
         try:
             async def handle_nested_request(inner_method, inner_params):
-                if inner_method == "session/request_permission": inner_params["card_id"] = card_id
+                if inner_method == "session/request_permission": 
+                    inner_params["card_id"] = card_id
+                
+                if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
+                    inner_params["_request_id"] = inner_params.get("id")
+                    result = await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
+                    return result
+                
                 return await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
             engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)            
