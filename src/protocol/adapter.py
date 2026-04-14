@@ -77,10 +77,10 @@ class ACPProtocolAdapter:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
         """
-        self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id})")
+        self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id}, session_id: {acp_session_id})")
 
         sid_key = card_id or "default"
-        session_id = self._card_sessions.get(sid_key)
+        session_id = acp_session_id or self._card_sessions.get(sid_key)
 
         if not session_id:
             if acp_session_id:
@@ -103,48 +103,28 @@ class ACPProtocolAdapter:
 
             self._card_sessions[sid_key] = session_id
 
-        # 2. Setup notification listener
+        # 1. Start listening BEFORE sending the request to avoid missing early notifications
         listener_id = str(uuid.uuid4())
         queue = self.acp.listen(listener_id)
         collected_text = []
+        stop_event = asyncio.Event()
 
-        # 3. Send request
-        prompt_task = asyncio.create_task(
-            self.acp.request(
-                "session/prompt",
-                {
-                    "sessionId": session_id,
-                    "prompt": [self._build_prompt_item(message)],
-                },
-            )
-        )
-
-        await asyncio.sleep(0.1)
-
-        # Clear stale
-        while not queue.empty():
-            try: queue.get_nowait()
-            except asyncio.QueueEmpty: break
-
-        # 4. Collect notifications
         async def collect_notifications():
-            while True:
+            while not stop_event.is_set() or not queue.empty():
                 try:
-                    data = await asyncio.wait_for(queue.get(), timeout=0.5)
-                    
-                    # N3: Handle Server-to-Client Requests
+                    # Use a short timeout to check stop_event frequently
+                    data = await asyncio.wait_for(queue.get(), timeout=0.1)
+
+                    # Handle Server-to-Client Requests
                     if "method" in data and "id" in data:
-                        self.log(f"Received nested request from server: {data['method']}")
+                        self.log(f"Received nested request: {data['method']}")
                         if self.on_request:
-                            # CRIT-2: Run request handler in background to avoid blocking notification loop
                             async def handle_and_respond(req_id, method, params):
                                 try:
                                     result = await self.on_request(method, params)
-                                    # CRIT-1: Method is 'respond', not 'send_response'
                                     await self.acp.respond(req_id, result=result)
                                 except Exception as re:
                                     await self.acp.respond(req_id, error={"code": -32000, "message": str(re)})
-                            
                             asyncio.create_task(handle_and_respond(data["id"], data["method"], data.get("params", {})))
                         continue
 
@@ -153,29 +133,53 @@ class ACPProtocolAdapter:
 
                     if data.get("method") == "session/update":
                         update = data.get("params", {}).get("update", {})
-                        # Support standardized 'content' inside 'update'
                         content = update.get("content", {})
                         if isinstance(content, dict) and "text" in content:
                             collected_text.append(content["text"])
+                        # Support standardized content_block_delta
+                        elif update.get("sessionUpdate") == "content_block_delta":
+                            delta = update.get("delta", {})
+                            if isinstance(delta, dict) and "text" in delta:
+                                collected_text.append(delta["text"])
                 except asyncio.TimeoutError:
-                    if prompt_task.done(): break
-                except Exception: break
+                    continue
+                except Exception as e:
+                    self.log(f"Notification error: {e}")
+                    break
 
-        await collect_notifications()
-        self.acp.stop_listening(listener_id)
+        # 2. Run collection in background
+        collector_task = asyncio.create_task(collect_notifications())
 
         try:
-            response = await prompt_task
+            # 3. Send request and wait for JSON-RPC response
+            response = await self.acp.request(
+                "session/prompt",
+                {
+                    "sessionId": session_id,
+                    "prompt": [self._build_prompt_item(message)],
+                },
+            )
+            
+            # Allow some extra time for final notifications to arrive
+            await asyncio.sleep(0.5)
+            
         except Exception as e:
+            stop_event.set()
+            await collector_task
             return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
+        finally:
+            # Signal collector to finish and cleanup
+            stop_event.set()
+            await collector_task
+            self.acp.stop_listening(listener_id)
 
         if "error" in response:
             return {"error": response["error"]}
 
         result = response.get("result", {})
         final_message = "".join(collected_text).strip()
-        if isinstance(result, dict) and "text" in result:
-            final_message = result["text"] or final_message
+        if isinstance(result, dict) and "text" in result and result["text"]:
+            final_message = result["text"]
 
         return {"message": final_message, "session_id": session_id}
 
@@ -190,12 +194,10 @@ class ACPProtocolAdapter:
             "cwd": project_cwd,
         }
 
-        # Special Case: OpenClaw Bridge Mode (per official docs)
-        # It does not support per-session MCP servers (mcpServers).
+        # Special Case: OpenClaw Bridge Mode
         if self.provider_id and "openclaw" in self.provider_id.lower():
-            self.log("OpenClaw detected: Skipping per-session mcpServers (Bridge Mode restriction)")
+            self.log("OpenClaw detected: Skipping per-session mcpServers")
         else:
-            # Official format: mcpServers from tool_registry
             params["mcpServers"] = tool_registry.get_mcp_servers()
 
         if card_id:
@@ -219,7 +221,6 @@ class ACPProtocolAdapter:
                 "cwd": project_cwd,
             }
 
-            # Skip mcpServers for OpenClaw
             if self.provider_id and "openclaw" in self.provider_id.lower():
                 pass
             else:
@@ -237,12 +238,26 @@ class ACPProtocolAdapter:
     ) -> Dict[str, Any]:
         if method == "initialize":
             return await self.initialize(params)
+        elif method == "session/new":
+            # Add mcpServers to session/new params (Qwen Code expects this as array)
+            if self.provider_id and "openclaw" in self.provider_id.lower():
+                self.log("OpenClaw detected: Skipping per-session mcpServers")
+            else:
+                params["mcpServers"] = tool_registry.get_mcp_servers()
+            response = await self.acp.request("session/new", params)
+            if "error" in response:
+                raise Exception(f"Session creation failed: {response['error']}")
+            session_id = response.get("result", {}).get("sessionId")
+            self._workspace_cwd = params.get("cwd", self._workspace_cwd)
+            return response.get("result", {})
         elif method == "chat/message" or (method == "session/prompt" and "message" in params):
+            # Map sessionId from standard ACP params to acp_session_id
+            session_id = params.get("acp_session_id") or params.get("sessionId")
             return await self.chat_message(
                 params.get("message", ""),
                 card_id=params.get("card_id"),
                 workspace_path=params.get("workspace_path"),
-                acp_session_id=params.get("acp_session_id"),
+                acp_session_id=session_id,
                 on_notification=on_notification,
             )
         elif method.startswith("fs/") or method.startswith("terminal/"):

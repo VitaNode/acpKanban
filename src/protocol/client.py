@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from typing import AsyncGenerator, Dict, Any, Optional, Union
+from src.logger import setup_logger
 
 class ACPClient:
     def __init__(self, command: list, cwd: str = None, name: str = "ACP"):
@@ -13,7 +14,7 @@ class ACPClient:
         self.pending_requests: Dict[Union[str, int], asyncio.Future] = {}
         self.notification_queues: Dict[str, asyncio.Queue] = {}
         self.message_handlers = [] # New: list of callbacks for all messages
-        self.logger = logging.getLogger(f"ACPClient[{name}]")
+        self.logger = setup_logger(f"ACPClient[{name}]")
         self._running = False
 
     def add_handler(self, handler):
@@ -52,11 +53,13 @@ class ACPClient:
                     self.logger.info("Stdout EOF reached")
                     break
                 
-                # Some CLIs might print non-JSON noise before or after JSON-RPC
                 line_str = line.decode().strip()
                 if not line_str:
                     continue
                 
+                # Log all incoming lines to help debug
+                self.logger.info(f"ACP -> BRIDGE: {line_str[:200]}")
+
                 if not (line_str.startswith("{") or line_str.startswith("[")):
                     self.logger.debug(f"Non-JSON stdout: {line_str}")
                     continue
@@ -67,7 +70,7 @@ class ACPClient:
                 break
             except Exception as e:
                 self.logger.error(f"Error reading stdout: {e}")
-                await asyncio.sleep(0.1) # Prevent tight loop on error
+                await asyncio.sleep(0.1)
 
     async def _read_stderr(self):
         while self._running and self.process:
@@ -77,7 +80,8 @@ class ACPClient:
                     self.logger.info("Stderr EOF reached")
                     break
                 
-                self.logger.debug(f"CLI Stderr: {line.decode().strip()}")
+                # Change to INFO so it appears in normal logs
+                self.logger.info(f"CLI Stderr: {line.decode().strip()}")
             except asyncio.CancelledError:
                 break
             except Exception as e:

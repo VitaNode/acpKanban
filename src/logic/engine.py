@@ -43,15 +43,17 @@ class SessionEngine:
         async with self._lock:
             if self.is_alive: return
             try:
-                cfg = next((p for p in config.get("providers", []) if p["id"] == self.provider_id), None)
-                if not cfg: raise ValueError(f"Provider {self.provider_id} not found")
+                # Use the property helper from ConfigManager
+                providers = config.providers
+                cfg = next((p for p in providers if isinstance(p, dict) and p.get("id") == self.provider_id), None)
+                if not cfg: raise ValueError(f"Provider {self.provider_id} not found in {len(providers)} providers")
                 
                 self.acp_client = ACPClient(cfg["command"], self.workspace_path)
                 await self.acp_client.start()
-                self.adapter = ACPProtocolAdapter(self.acp_client)
+                self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path, provider_id=self.provider_id, on_request=on_request)
                 
                 # session/new
-                res = await self.adapter.handle_request("session/new", {"workspace_cwd": self.workspace_path}, on_request=on_request)
+                res = await self.adapter.handle_request("session/new", {"cwd": self.workspace_path})
                 self.acp_session_id = res.get("sessionId")
                 self.current_config_options = res.get("configOptions", [])
                 

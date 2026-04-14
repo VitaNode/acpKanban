@@ -36,31 +36,16 @@ class ContextBuilder:
             sections.append(f"# Global Project Context: {project['name']}")
             if project.get("workspace_path"):
                 sections.append(f"Root Workspace: {project['workspace_path']}")
+            if project.get("description"):
+                sections.append(f"Project Description:\n{project['description']}")
 
         agent_md = self._load_agent_md(project.get("workspace_path") if project else None)
         if agent_md:
             sections.append(f"## System Guidelines (agent.md)\n{agent_md}")
 
-        # --- Level 2: Related Context (Summaries) ---
-        if project_id:
-            # MED-1/EXISTING: Limit to latest 5 to avoid context bloat
-            # In the future, this will use db.cards.search_cards_semantic
-            summaries = self.db.summaries.get_all_for_project(project_id)
-            if summaries:
-                # Sort by updated_at desc (if exists) and deduplicate by card_id
-                unique_summaries = {}
-                for s in sorted(summaries, key=lambda x: x.get('updated_at', ''), reverse=True):
-                    if s['card_id'] != card_id and s['card_id'] not in unique_summaries:
-                        unique_summaries[s['card_id']] = s
-                
-                top_summaries = list(unique_summaries.values())[:5]
-                
-                if top_summaries:
-                    summaries_text = "\n".join([
-                        f"### Related Card: {s['title']}\nStatus Summary: {s['summary']}"
-                        for s in top_summaries
-                    ])
-                    sections.append(f"## Contextual Knowledge (Related Cards)\n{summaries_text}")
+        # --- Level 2: Related Context (暂时移除，待验证效果后再决定) ---
+        # Previously: loaded summaries from summaries table for related cards.
+        # Removed to avoid context bloat and because summaries may not exist yet.
 
         # --- Level 3: Focus Context (Current Card & Stage) ---
         sections.append(f"## Active Card: {card['title']}")

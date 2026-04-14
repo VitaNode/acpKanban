@@ -27,14 +27,14 @@ class ProjectRepository(BaseRepository):
                 (project_id, card_id, event_type, content, json.dumps(metadata) if metadata else None, now),
             )
 
-    def create(self, name: str, workspace_path: str = None) -> str:
+    def create(self, name: str, workspace_path: str = None, description: str = None) -> str:
         project_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
 
         with self.db.get_connection() as conn:
             conn.execute(
-                "INSERT INTO projects (id, name, workspace_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (project_id, name, workspace_path, now, now),
+                "INSERT INTO projects (id, name, workspace_path, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (project_id, name, workspace_path, description, now, now),
             )
 
             default_columns = [
@@ -73,7 +73,7 @@ class ProjectRepository(BaseRepository):
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def update(self, project_id: str, name: str = None, workspace_path: str = None):
+    def update(self, project_id: str, name: str = None, workspace_path: str = None, description: str = None):
         updates = []
         params = []
         if name:
@@ -82,7 +82,10 @@ class ProjectRepository(BaseRepository):
         if workspace_path is not None:
             updates.append("workspace_path = ?")
             params.append(workspace_path)
-        
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+
         if not updates: return
         
         updates.append("updated_at = ?")
@@ -474,9 +477,9 @@ class KanbanDB:
 
     # --- Compatibility Proxy Layer ---
     def get_projects(self) -> List[Dict]: return self.projects.get_all()
-    def create_project(self, name: str, workspace_path: str = None) -> str: return self.projects.create(name, workspace_path)
+    def create_project(self, name: str, workspace_path: str = None, description: str = None) -> str: return self.projects.create(name, workspace_path, description)
     def get_project(self, project_id: str) -> Optional[Dict]: return self.projects.get_by_id(project_id)
-    def update_project(self, project_id: str, name: str = None, workspace_path: str = None): return self.projects.update(project_id, name, workspace_path)
+    def update_project(self, project_id: str, name: str = None, workspace_path: str = None, description: str = None): return self.projects.update(project_id, name, workspace_path, description)
     def delete_project(self, project_id: str): return self.projects.delete(project_id)
     def get_timeline(self, project_id: str, limit: int = 100) -> List[Dict]: return self.projects.get_timeline(project_id, limit)
     def get_all_agent_statuses(self) -> List[Dict]: return self.projects.get_all_agent_statuses()
@@ -590,7 +593,12 @@ class KanbanDB:
         conn = self._create_new_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, created_at DATETIME, updated_at DATETIME)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME)")
+            # 向后兼容：如果表已存在但没有 description 列，则添加
+            try:
+                cursor.execute("ALTER TABLE projects ADD COLUMN description TEXT")
+            except Exception:
+                pass  # 列已存在
             # Added strategy fields to columns
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
             # Added last_summary to cards

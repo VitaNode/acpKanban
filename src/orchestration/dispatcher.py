@@ -264,7 +264,15 @@ class MessageDispatcher:
         self._internal_sessions.add(internal_id)
         try:
             if not engine.is_alive: return
-            context = await self.context_builder.build_initial_context(card_id)
+
+            # 获取列的 prompt_template
+            column_prompt = None
+            if engine.column_id:
+                column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
+                if column:
+                    column_prompt = column.get("prompt_template")
+
+            context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt)
 
             async def forward_context_notif(n):
                 """Forward system context notifications to both UI and output."""

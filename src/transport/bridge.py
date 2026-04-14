@@ -38,7 +38,7 @@ class UnifiedBridge:
             format=PublicFormat.Raw
         ).hex()
 
-    async def start(self):
+    async def start(self, run_forever=True):
         """Starts both local and relay servers."""
         self.logger.info(f"Bridge starting for user {self.user_id}...")
 
@@ -47,7 +47,7 @@ class UnifiedBridge:
             asyncio.create_task(self._run_relay_loop())
 
         # 2. Start Local WebSocket Server (port 8766) for direct tool access
-        server = await websockets.serve(
+        self._server = await websockets.serve(
             self._handle_local_client,
             "0.0.0.0",
             8766,
@@ -56,12 +56,19 @@ class UnifiedBridge:
         )
         self.logger.info(f"Local tool bridge started on ws://0.0.0.0:8766 (PubKey: {self._bridge_public_key_hex[:16]}...)")
         
-        # Keep the server running
-        try:
-            await asyncio.Future()  # Run forever
-        except asyncio.CancelledError:
-            server.close()
-            await server.wait_closed()
+        if run_forever:
+            # Keep the server running
+            try:
+                await asyncio.Future()  # Run forever
+            except asyncio.CancelledError:
+                await self.stop()
+
+    async def stop(self):
+        """Stop the local websocket server."""
+        if hasattr(self, '_server'):
+            self._server.close()
+            await self._server.wait_closed()
+            self.logger.info("Local tool bridge stopped")
 
     async def _handle_local_client(self, websocket):
         """Handle incoming WebSocket connections from Flutter or local tools."""
@@ -290,7 +297,7 @@ class UnifiedBridge:
             self._pending_ui_requests[rid] = fut
             await safe_send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
             try:
-                return await asyncio.wait_for(fut, timeout=60.0)
+                return await asyncio.wait_for(fut, timeout=300.0)
             except asyncio.TimeoutError:
                 self._pending_ui_requests.pop(rid, None)
                 return {"error": {"code": -32000, "message": "UI Request Timeout"}}

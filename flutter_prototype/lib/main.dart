@@ -439,10 +439,11 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _createProject(String name, String? workspacePath) async {
+  Future<void> _createProject(String name, String? workspacePath, {String? description}) async {
     final project = await _projectService.createProject(
       name,
       workspacePath: workspacePath,
+      description: description,
     );
     if (project != null && mounted) {
       setState(() {
@@ -454,7 +455,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _handleProjectUpdate(
-      Project project, String name, String? path) async {
+      Project project, String name, String? path, {String? description}) async {
     // Check for unique name (excluding current project)
     final isDuplicate = _projects.any(
         (p) => p.name.toLowerCase() == name.toLowerCase() && p.id != project.id);
@@ -470,6 +471,7 @@ class _MainScreenState extends State<MainScreen> {
       project.id,
       name: name,
       workspacePath: path,
+      description: description,
     );
     if (updatedProject != null && mounted) {
       setState(() {
@@ -539,9 +541,9 @@ class _MainScreenState extends State<MainScreen> {
     showDialog(
       context: context,
       builder: (context) => ProjectCreationDialog(
-        onCreate: (name, workspacePath) {
+        onCreate: (name, workspacePath, description) {
           Navigator.pop(context);
-          _createProject(name, workspacePath);
+          _createProject(name, workspacePath, description: description);
         },
       ),
     );

@@ -1,5 +1,6 @@
 import json
 import asyncio
+import uuid
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
@@ -29,12 +30,14 @@ async def session_websocket(websocket: WebSocket, card_id: str):
     async def listen_to_bus():
         try:
             while True:
-                # Get message from bus
                 notif = await queue.get()
-                # Send to Flutter
                 await websocket.send_text(json.dumps(notif))
                 queue.task_done()
-        except Exception:
+        except asyncio.CancelledError:
+            pass
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
             pass
 
     # Start background listener for bus
@@ -57,26 +60,82 @@ async def session_websocket(websocket: WebSocket, card_id: str):
             elif msg_type == "send_message":
                 role = message.get("role", "user")
                 content = message.get("content", "")
-                db.add_session_message(card_id, role, content)
+                print(f"DEBUG: Received message for card {card_id}: {content[:30]}...")
+                
+                # We no longer add message to DB here, Dispatcher will handle it
+                # to avoid duplication.
+                
+                # Forward to Bridge Dispatcher for AI processing
+                try:
+                    import run_bridge
+                    bridge_instance = run_bridge.bridge_instance
+                    if bridge_instance:
+                        # Construct the dispatcher request
+                        prompt_data = {
+                            "jsonrpc": "2.0",
+                            "id": str(uuid.uuid4()), # Need an ID for tracking
+                            "method": "session/prompt",
+                            "params": {
+                                "card_id": card_id,
+                                "message": content,
+                            }
+                        }
+                        # Run in background task
+                        async def process_with_bridge():
+                            try:
+                                # The Dispatcher's forward_notif already calls bus.publish()
+                                # for each notification. The on_output callback is used for
+                                # UI requests (tool permissions). We pass a no-op that only
+                                # handles actual UI requests, not regular notifications.
+                                async def _bridge_ui_output(msg_or_method, *args):
+                                    # This only handles nested UI requests (permissions, fs access)
+                                    # Normal notifications are already handled by bus.publish
+                                    if args:
+                                        # Called as on_ui_request(method, params)
+                                        method, params = msg_or_method, args[0]
+                                        rid = str(uuid.uuid4())
+                                        fut = asyncio.get_event_loop().create_future()
+                                        bridge_instance._pending_ui_requests[rid] = fut
+                                        bus.publish(card_id, {
+                                            "type": "ui_request",
+                                            "id": rid,
+                                            "method": method,
+                                            "params": params
+                                        })
+                                        try:
+                                            return await asyncio.wait_for(fut, timeout=300.0)
+                                        except asyncio.TimeoutError:
+                                            bridge_instance._pending_ui_requests.pop(rid, None)
+                                            return {"error": {"code": -32000, "message": "UI Request Timeout"}}
+                                    # Regular notifications - ignore (already handled by bus.publish)
+
+                                await bridge_instance.handle_rpc(
+                                    prompt_data,
+                                    _bridge_ui_output
+                                )
+                            except Exception as e:
+                                import traceback
+                                print(f"\n❌ Bridge processing error:\n{traceback.format_exc()}")
+                                bus.publish(card_id, {"type": "error", "message": str(e)})
+                        asyncio.create_task(process_with_bridge())
+                except Exception as e:
+                    print(f"DEBUG: Failed to forward to bridge: {e}")
             
             elif msg_type == "set_config_option":
                 # Phase 5.2: Route config change to dispatcher (CRIT-2 FIX)
                 from src.transport.bridge import UnifiedBridge
-                # We need access to the bridge's dispatcher
-                # For prototype simplicity, we'll use a globally accessible dispatcher or recreate/find it
-                # Note: UnifiedBridge main() creates one, here we simulate the link
                 name = message.get("name")
                 value = message.get("value")
                 
-                # We'll use a hack for prototype: reach into the global bridge if available
-                # In production, this would be handled by a proper Service Container
-                from run_bridge import bridge_instance # Assuming we add this export
+                import run_bridge
+                bridge_instance = run_bridge.bridge_instance
                 if bridge_instance:
                     await bridge_instance.dispatcher.handle_set_config_option(card_id, name, value)
 
             elif msg_type == "rpc_response":
                 # Phase 3.2: Forward response back to the specific bridge/dispatcher request
-                from run_bridge import bridge_instance
+                import run_bridge
+                bridge_instance = run_bridge.bridge_instance
                 rid = message.get("id")
                 result = message.get("result")
                 if bridge_instance and rid:

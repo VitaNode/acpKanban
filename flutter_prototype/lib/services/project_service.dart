@@ -35,11 +35,14 @@ class ProjectService {
     }
   }
 
-  Future<Project?> createProject(String name, {String? workspacePath}) async {
+  Future<Project?> createProject(String name, {String? workspacePath, String? description}) async {
     try {
       final body = <String, dynamic>{'name': name};
       if (workspacePath != null && workspacePath.trim().isNotEmpty) {
         body['workspace_path'] = workspacePath.trim();
+      }
+      if (description != null && description.trim().isNotEmpty) {
+        body['description'] = description.trim();
       }
       final response = await _post('/api/projects', body);
       if (response.statusCode == 201) {
@@ -53,11 +56,12 @@ class ProjectService {
   }
 
   Future<Project?> updateProject(String projectId,
-      {String? name, String? workspacePath}) async {
+      {String? name, String? workspacePath, String? description}) async {
     try {
       final body = <String, dynamic>{};
       if (name != null) body['name'] = name;
       if (workspacePath != null) body['workspace_path'] = workspacePath;
+      if (description != null) body['description'] = description;
 
       final response = await _put('/api/projects/$projectId', body);
       if (response.statusCode == 200) {

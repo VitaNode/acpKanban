@@ -34,17 +34,20 @@ class ColumnUpdateRequest(BaseModel):
 class ProjectCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     workspace_path: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = Field(None, max_length=2000)
 
 
 class ProjectUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     workspace_path: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = Field(None, max_length=2000)
 
 
 class ProjectResponse(BaseModel):
     id: str
     name: str
     workspace_path: Optional[str]
+    description: Optional[str] = None
     created_at: str
     updated_at: str
     card_count: int = 0
@@ -63,6 +66,7 @@ async def get_projects():
                 id=p["id"],
                 name=p["name"],
                 workspace_path=p.get("workspace_path"),
+                description=p.get("description"),
                 created_at=p["created_at"],
                 updated_at=p["updated_at"],
                 card_count=p.get("card_count", 0),
@@ -86,12 +90,13 @@ async def create_project(request: ProjectCreateRequest):
         project_id = db.create_project(
             name=request.name,
             workspace_path=request.workspace_path,
+            description=request.description,
         )
         print(f"📡 project_id created: {project_id}")
-        
+
         project = db.get_project(project_id)
         print(f"📡 db.get_project result: {project}")
-        
+
         if not project:
             print(f"❌ Project not found after creation!")
             raise HTTPError(500, "Failed to create project")
@@ -100,6 +105,7 @@ async def create_project(request: ProjectCreateRequest):
             id=project["id"],
             name=project["name"],
             workspace_path=project.get("workspace_path"),
+            description=project.get("description"),
             created_at=project["created_at"],
             updated_at=project["updated_at"],
             card_count=0,
@@ -157,6 +163,7 @@ async def get_project(project_id: str):
         id=project["id"],
         name=project["name"],
         workspace_path=project.get("workspace_path"),
+        description=project.get("description"),
         created_at=project["created_at"],
         updated_at=project["updated_at"],
         card_count=card_count,
@@ -176,6 +183,7 @@ async def update_project(project_id: str, request: ProjectUpdateRequest):
             project_id=project_id,
             name=request.name,
             workspace_path=request.workspace_path,
+            description=request.description,
         )
         project = db.get_project(project_id)
         if not project:
@@ -193,6 +201,7 @@ async def update_project(project_id: str, request: ProjectUpdateRequest):
             id=project["id"],
             name=project["name"],
             workspace_path=project.get("workspace_path"),
+            description=project.get("description"),
             created_at=project["created_at"],
             updated_at=project["updated_at"],
             card_count=card_count,

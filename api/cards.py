@@ -328,34 +328,50 @@ async def get_card_summary(card_id: str):
     return summary
 
 
-@router.get("/cards/{card_id}/related", response_model=CardListResponse)
+@router.get("/cards/{card_id}/related")
 async def get_related_cards(
     card_id: str,
     limit: int = Query(5, ge=1, le=20),
 ):
     """
-    Get related cards based on summary embedding similarity.
+    Get related cards from the same project with their summaries.
+    Returns other cards in the project, prioritizing those with summaries.
     """
     db = get_db()
     card = validate_card_exists(card_id, db)
-
-    summary_obj = db.get_summary(card_id)
-    if not summary_obj:
-        # If no summary, try semantic search with card title/description
-        from src.persistence.embedding import embedding_service
-        emb = embedding_service.compute_card_embedding(card['title'], card.get('description', ''))
-    else:
-        from src.persistence.embedding import embedding_service
-        emb = embedding_service.get_embedding(summary_obj['summary'])
-
-    if not emb:
+    project_id = card.get("project_id")
+    if not project_id:
         return {"cards": [], "total": 0}
 
-    related = db.search_cards_semantic(emb, project_id=card.get('project_id'), limit=limit + 1)
-    # Filter out current card
-    filtered_related = [c for c in related if c['id'] != card_id][:limit]
+    # Get all other cards in the same project
+    with db.get_connection() as conn:
+        cursor = conn.execute(
+            """SELECT c.id, c.title, c.description, c.status, c.column_id, c.position,
+                      c.created_at, c.updated_at, col.name as column_name, col.project_id,
+                      s.summary as card_summary
+               FROM cards c
+               JOIN columns col ON col.id = c.column_id
+               LEFT JOIN summaries s ON s.card_id = c.id
+               WHERE col.project_id = ? AND c.id != ?
+               ORDER BY s.updated_at DESC NULLS LAST, c.updated_at DESC
+               LIMIT ?""",
+            (project_id, card_id, limit),
+        )
+        related_cards = [dict(row) for row in cursor.fetchall()]
 
     return {
-        "cards": [format_card_response(c) for c in filtered_related],
-        "total": len(filtered_related),
+        "cards": [
+            {
+                "id": c["id"],
+                "title": c["title"],
+                "description": c.get("description", ""),
+                "status": c.get("status", "active"),
+                "column_id": c["column_id"],
+                "column_name": c.get("column_name", ""),
+                "summary": c.get("card_summary"),
+                "updated_at": c["updated_at"],
+            }
+            for c in related_cards
+        ],
+        "total": len(related_cards),
     }

@@ -142,7 +142,7 @@ class ProjectSelector extends StatelessWidget {
 }
 
 class ProjectCreationDialog extends StatefulWidget {
-  final Function(String name, String? workspacePath) onCreate;
+  final Function(String name, String? workspacePath, String? description) onCreate;
 
   const ProjectCreationDialog({
     super.key,
@@ -156,12 +156,14 @@ class ProjectCreationDialog extends StatefulWidget {
 class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
   final _nameController = TextEditingController();
   final _workspaceController = TextEditingController();
+  final _descriptionController = TextEditingController();
   bool _isCreating = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _workspaceController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -175,11 +177,13 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
     }
 
     setState(() => _isCreating = true);
+    final desc = _descriptionController.text.trim();
     widget.onCreate(
       name,
       _workspaceController.text.trim().isEmpty
           ? null
           : _workspaceController.text.trim(),
+      desc.isEmpty ? null : desc,
     );
   }
 
@@ -208,6 +212,22 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
               ),
               autofocus: true,
               textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Project Description',
+                hintText: 'Brief description of this project...',
+                prefixIcon: Icon(Icons.description),
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '💡 Project description will be included in the context sent to LLM during card conversations.',
+              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
             ),
             const SizedBox(height: 16),
             TextField(

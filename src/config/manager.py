@@ -20,10 +20,16 @@ class ConfigManager:
         if self._initialized:
             return
             
-        self.project_root = Path(__file__).parent.absolute()
+        # Point to the actual project root (mybot/)
+        # src/config/manager.py -> src/config -> src -> root
+        self.project_root = Path(__file__).parent.parent.parent.absolute()
         self.config_path = self.project_root / "acp_config.json"
         self._config: Dict[str, Any] = {}
         self._load_defaults()
+        
+        # Also ensure the DB path defaults to the project root or a specific data dir
+        self._config["system"]["db_path"] = str(self.project_root / "src/config/kanban.db")
+        
         self._load_from_file()
         self._load_from_env()
         

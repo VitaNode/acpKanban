@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import sys
 import os
+import asyncio
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,9 +28,39 @@ async def lifespan(app: FastAPI):
         # Ensure all tables exist (including settings, summaries, etc.)
         db.init_db()
         print("[*] Kanban API started successfully (DB Connected)")
+        
+        # Phase 5.1: Integrated Bridge Startup
+        # This ensures the API and Bridge share the same NotificationBus
+        import run_bridge
+        from src.transport.bridge import UnifiedBridge
+        
+        # In a real app, these would come from config or env
+        user_id = os.getenv("MYBOT_USER_ID", "test_user")
+        relay_url = os.getenv("MYBOT_RELAY_URL", "ws://35.211.219.123:8766")
+        token = os.getenv("MYBOT_TOKEN", "8c939a7d-e31b-4e1d-b26c-57b4589519e1")
+        workspace_cwd = os.getenv("MYBOT_WORKSPACE_CWD")
+        
+        print(f"[*] Starting Integrated Bridge for user: {user_id}")
+        bridge = UnifiedBridge(user_id, relay_url, token=token, workspace_cwd=workspace_cwd)
+        # Set the global bridge_instance so sessions.py can find it
+        run_bridge.bridge_instance = bridge
+        
+        # Start bridge without blocking
+        asyncio.create_task(bridge.start(run_forever=False))
+        
     except Exception as e:
-        print(f"[!] Database check failed: {e}")
+        print(f"[!] Startup initialization failed: {e}")
+        import traceback
+        traceback.print_exc()
+        
     yield
+    
+    # Shutdown logic
+    import run_bridge
+    if run_bridge.bridge_instance:
+        print("[*] Stopping Integrated Bridge...")
+        await run_bridge.bridge_instance.shutdown()
+        await run_bridge.bridge_instance.stop()
     print("[*] Kanban API shutdown")
 
 

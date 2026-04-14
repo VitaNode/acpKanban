@@ -74,6 +74,7 @@ def format_session_message(msg: dict) -> dict:
         "role": msg.get("role"),
         "content": msg.get("content") or "",
         "metadata": parse_metadata(msg.get("metadata")),
+        "is_complete": msg.get("is_complete", True),
         "created_at": msg.get("created_at"),
     }
 

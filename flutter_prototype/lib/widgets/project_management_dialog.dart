@@ -3,7 +3,7 @@ import '../models/project.dart';
 
 class ProjectManagementDialog extends StatefulWidget {
   final List<Project> projects;
-  final Function(Project, String name, String? workspacePath) onUpdate;
+  final Function(Project, String name, String? workspacePath, {String? description}) onUpdate;
   final Function(Project) onDelete;
   final Project? currentProject;
 
@@ -86,8 +86,8 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                               context: context,
                               builder: (context) => ProjectEditDialog(
                                 project: project,
-                                onUpdate: (name, path) async {
-                                  await widget.onUpdate(project, name, path);
+                                onUpdate: (name, path, desc) async {
+                                  await widget.onUpdate(project, name, path, description: desc);
                                   // The parent will call setState, but since we are a separate dialog,
                                   // we might need to update locally if the parent doesn't trigger a rebuild of the dialog.
                                   // But wait, the dialog IS the one holding the list.
@@ -98,6 +98,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                                       _localProjects[idx] = project.copyWith(
                                         name: name,
                                         workspacePath: path,
+                                        description: desc,
                                       );
                                     }
                                   });
@@ -250,7 +251,7 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
 
 class ProjectEditDialog extends StatefulWidget {
   final Project project;
-  final Function(String name, String? workspacePath) onUpdate;
+  final Function(String name, String? workspacePath, String? description) onUpdate;
 
   const ProjectEditDialog({
     super.key,
@@ -265,6 +266,7 @@ class ProjectEditDialog extends StatefulWidget {
 class _ProjectEditDialogState extends State<ProjectEditDialog> {
   late TextEditingController _nameController;
   late TextEditingController _workspaceController;
+  late TextEditingController _descriptionController;
   bool _isUpdating = false;
 
   @override
@@ -273,12 +275,15 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
     _nameController = TextEditingController(text: widget.project.name);
     _workspaceController =
         TextEditingController(text: widget.project.workspacePath ?? '');
+    _descriptionController =
+        TextEditingController(text: widget.project.description ?? '');
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _workspaceController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -292,11 +297,13 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
     }
 
     setState(() => _isUpdating = true);
+    final desc = _descriptionController.text.trim();
     widget.onUpdate(
       name,
       _workspaceController.text.trim().isEmpty
           ? null
           : _workspaceController.text.trim(),
+      desc.isEmpty ? null : desc,
     );
     Navigator.pop(context); // Close edit dialog
   }
@@ -325,6 +332,22 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
               ),
               autofocus: true,
               textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Project Description',
+                hintText: 'Brief description of this project...',
+                prefixIcon: Icon(Icons.description),
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '💡 Project description will be included in the context sent to LLM during card conversations.',
+              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
             ),
             const SizedBox(height: 16),
             TextField(
