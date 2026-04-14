@@ -67,9 +67,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (mounted)
         setState(() {
           _messages = msgs;
+          // 只有流式更新产生的 streaming- 消息才显示"正在执行"
+          // 历史消息（从数据库加载的）一律视为已完成
           _isAgentProcessing = msgs.isNotEmpty &&
               msgs.last.role == 'assistant' &&
-              !msgs.last.isComplete;
+              !msgs.last.isComplete &&
+              msgs.last.id.startsWith('streaming-');
         });
       _scrollToBottom();
     });
@@ -265,6 +268,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _chatController.dispose();
     _scrollController.dispose();
     _chatFocusNode.dispose();
+    _wsService.disconnect();
     super.dispose();
   }
 

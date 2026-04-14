@@ -29,6 +29,9 @@ class SessionWebSocketService {
   Timer? _reconnectTimer;
   int _reconnectCount = 0;
 
+  // Local cache to support streaming updates
+  List<CardMessage> _currentMessages = [];
+
   Stream<List<CardMessage>> get messages => _messageController.stream;
   Stream<String> get status => _statusController.stream;
   Stream<AgentPlan?> get plan => _planController.stream;
@@ -40,26 +43,33 @@ class SessionWebSocketService {
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
-    if (_channel != null && _currentCardId == cardId && _isConnected)
-      return true;
-    if (_currentCardId != cardId) {
-      _messageController.add([]);
-      _planController.add(null);
-      _configController.add([]);
-      _commandController.add([]);
-      _reconnectCount = 0;
+    // 如果是不同卡片，先断开旧连接，避免竞态条件
+    if (_currentCardId != null && _currentCardId != cardId) {
+      await disconnect();
     }
-    await disconnect();
+
+    // 同一张卡片且连接正常 → 重新请求历史（支持重入）
+    if (_channel != null && _currentCardId == cardId && _isConnected) {
+      await _requestHistory();
+      return true;
+    }
+
     _currentCardId = cardId;
+    _currentMessages = [];
+    _messageController.add([]);
+    _planController.add(null);
+    _configController.add([]);
+    _commandController.add([]);
+    _reconnectCount = 0;
     try {
       final uri = Uri.parse(
-          '${_baseUrl.replaceFirst('http', 'ws')}/ws/session/$cardId');
+          '${_baseUrl.replaceFirst('http', 'ws')}/api/ws/session/$cardId');
       _channel = WebSocketChannel.connect(uri);
       await _channel!.ready;
       _isConnected = true;
       _reconnectCount = 0;
       _startHeartbeat();
-      _channel!.stream.listen((data) => _handleMessage(data as String),
+      _channel!.stream.listen((data) => _handleMessage(data),
           onError: (e) {
         _isConnected = false;
         _reconnectIfNecessary();
@@ -107,19 +117,28 @@ class SessionWebSocketService {
       _channel?.sink.add(jsonEncode({'type': 'get_history'}));
   }
 
-  void _handleMessage(String data) {
+  void _handleMessage(dynamic data) {
     try {
-      final m = jsonDecode(data) as Map<String, dynamic>;
+      Map<String, dynamic> m;
+      if (data is String) {
+        m = jsonDecode(data) as Map<String, dynamic>;
+      } else if (data is Map<String, dynamic>) {
+        m = data;
+      } else {
+        print('WS: Unexpected message type: ${data.runtimeType}');
+        return;
+      }
       if (m['method'] != null && m['id'] != null) {
         _requestController.add(m);
         return;
       }
       switch (m['type']) {
         case 'history':
-          _messageController.add((m['messages'] as List?)
+          _currentMessages = (m['messages'] as List?)
                   ?.map((x) => CardMessage.fromJson(x))
                   .toList() ??
-              []);
+              [];
+          _messageController.add(_currentMessages);
           break;
         case 'agent_plan':
           _planController
@@ -134,6 +153,28 @@ class SessionWebSocketService {
         case 'available_commands':
           _commandController.add(
               (m['commands'] as List?)?.cast<Map<String, dynamic>>() ?? []);
+          break;
+        case 'agent_message_chunk':
+          final chunk = m['content']?['text'] ?? '';
+          if (chunk.isNotEmpty) {
+            print('DEBUG: Received chunk: ${chunk.length} chars');
+            if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
+              final last = _currentMessages.last;
+              _currentMessages[_currentMessages.length - 1] = last.copyWith(
+                content: last.content + chunk
+              );
+            } else {
+              _currentMessages.add(CardMessage(
+                id: 'streaming-${DateTime.now().millisecondsSinceEpoch}',
+                cardId: _currentCardId ?? '',
+                role: 'assistant',
+                content: chunk,
+                createdAt: DateTime.now().toIso8601String(),
+                isComplete: false
+              ));
+            }
+            _messageController.add(List.from(_currentMessages));
+          }
           break;
         case 'message_added':
         case 'refresh':
@@ -179,11 +220,13 @@ class SessionWebSocketService {
   Future<void> disconnect() async {
     _heartbeatTimer?.cancel();
     _reconnectTimer?.cancel();
-    if (_channel != null) {
-      await _channel!.sink.close();
-      _channel = null;
-    }
+    // Immediately reset state to avoid race conditions when reconnecting
+    final channel = _channel;
+    _channel = null;
     _isConnected = false;
+    if (channel != null) {
+      await channel.sink.close();
+    }
   }
 
   void dispose() {

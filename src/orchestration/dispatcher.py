@@ -111,11 +111,41 @@ class MessageDispatcher:
                 asyncio.create_task(trigger())
 
         ui_format = params.get("ui_format", "acp")
+
+        async def wrapped_notification(notif_data):
+            """Send notification via on_output WITHOUT waiting for a response."""
+            # Notifications are fire-and-forget. Only actual UI requests (permissions, fs access)
+            # should wait for a response. We use create_task to avoid blocking.
+            try:
+                result = on_output(notif_data)
+                # If it's a coroutine, run it in background without awaiting
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+            except TypeError:
+                try:
+                    result = on_output(notif_data.get("method", "notification"), notif_data.get("params", {}))
+                    if asyncio.iscoroutine(result):
+                        asyncio.create_task(result)
+                except Exception:
+                    pass
+
+        async def wrapped_request(method, req_params):
+            """Send a UI request that requires a response from the UI."""
+            return await on_output(method, req_params)
+
         async def wrapped_output(output_data, is_request=False):
             if ui_format == "ag_ui":
                 mapped = AGUIMapper.map_notification(output_data)
-                if mapped: return await on_output(mapped) if is_request else await on_output(mapped)
-            else: return await on_output(output_data) if is_request else await on_output(output_data)
+                if not mapped: return
+                if is_request:
+                    return await wrapped_request(mapped.get("method"), mapped.get("params", {}))
+                else:
+                    return await wrapped_notification(mapped)
+            else:
+                if is_request:
+                    return await wrapped_request(output_data.get("method"), output_data.get("params", {}))
+                else:
+                    return await wrapped_notification(output_data)
 
         if method in ("chat/message", "session/prompt"):
             prompt_text = params.get("message") or params.get("prompt")
@@ -191,76 +221,119 @@ class MessageDispatcher:
         is_internal = session_id in self._internal_sessions
         try:
             async def handle_nested_request(inner_method, inner_params):
-                if inner_method == "session/request_permission": 
+                if inner_method == "session/request_permission":
                     inner_params["card_id"] = card_id
-                
+                    
+                    # YOLO 模式：检查列的 approval_mode，自动放行权限请求
+                    engine = self.engines.get(card_id)
+                    if engine and engine.column_id:
+                        column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
+                        if column and column.get("approval_mode") == "yolo":
+                            return {"outcome": {"optionId": "allow"}}
+
                 if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
                     inner_params["_request_id"] = inner_params.get("id")
                     result = await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
                     return result
-                
+
                 return await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
-            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)            
-            if is_new or not engine.acp_session_id: asyncio.create_task(self._inject_context_async(card_id, engine))
+            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)
+            if is_new or not engine.acp_session_id:
+                # Serial: wait for context injection to complete before processing user prompt.
+                # This prevents concurrent prompt collision on the same ACP session.
+                await self._inject_context_async(card_id, engine, on_output)
 
             async def forward_notif(n):
                 if "params" in n: n["params"]["card_id"] = card_id
                 if is_internal: await on_output(n); return
-                update = n.get("params", {}).get("update", {})
-                utype = update.get("sessionUpdate")
-                if utype == "agent_message_chunk":
-                    await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", update.get("content", {}).get("text", ""), False)
-                    bus.publish(card_id, {"type": "refresh"})
-                elif utype == "plan":
-                    bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
-                elif utype == "config_option_update":
-                    bus.publish(card_id, {"type": "config_options", "options": update.get("availableOptions", [])})
-                elif utype == "tool_call":
-                    tcid = update.get("toolCallId")
-                    status = update.get("status", "pending")
-                    title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
-                    
-                    if status == "pending":
-                        await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"}, False)
-                    else:
-                        is_complete = status in ["completed", "failed"]
-                        await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, f"🛠️ **{title}**", is_complete)
-                    bus.publish(card_id, {"type": "refresh"})
-                elif utype == "tool_call_update":
-                    # Backward compatibility or standard update
-                    tcid = update.get("toolCallId")
-                    status = update.get("status")
-                    is_complete = status in ["completed", "failed"]
-                    await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, None, is_complete)
-                    bus.publish(card_id, {"type": "refresh"})
-                elif utype == "session_info_update":
-                    info = update.get("info", {})
-                    if info:
-                        await asyncio.to_thread(self.db.cards.update_card, card_id, title=info.get("title"), description=info.get("description"))
-                        bus.publish(card_id, {"type": "refresh"})
-                elif utype == "stop":
-                    await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
-                    bus.publish(card_id, {"type": "refresh"})
-                await on_output(n)
+                await self._forward_notification(card_id, n, on_output)
 
             await engine.process_prompt(method, params, on_notification=forward_notif)
             if engine.acp_session_id != params.get("acp_session_id"): await asyncio.to_thread(self.db.cards.update_card_session_id, card_id, engine.acp_session_id)
-            await on_output({"jsonrpc": "2.0", "method": "session/update", "params": {"card_id": card_id, "update": {"sessionUpdate": "stop"}}})
+            # Mark assistant response as complete so Flutter stops showing "AI is thinking..."
+            await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
+            bus.publish(card_id, {"type": "refresh"})
         except Exception as e:
             logger.error(f"Engine error: {e}")
             await on_output({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}})
         finally: self.tasks.remove(task_key)
 
-    async def _inject_context_async(self, card_id: str, engine: SessionEngine):
+    async def _inject_context_async(self, card_id: str, engine: SessionEngine, on_output: Optional[Callable] = None):
         internal_id = f"internal-{uuid.uuid4()}"
         self._internal_sessions.add(internal_id)
         try:
             if not engine.is_alive: return
             context = await self.context_builder.build_initial_context(card_id)
-            async def silent(n): pass 
-            await engine.process_prompt("session/prompt", {"sessionId": internal_id, "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]}, on_notification=silent)
-        finally: self._internal_sessions.discard(internal_id)
+
+            async def forward_context_notif(n):
+                """Forward system context notifications to both UI and output."""
+                if "params" in n: n["params"]["card_id"] = card_id
+                # Pass through the same forward_notif logic
+                await self._forward_notification(card_id, n, on_output)
+
+            await engine.process_prompt("session/prompt", {
+                "sessionId": internal_id,
+                "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]
+            }, on_notification=forward_context_notif)
+        finally:
+            self._internal_sessions.discard(internal_id)
+
+    async def _forward_notification(self, card_id, n, on_output):
+        """Shared notification forwarding logic for both user and system prompts."""
+        update = n.get("params", {}).get("update", {})
+        utype = update.get("sessionUpdate")
+
+        # Support multiple chunk formats
+        chunk_text = ""
+        if utype == "agent_message_chunk":
+            chunk_text = update.get("content", {}).get("text", "")
+        elif utype == "content_block_delta":
+            delta = update.get("delta", {})
+            if isinstance(delta, dict):
+                chunk_text = delta.get("text", "")
+        elif utype == "agent_thought_chunk":
+            # Forward thought chunks for display (debugging/transparency)
+            thought_text = update.get("content", {}).get("text", "")
+            if thought_text:
+                bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
+
+        if chunk_text:
+            await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False)
+            bus.publish(card_id, {"type": "agent_message_chunk", "content": {"text": chunk_text}})
+        elif utype == "plan":
+            bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
+        elif utype == "config_option_update":
+            bus.publish(card_id, {"type": "config_options", "options": update.get("availableOptions", [])})
+        elif utype == "tool_call":
+            tcid = update.get("toolCallId")
+            status = update.get("status", "pending")
+            title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
+            if status == "pending":
+                await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"}, False)
+            else:
+                is_complete = status in ["completed", "failed"]
+                await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, f"🛠️ **{title}**", is_complete)
+            bus.publish(card_id, {"type": "refresh"})
+        elif utype == "tool_call_update":
+            tcid = update.get("toolCallId")
+            status = update.get("status")
+            is_complete = status in ["completed", "failed"]
+            await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, None, is_complete)
+            bus.publish(card_id, {"type": "refresh"})
+        elif utype == "session_info_update":
+            info = update.get("info", {})
+            if info:
+                await asyncio.to_thread(self.db.cards.update_card, card_id, title=info.get("title"), description=info.get("description"))
+                bus.publish(card_id, {"type": "refresh"})
+        elif utype == "stop":
+            await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
+            bus.publish(card_id, {"type": "refresh"})
+
+        # NOTE: Do NOT await on_output(n) here. Notifications are fire-and-forget.
+        # Blocking here causes the notification pipeline to stall, as on_output
+        # eventually calls on_ui_request which waits up to 300s for a UI response.
+        # Actual UI requests (permissions, fs access) are handled via wrapped_request.
 
     async def handle_set_config_option(self, card_id: str, name: str, value: Any):
         engine, _ = await self._get_or_create_engine(card_id)
