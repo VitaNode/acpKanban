@@ -501,7 +501,7 @@ class _MainScreenState extends State<MainScreen> {
       builder: (context) => ProjectManagementDialog(
         projects: _projects,
         currentProject: _currentProject,
-        onUpdate: (project, name, path) => _handleProjectUpdate(project, name, path),
+        onUpdate: (project, name, path, {description}) => _handleProjectUpdate(project, name, path, description: description),
         onDelete: (project) async {
           final success = await _projectService.deleteProject(project.id);
           if (success && mounted) {
