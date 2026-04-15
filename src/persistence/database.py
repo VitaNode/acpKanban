@@ -278,6 +278,16 @@ class CardRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET acp_session_id = ? WHERE id = ?", (session_id, card_id))
 
+    def update_config_options(self, card_id: str, config_options_json: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET config_options = ?, updated_at = ? WHERE id = ?", (config_options_json, datetime.now().isoformat(), card_id))
+
+    def get_config_options(self, card_id: str) -> Optional[str]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT config_options FROM cards WHERE id = ?", (card_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
     def update_provider(self, card_id: str, provider_id: str):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET acp_provider_id = ? WHERE id = ?", (provider_id, card_id))
@@ -406,6 +416,31 @@ class SessionRepository(BaseRepository):
                     (card_id, role, content_chunk, 1 if is_complete else 0, now)
                 )
 
+    def append_thought(self, card_id: str, thought_chunk: str):
+        """Appends thought chunk to the metadata of the last incomplete assistant message."""
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id, metadata FROM card_sessions WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                msg_id, meta_str = row
+                meta = json.loads(meta_str) if meta_str else {}
+                meta['thought'] = (meta.get('thought') or "") + thought_chunk
+                conn.execute(
+                    "UPDATE card_sessions SET metadata = ? WHERE id = ?",
+                    (json.dumps(meta), msg_id)
+                )
+            else:
+                # Create a new incomplete message if none exists
+                now = datetime.now().isoformat()
+                meta = {'thought': thought_chunk}
+                conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, metadata, is_complete, created_at) VALUES (?, 'assistant', '', ?, 0, ?)",
+                    (card_id, json.dumps(meta), now)
+                )
+
     def update_message_with_metadata(self, card_id: str, meta_key: str, meta_value: Any, new_content: str = None, is_complete: bool = True):
         """Finds a message by metadata and updates its content/status."""
         now = datetime.now().isoformat()
@@ -503,6 +538,8 @@ class KanbanDB:
     def delete_card(self, card_id: str): return self.cards.delete(card_id)
     def search_cards_fts(self, query: str, project_id: str = None) -> List[Dict]: return self.cards.search_cards_fts(query, project_id)
     def update_card_session_id(self, card_id: str, session_id: str): return self.cards.update_card_session_id(card_id, session_id)
+    def update_card_config_options(self, card_id: str, config_options_json: str): return self.cards.update_config_options(card_id, config_options_json)
+    def get_card_config_options(self, card_id: str) -> Optional[str]: return self.cards.get_config_options(card_id)
     def update_card_provider(self, card_id: str, provider_id: str): return self.cards.update_provider(card_id, provider_id)
     def update_card_summary(self, card_id: str, summary: str):
         now = datetime.now().isoformat()
@@ -515,6 +552,7 @@ class KanbanDB:
     def upsert_card_embedding(self, card_id: str, embedding_vector: List[float]): return self.cards.upsert_card_embedding(card_id, embedding_vector)
     
     def add_session_message(self, card_id: str, role: str, content: str, metadata: Dict = None): return self.sessions.add_message(card_id, role, content, metadata)
+    def append_thought(self, card_id: str, thought_chunk: str): return self.sessions.append_thought(card_id, thought_chunk)
     def get_session_history(self, card_id: str, limit: int = 50) -> List[Dict]: return self.sessions.get_history(card_id, limit)
     
     def get_all_summaries(self, project_id: str) -> List[Dict]: return self.summaries.get_all_for_project(project_id)
@@ -621,7 +659,12 @@ class KanbanDB:
             try:
                 cursor.execute("ALTER TABLE cards ADD COLUMN last_summary TEXT")
             except: pass
-            
+
+            # Migration: Add config_options to cards
+            try:
+                cursor.execute("ALTER TABLE cards ADD COLUMN config_options TEXT")
+            except: pass
+
             conn.commit()
         finally:
             conn.close()

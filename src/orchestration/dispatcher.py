@@ -332,6 +332,7 @@ class MessageDispatcher:
             # Forward thought chunks for display (debugging/transparency)
             thought_text = update.get("content", {}).get("text", "")
             if thought_text:
+                await asyncio.to_thread(self.db.append_thought, card_id, thought_text)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
         elif method == "_qwencode/slash_command":
             chunk_text = params.get("message", "")
@@ -356,8 +357,15 @@ class MessageDispatcher:
         elif utype == "tool_call_update":
             tcid = update.get("toolCallId")
             status = update.get("status")
+            content = update.get("content")
+            
+            # Extract text from content list if possible
+            output_text = None
+            if content and isinstance(content, list):
+                output_text = "\n".join([c.get("content", {}).get("text", "") for c in content if c.get("type") == "content" and "text" in c.get("content", {})])
+            
             is_complete = status in ["completed", "failed"]
-            await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, None, is_complete)
+            await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, output_text, is_complete)
             bus.publish(card_id, {"type": "refresh"})
         elif utype == "session_info_update":
             info = update.get("info", {})
