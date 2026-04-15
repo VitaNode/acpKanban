@@ -318,7 +318,7 @@ class MessageDispatcher:
             status = update.get("status", "pending")
             title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
             if status == "pending":
-                await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"}, False)
+                await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"})
             else:
                 is_complete = status in ["completed", "failed"]
                 await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, f"🛠️ **{title}**", is_complete)
