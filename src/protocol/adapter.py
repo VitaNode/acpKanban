@@ -137,6 +137,7 @@ class ACPProtocolAdapter:
                     if on_notification:
                         await on_notification(data)
 
+                    # Standard ACP updates
                     if data.get("method") == "session/update":
                         update = data.get("params", {}).get("update", {})
                         content = update.get("content", {})
@@ -147,6 +148,12 @@ class ACPProtocolAdapter:
                             delta = update.get("delta", {})
                             if isinstance(delta, dict) and "text" in delta:
                                 collected_text.append(delta["text"])
+                    
+                    # Custom Qwen Code slash command response
+                    elif data.get("method") == "_qwencode/slash_command":
+                        msg = data.get("params", {}).get("message", "")
+                        if msg:
+                            collected_text.append(msg)
                 except asyncio.TimeoutError:
                     continue
                 except Exception as e:

@@ -312,7 +312,9 @@ class MessageDispatcher:
 
     async def _forward_notification(self, card_id, n, on_output):
         """Shared notification forwarding logic for both user and system prompts."""
-        update = n.get("params", {}).get("update", {})
+        method = n.get("method")
+        params = n.get("params", {})
+        update = params.get("update", {})
         utype = update.get("sessionUpdate")
 
         # Support multiple chunk formats
@@ -328,6 +330,8 @@ class MessageDispatcher:
             thought_text = update.get("content", {}).get("text", "")
             if thought_text:
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
+        elif method == "_qwencode/slash_command":
+            chunk_text = params.get("message", "")
 
         if chunk_text:
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False)
