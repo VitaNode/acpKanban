@@ -260,32 +260,23 @@ class MessageDispatcher:
         finally: self.tasks.remove(task_key)
 
     async def _inject_context_async(self, card_id: str, engine: SessionEngine, on_output: Optional[Callable] = None):
-        internal_id = f"internal-{uuid.uuid4()}"
-        self._internal_sessions.add(internal_id)
-        try:
-            if not engine.is_alive: return
+        if not engine.is_alive or not engine.acp_session_id:
+            return
 
-            # 获取列的 prompt_template
-            column_prompt = None
-            if engine.column_id:
-                column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
-                if column:
-                    column_prompt = column.get("prompt_template")
+        # 获取列的 prompt_template
+        column_prompt = None
+        if engine.column_id:
+            column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
+            if column:
+                column_prompt = column.get("prompt_template")
 
-            context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt)
+        context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt)
 
-            async def forward_context_notif(n):
-                """Forward system context notifications to both UI and output."""
-                if "params" in n: n["params"]["card_id"] = card_id
-                # Pass through the same forward_notif logic
-                await self._forward_notification(card_id, n, on_output)
-
-            await engine.process_prompt("session/prompt", {
-                "sessionId": internal_id,
-                "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]
-            }, on_notification=forward_context_notif)
-        finally:
-            self._internal_sessions.discard(internal_id)
+        # 用真实的 ACP sessionId 注入 context
+        await engine.process_prompt("session/prompt", {
+            "sessionId": engine.acp_session_id,
+            "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]
+        }, on_notification=on_output)
 
     async def _forward_notification(self, card_id, n, on_output):
         """Shared notification forwarding logic for both user and system prompts."""
