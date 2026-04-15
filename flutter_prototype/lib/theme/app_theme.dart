@@ -24,7 +24,7 @@ class AppTheme {
           color: AppConstants.textPrimary,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppConstants.backgroundColor,
         elevation: 2,
         shadowColor: Colors.black.withOpacity(0.1),
