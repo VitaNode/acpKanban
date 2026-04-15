@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 from src.config.manager import config
 from src.protocol.tool_registry import tool_registry
 
