@@ -24,11 +24,13 @@ class ColumnCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     position: Optional[int] = None
     color: Optional[str] = "#808080"
+    prompt_template: Optional[str] = Field(None, max_length=5000)
 
 
 class ColumnUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     color: Optional[str] = None
+    prompt_template: Optional[str] = Field(None, max_length=5000)
 
 
 class ProjectCreateRequest(BaseModel):
@@ -271,6 +273,7 @@ async def create_column(project_id: str, request: ColumnCreateRequest):
             name=request.name,
             position=request.position,
             color=request.color,
+            prompt_template=request.prompt_template,
         )
         column = db.get_column(column_id)
         if not column:
@@ -299,6 +302,7 @@ async def update_column(column_id: str, request: ColumnUpdateRequest):
             column_id=column_id,
             name=request.name,
             color=request.color,
+            prompt_template=request.prompt_template,
         )
         return db.get_column(column_id)
     except HTTPException:

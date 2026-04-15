@@ -37,6 +37,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   AgentPlan? _currentPlan;
   List<ConfigOption> _configOptions = [];
   List<Map<String, dynamic>> _availableCommands = [];
+  List<KanbanCard> _relatedCards = [];
 
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
@@ -56,9 +57,15 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
     _setupWebSocket();
+    _loadRelatedCards();
     _chatController.addListener(_onChatChanged);
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
+  }
+
+  Future<void> _loadRelatedCards() async {
+    final cards = await _projectService.getRelatedCards(_card.id);
+    if (mounted) setState(() => _relatedCards = cards);
   }
 
   void _setupWebSocket() {
@@ -79,8 +86,24 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _planSub = _wsService.plan.listen((p) {
       if (mounted) setState(() => _currentPlan = p);
     });
-    _configSub = _wsService.configOptions.listen((o) {
-      if (mounted) setState(() => _configOptions = o);
+
+    // 如果卡片有 sessionMode，则在收到 configOptions 后设置
+    bool _modeApplied = _card.sessionMode == null;
+    _configSub = _wsService.configOptions.listen((options) {
+      if (mounted) {
+        setState(() => _configOptions = options);
+        // 应用 session mode
+        if (!_modeApplied && _card.sessionMode != null && options.isNotEmpty) {
+          final modeOption = options.firstWhere(
+            (o) => o.category == 'mode',
+            orElse: () => options.first,
+          );
+          if (modeOption.options.any((o) => o.value == _card.sessionMode)) {
+            _wsService.setConfigOption(modeOption.id, _card.sessionMode!);
+            _modeApplied = true;
+          }
+        }
+      }
     });
     _commandSub = _wsService.availableCommands.listen((c) {
       if (mounted) setState(() => _availableCommands = c);
@@ -302,6 +325,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 children: [
               _buildHeader(),
               if (_currentPlan != null) PlanPanel(plan: _currentPlan!),
+              if (_relatedCards.isNotEmpty) _buildRelatedCards(),
               const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Divider()),
@@ -342,6 +366,69 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           Text('Created ${DateFormatter.formatFull(_card.createdAt)}',
               style: const TextStyle(fontSize: 12, color: Colors.grey)),
           const SizedBox(height: 16),
+        ]));
+  }
+
+  Widget _buildRelatedCards() {
+    return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.link, size: 16, color: Colors.grey[600]),
+            const SizedBox(width: 6),
+            Text('关联卡片 (${_relatedCards.length})',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600])),
+          ]),
+          const SizedBox(height: 8),
+          ..._relatedCards.map((c) => _buildRelatedCardItem(c)),
+        ]));
+  }
+
+  Widget _buildRelatedCardItem(KanbanCard card) {
+    final statusColor = card.status == 'completed'
+        ? Colors.green
+        : card.status == 'active'
+            ? Colors.blue
+            : Colors.grey;
+    return Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[200]!)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                    color: statusColor, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+            Expanded(
+                child: Text(card.title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14))),
+            if (card.columnName != null)
+              Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4)),
+                  child: Text(card.columnName!,
+                      style: const TextStyle(fontSize: 10))),
+          ]),
+          if (card.summary != null) ...[
+            const SizedBox(height: 4),
+            Text(card.summary!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          ],
         ]));
   }
 

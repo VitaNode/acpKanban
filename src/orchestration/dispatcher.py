@@ -343,9 +343,9 @@ class MessageDispatcher:
         # eventually calls on_ui_request which waits up to 300s for a UI response.
         # Actual UI requests (permissions, fs access) are handled via wrapped_request.
 
-    async def handle_set_config_option(self, card_id: str, name: str, value: Any):
+    async def handle_set_config_option(self, card_id: str, config_id: str, value: Any):
         engine, _ = await self._get_or_create_engine(card_id)
-        new_options = await engine.set_config_option(name, value)
+        new_options = await engine.set_config_option(config_id, value)
         if new_options: bus.publish(card_id, {"type": "config_options", "options": new_options})
         return new_options
 

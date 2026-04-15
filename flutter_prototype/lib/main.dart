@@ -135,6 +135,7 @@ class _MainScreenState extends State<MainScreen> {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
     String selectedProviderId = _lastSelectedProviderId ?? _defaultProviderId;
+    String selectedSessionMode = 'ask'; // Default mode
 
     // If _providers is still loading, try loading it now
     if (_providers.isEmpty) {
@@ -143,87 +144,119 @@ class _MainScreenState extends State<MainScreen> {
 
     final showProviderSelector = _providers.length > 1;
 
+    const sessionModes = [
+      {'value': 'ask', 'name': 'Ask', 'icon': Icons.question_answer, 'desc': 'Request permission before making changes'},
+      {'value': 'code', 'name': 'Code / Yolo', 'icon': Icons.code, 'desc': 'Write and modify code freely'},
+      {'value': 'plan', 'name': 'Plan / Architect', 'icon': Icons.architecture, 'desc': 'Only plan, do not execute'},
+    ];
+
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Add Card to ${column.name}'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Title *',
-                  hintText: 'Enter card title',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 1,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  hintText: 'Enter card description',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 4,
-                minLines: 2,
-              ),
-              if (showProviderSelector) ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedProviderId,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Add Card to ${column.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  autofocus: true,
                   decoration: const InputDecoration(
-                    labelText: 'AI Provider',
+                    labelText: 'Title *',
+                    hintText: 'Enter card title',
                     border: OutlineInputBorder(),
                   ),
-                  items: _providers.map((p) {
-                    return DropdownMenuItem(
-                      value: p.id,
-                      child: Row(
-                        children: [
-                          Icon(
-                            IconUtil.getProviderIcon(p.icon),
-                            size: 18,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(p.name),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value != null) selectedProviderId = value;
-                  },
+                  maxLines: 1,
                 ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Title is required')),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (optional)',
+                    hintText: 'Enter card description',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 4,
+                  minLines: 2,
+                ),
+                if (showProviderSelector) ...[
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedProviderId,
+                    decoration: const InputDecoration(
+                      labelText: 'AI Provider',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _providers.map((p) {
+                      return DropdownMenuItem(
+                        value: p.id,
+                        child: Row(
+                          children: [
+                            Icon(
+                              IconUtil.getProviderIcon(p.icon),
+                              size: 18,
+                              color: Theme.of(context).primaryColor,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(p.name),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) setDialogState(() => selectedProviderId = value);
+                    },
+                  ),
+                ],
+                const SizedBox(height: 16),
+                const Text('Session Mode', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 8),
+                ...sessionModes.map((mode) {
+                  final isSelected = selectedSessionMode == mode['value'];
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(mode['icon'] as IconData,
+                        color: isSelected ? const Color(0xFF008080) : Colors.grey, size: 20),
+                    title: Text(mode['name'] as String,
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isSelected ? const Color(0xFF008080) : null,
+                        )),
+                    subtitle: Text(mode['desc'] as String,
+                        style: const TextStyle(fontSize: 11)),
+                    trailing: isSelected
+                        ? const Icon(Icons.check_circle, color: Color(0xFF008080), size: 20)
+                        : null,
+                    onTap: () => setDialogState(() => selectedSessionMode = mode['value'] as String),
                   );
-                  return;
-                }
-                Navigator.pop(context, {
-                  'title': titleController.text.trim(),
-                  'description': descriptionController.text.trim(),
-                  'provider_id': selectedProviderId,
-                });
-              },
-              child: const Text('Add')),
-        ],
+                }),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            TextButton(
+                onPressed: () {
+                  if (titleController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Title is required')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context, {
+                    'title': titleController.text.trim(),
+                    'description': descriptionController.text.trim(),
+                    'provider_id': selectedProviderId,
+                    'session_mode': selectedSessionMode,
+                  });
+                },
+                child: const Text('Add')),
+          ],
+        ),
       ),
     );
 

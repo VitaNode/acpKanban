@@ -157,7 +157,7 @@ class ColumnRepository(BaseRepository):
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def create(self, project_id: str, name: str, position: int = None, color: str = "#808080") -> str:
+    def create(self, project_id: str, name: str, position: int = None, color: str = "#808080", prompt_template: str = None) -> str:
         col_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
         if position is None:
@@ -165,15 +165,15 @@ class ColumnRepository(BaseRepository):
                 cursor = conn.execute("SELECT MAX(position) FROM columns WHERE project_id = ?", (project_id,))
                 max_pos = cursor.fetchone()[0]
                 position = (max_pos + 1) if max_pos is not None else 0
-        
+
         with self.db.get_connection() as conn:
             conn.execute(
-                "INSERT INTO columns (id, project_id, name, position, color, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (col_id, project_id, name, position, color, now),
+                "INSERT INTO columns (id, project_id, name, position, color, prompt_template, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (col_id, project_id, name, position, color, prompt_template, now),
             )
             return col_id
 
-    def update(self, column_id: str, name: str = None, color: str = None):
+    def update(self, column_id: str, name: str = None, color: str = None, prompt_template: str = None):
         updates = []
         params = []
         if name:
@@ -182,6 +182,9 @@ class ColumnRepository(BaseRepository):
         if color:
             updates.append("color = ?")
             params.append(color)
+        if prompt_template is not None:
+            updates.append("prompt_template = ?")
+            params.append(prompt_template)
         
         if not updates: return
         params.append(column_id)
@@ -487,8 +490,8 @@ class KanbanDB:
 
     def get_columns(self, project_id: str) -> List[Dict]: return self.columns.get_by_project(project_id)
     def get_column(self, column_id: str) -> Optional[Dict]: return self.columns.get_by_id(column_id)
-    def create_column(self, project_id: str, name: str, position: int = None, color: str = "#808080") -> str: return self.columns.create(project_id, name, position, color)
-    def update_column(self, column_id: str, name: str = None, color: str = None): return self.columns.update(column_id, name, color)
+    def create_column(self, project_id: str, name: str, position: int = None, color: str = "#808080", prompt_template: str = None) -> str: return self.columns.create(project_id, name, position, color, prompt_template)
+    def update_column(self, column_id: str, name: str = None, color: str = None, prompt_template: str = None): return self.columns.update(column_id, name, color, prompt_template)
     def delete_column(self, column_id: str, move_to_column_id: str = None): return self.columns.delete(column_id, move_to_column_id)
     def update_column_position(self, column_id: str, position: int): return self.columns.update_position(column_id, position)
     

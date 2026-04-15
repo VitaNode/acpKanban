@@ -198,10 +198,10 @@ class SessionWebSocketService {
     }
   }
 
-  Future<void> setConfigOption(String name, String value) async {
+  Future<void> setConfigOption(String configId, String value) async {
     if (_channel != null && _isConnected)
       _channel!.sink.add(jsonEncode(
-          {'type': 'set_config_option', 'name': name, 'value': value}));
+          {'type': 'set_config_option', 'name': configId, 'value': value}));
   }
 
   Future<void> sendMessage(String role, String content) async {

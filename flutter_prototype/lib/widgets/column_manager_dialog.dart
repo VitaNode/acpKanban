@@ -5,18 +5,21 @@ import '../services/project_service.dart';
 class ColorEditResult {
   final String name;
   final String color;
+  final String? promptTemplate;
 
-  ColorEditResult({required this.name, required this.color});
+  ColorEditResult({required this.name, required this.color, this.promptTemplate});
 }
 
 class ColumnEditDialog extends StatefulWidget {
   final String initialName;
   final String initialColor;
+  final String? initialPromptTemplate;
 
   const ColumnEditDialog({
     super.key,
     required this.initialName,
     required this.initialColor,
+    this.initialPromptTemplate,
   });
 
   @override
@@ -25,6 +28,7 @@ class ColumnEditDialog extends StatefulWidget {
 
 class _ColumnEditDialogState extends State<ColumnEditDialog> {
   late TextEditingController _nameController;
+  late TextEditingController _promptTemplateController;
   late String _selectedColor;
 
   static const List<String> _colors = [
@@ -51,11 +55,14 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
     super.initState();
     _nameController = TextEditingController(text: widget.initialName);
     _selectedColor = widget.initialColor;
+    _promptTemplateController =
+        TextEditingController(text: widget.initialPromptTemplate ?? '');
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _promptTemplateController.dispose();
     super.dispose();
   }
 
@@ -127,6 +134,21 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 Text(_selectedColor, style: const TextStyle(fontSize: 12)),
               ],
             ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _promptTemplateController,
+              decoration: const InputDecoration(
+                labelText: 'Prompt Template (optional)',
+                hintText: 'Instructions for AI when working in this column...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 4,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '💡 This prompt will be included in the context sent to LLM for cards in this column.',
+              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
+            ),
           ],
         ),
       ),
@@ -139,11 +161,133 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
           onPressed: () {
             final name = _nameController.text.trim();
             if (name.isNotEmpty) {
+              final promptTemplate = _promptTemplateController.text.trim();
               Navigator.pop(
-                  context, ColorEditResult(name: name, color: _selectedColor));
+                  context, ColorEditResult(
+                      name: name,
+                      color: _selectedColor,
+                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate));
             }
           },
           child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _AddColumnDialog extends StatefulWidget {
+  const _AddColumnDialog();
+
+  @override
+  State<_AddColumnDialog> createState() => _AddColumnDialogState();
+}
+
+class _AddColumnDialogState extends State<_AddColumnDialog> {
+  final _nameController = TextEditingController();
+  final _promptTemplateController = TextEditingController();
+  String _selectedColor = '#808080';
+
+  static const List<String> _colors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+    '#F8B500', '#00CED1', '#FF69B4', '#32CD32', '#FF4500',
+    '#6B5B95', '#808080',
+  ];
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _promptTemplateController.dispose();
+    super.dispose();
+  }
+
+  Color _parseColor(String colorHex) {
+    final hex = colorHex.replaceFirst('#', '');
+    if (hex.length == 6) return Color(int.parse('FF$hex', radix: 16));
+    return Colors.grey;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Column'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Column Name'),
+            ),
+            const SizedBox(height: 16),
+            const Text('Color',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _colors.map((color) {
+                final isSelected =
+                    color.toUpperCase() == _selectedColor.toUpperCase();
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedColor = color),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: _parseColor(color),
+                      shape: BoxShape.circle,
+                      border: isSelected
+                          ? Border.all(color: Colors.black, width: 3)
+                          : Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: isSelected
+                        ? const Icon(Icons.check, color: Colors.white, size: 16)
+                        : null,
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _promptTemplateController,
+              decoration: const InputDecoration(
+                labelText: 'Prompt Template (optional)',
+                hintText: 'Instructions for AI when working in this column...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '💡 This prompt will be included in the context sent to LLM for cards in this column.',
+              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            final name = _nameController.text.trim();
+            if (name.isNotEmpty) {
+              final promptTemplate = _promptTemplateController.text.trim();
+              Navigator.pop(
+                  context,
+                  ColorEditResult(
+                      name: name,
+                      color: _selectedColor,
+                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate));
+            }
+          },
+          child: const Text('Create'),
         ),
       ],
     );
@@ -190,10 +334,18 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
   }
 
   Future<void> _addColumn() async {
-    final name = await _showNameDialog('Add Column');
-    if (name != null && name.isNotEmpty) {
+    final result = await showDialog<ColorEditResult>(
+      context: context,
+      builder: (context) => _AddColumnDialog(),
+    );
+    if (result != null) {
       setState(() => _isLoading = true);
-      await _projectService.createColumn(widget.projectId, name);
+      await _projectService.createColumn(
+        widget.projectId,
+        result.name,
+        color: result.color,
+        promptTemplate: result.promptTemplate,
+      );
       _refreshColumns();
     }
   }
@@ -204,6 +356,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       builder: (context) => ColumnEditDialog(
         initialName: column.name,
         initialColor: column.color,
+        initialPromptTemplate: column.promptTemplate,
       ),
     );
     if (result != null) {
@@ -212,6 +365,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         column.id,
         name: result.name,
         color: result.color,
+        promptTemplate: result.promptTemplate,
       );
       _refreshColumns();
     }
@@ -280,29 +434,6 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       });
       widget.onUpdated();
     }
-  }
-
-  Future<String?> _showNameDialog(String title, {String initialValue = ''}) {
-    final controller = TextEditingController(text: initialValue);
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Column Name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('OK')),
-        ],
-      ),
-    );
   }
 
   @override

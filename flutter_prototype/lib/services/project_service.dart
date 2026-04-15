@@ -139,11 +139,13 @@ class ProjectService {
   }
 
   Future<KanbanColumn?> createColumn(String projectId, String name,
-      {String? color}) async {
+      {String? color, String? promptTemplate}) async {
     try {
       final response = await _post('/api/projects/$projectId/columns', {
         'name': name,
         if (color != null) 'color': color,
+        if (promptTemplate != null && promptTemplate.isNotEmpty)
+          'prompt_template': promptTemplate,
       });
       if (response.statusCode == 201) {
         return KanbanColumn.fromJson(jsonDecode(response.body));
@@ -156,11 +158,12 @@ class ProjectService {
   }
 
   Future<bool> updateColumn(String columnId,
-      {String? name, String? color}) async {
+      {String? name, String? color, String? promptTemplate}) async {
     try {
       final body = <String, dynamic>{};
       if (name != null) body['name'] = name;
       if (color != null) body['color'] = color;
+      if (promptTemplate != null) body['prompt_template'] = promptTemplate;
       final response = await _put('/api/columns/$columnId', body);
       return response.statusCode == 200;
     } catch (e) {
@@ -257,9 +260,9 @@ class ProjectService {
     }
   }
 
-  Future<List<KanbanCard>> getRelatedCards(String cardId) async {
+  Future<List<KanbanCard>> getRelatedCards(String cardId, {int limit = 5}) async {
     try {
-      final response = await _get('/api/cards/$cardId/related');
+      final response = await _get('/api/cards/$cardId/related?limit=$limit');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
         return data.map((c) => KanbanCard.fromJson(c)).toList();

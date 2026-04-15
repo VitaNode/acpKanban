@@ -70,13 +70,13 @@ class SessionEngine:
                 self.acp_client = None
                 self.adapter = None
 
-    async def set_config_option(self, name: str, value: Any):
+    async def set_config_option(self, config_id: str, value: Any):
         """Phase 5.2: Set agent config at runtime."""
         if not self.adapter or not self.acp_session_id: return None
         try:
             res = await self.adapter.handle_request("session/set_config_option", {
                 "sessionId": self.acp_session_id,
-                "name": name,
+                "configId": config_id,
                 "value": value
             })
             if "configOptions" in res:

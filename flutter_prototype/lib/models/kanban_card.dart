@@ -12,6 +12,9 @@ class KanbanCard {
   final String? parentId;
   final String? acpSessionId;
   final String? acpProviderId;
+  final String? columnName;
+  final String? summary;
+  final String? sessionMode;
 
   KanbanCard({
     required this.id,
@@ -27,6 +30,9 @@ class KanbanCard {
     this.parentId,
     this.acpSessionId,
     this.acpProviderId,
+    this.columnName,
+    this.summary,
+    this.sessionMode,
   });
 
   String get shortId => id.length >= 8 ? id.substring(0, 8) : id;
@@ -47,6 +53,9 @@ class KanbanCard {
       parentId: json['parent_id'],
       acpSessionId: json['acp_session_id'],
       acpProviderId: json['acp_provider_id'],
+      columnName: json['column_name'],
+      summary: json['summary'],
+      sessionMode: json['session_mode'],
     );
   }
 
@@ -64,6 +73,9 @@ class KanbanCard {
       if (parentId != null) 'parent_id': parentId,
       if (acpSessionId != null) 'acp_session_id': acpSessionId,
       if (acpProviderId != null) 'acp_provider_id': acpProviderId,
+      if (columnName != null) 'column_name': columnName,
+      if (summary != null) 'summary': summary,
+      if (sessionMode != null) 'session_mode': sessionMode,
     };
   }
 
@@ -78,6 +90,7 @@ class KanbanCard {
     String? updatedAt,
     String? acpSessionId,
     String? acpProviderId,
+    String? sessionMode,
   }) {
     return KanbanCard(
       id: id,
@@ -93,6 +106,7 @@ class KanbanCard {
       parentId: parentId,
       acpSessionId: acpSessionId ?? this.acpSessionId,
       acpProviderId: acpProviderId ?? this.acpProviderId,
+      sessionMode: sessionMode ?? this.sessionMode,
     );
   }
 }
