@@ -74,7 +74,14 @@ class MessageBubble extends StatelessWidget {
                 ],
                 border: isUser ? null : Border.all(color: Colors.grey[200]!),
               ),
-              child: _buildMessageContent(isUser),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!isUser && message.metadata?['thought'] != null)
+                    _buildThoughtSection(context),
+                  _buildMessageContent(isUser),
+                ],
+              ),
             ),
           ],
         ),
@@ -135,6 +142,49 @@ class MessageBubble extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children:
           blocks.map((block) => ContentBlockRenderer(block: block)).toList(),
+    );
+  }
+
+  Widget _buildThoughtSection(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50.withAlpha(100),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.amber.shade100),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          initiallyExpanded: false,
+          leading: const Icon(Icons.lightbulb_outline, size: 16, color: Colors.amber),
+          title: const Text(
+            'AI 思考过程',
+            style: TextStyle(
+              fontSize: 12, 
+              fontWeight: FontWeight.w600,
+              color: Colors.amber,
+            ),
+          ),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: MarkdownBody(
+                data: message.metadata!['thought'].toString(),
+                styleSheet: MarkdownStyleSheet(
+                  p: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade800,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

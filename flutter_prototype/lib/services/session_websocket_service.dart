@@ -139,6 +139,13 @@ class SessionWebSocketService {
                   .toList() ??
               [];
           _messageController.add(_currentMessages);
+          // Also handle config_options embedded in history response
+          if (m['config_options'] != null) {
+            _configController.add((m['config_options'] as List?)
+                    ?.map((x) => ConfigOption.fromJson(x))
+                    .toList() ??
+                []);
+          }
           break;
         case 'agent_plan':
           _planController
@@ -157,7 +164,6 @@ class SessionWebSocketService {
         case 'agent_message_chunk':
           final chunk = m['content']?['text'] ?? '';
           if (chunk.isNotEmpty) {
-            print('DEBUG: Received chunk: ${chunk.length} chars');
             if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
               final last = _currentMessages.last;
               _currentMessages[_currentMessages.length - 1] = last.copyWith(
@@ -175,6 +181,34 @@ class SessionWebSocketService {
             }
             _messageController.add(List.from(_currentMessages));
           }
+          break;
+        case 'agent_thought_chunk':
+          final thought = m['content']?['text'] ?? '';
+          if (thought.isNotEmpty) {
+             if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
+              final last = _currentMessages.last;
+              final metadata = Map<String, dynamic>.from(last.metadata ?? {});
+              metadata['thought'] = (metadata['thought'] ?? '') + thought;
+              _currentMessages[_currentMessages.length - 1] = last.copyWith(
+                metadata: metadata
+              );
+            } else {
+              _currentMessages.add(CardMessage(
+                id: 'thought-${DateTime.now().millisecondsSinceEpoch}',
+                cardId: _currentCardId ?? '',
+                role: 'assistant',
+                content: '',
+                createdAt: DateTime.now().toIso8601String(),
+                isComplete: false,
+                metadata: {'thought': thought}
+              ));
+            }
+            _messageController.add(List.from(_currentMessages));
+          }
+          break;
+        case 'tool_call':
+        case 'tool_call_update':
+          _requestHistory(); // Re-fetch to get updated metadata for tool status
           break;
         case 'message_added':
         case 'refresh':

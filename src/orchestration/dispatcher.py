@@ -179,6 +179,9 @@ class MessageDispatcher:
                     prompt_text = " ".join([p.get("text", "") for p in prompt_text if p.get("type") == "text"])
                 await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text)
                 bus.publish(card_id, {"type": "refresh"})
+                
+                # Phase 7: Immediate "Thinking" feedback
+                bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"text": "..."}})
 
             task_key = f"{card_id}_{request_id}"
             task = asyncio.create_task(self._process_engine_request(card_id, method, params, request_id, wrapped_output))
