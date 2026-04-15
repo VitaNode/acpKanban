@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
+import '../constants/app_constants.dart';
 
 class ProjectManagementDialog extends StatefulWidget {
   final List<Project> projects;
@@ -43,11 +44,12 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.settings_suggest, color: Theme.of(context).primaryColor),
-          const SizedBox(width: 8),
-          const Text('Manage Projects'),
+          const Icon(Icons.settings_suggest_rounded, color: AppConstants.primaryColor),
+          const SizedBox(width: AppConstants.space12),
+          Text('Manage Projects', style: Theme.of(context).textTheme.headlineMedium),
         ],
       ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SizedBox(
         width: 500,
         height: 400,
@@ -55,26 +57,39 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
             ? const Center(child: Text('No projects available.'))
             : ListView.separated(
                 itemCount: _localProjects.length,
-                separatorBuilder: (context, index) => const Divider(),
+                separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5),
                 itemBuilder: (context, index) {
                   final project = _localProjects[index];
                   final isCurrent = project.id == widget.currentProject?.id;
                   return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(vertical: AppConstants.space4),
                     leading: Icon(
-                      isCurrent ? Icons.folder_open : Icons.folder,
-                      color: isCurrent ? Theme.of(context).primaryColor : null,
+                      isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
+                      color: isCurrent ? AppConstants.primaryColor : AppConstants.textHint,
                     ),
                     title: Text(
                       project.name,
                       style: TextStyle(
-                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
+                        color: isCurrent ? AppConstants.primaryColor : AppConstants.textPrimary,
                       ),
                     ),
-                    subtitle: Text(
-                      'Path: ${project.workspacePath ?? "Not set"}\nLast active: ${project.lastActive}',
-                      style: const TextStyle(fontSize: 11),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 2),
+                        Text(
+                          project.workspacePath ?? "No workspace path set",
+                          style: Theme.of(context).textTheme.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          'Last active: ${project.lastActive}',
+                          style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                        ),
+                      ],
                     ),
-                    isThreeLine: true,
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -88,10 +103,6 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                                 project: project,
                                 onUpdate: (name, path, desc) async {
                                   await widget.onUpdate(project, name, path, description: desc);
-                                  // The parent will call setState, but since we are a separate dialog,
-                                  // we might need to update locally if the parent doesn't trigger a rebuild of the dialog.
-                                  // But wait, the dialog IS the one holding the list.
-                                  // Let's update locally for immediate feedback.
                                   setState(() {
                                     final idx = _localProjects.indexWhere((p) => p.id == project.id);
                                     if (idx != -1) {
@@ -108,8 +119,8 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                           },
                         ),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline,
-                              size: 20, color: Colors.red),
+                          icon: const Icon(Icons.delete_outline_rounded,
+                              size: 20, color: AppConstants.errorColor),
                           tooltip: isCurrent
                               ? 'Cannot delete active project'
                               : 'Delete Project',
@@ -179,6 +190,7 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Delete Project?'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SizedBox(
         width: 400,
         child: Column(
@@ -189,24 +201,22 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
               'Are you sure you want to delete "${widget.project.name}"?',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             _buildInfoRow('Created', widget.project.createdAt),
             _buildInfoRow('Cards', widget.project.cardCount.toString()),
             if (widget.project.workspacePath != null)
               _buildInfoRow('Workspace', widget.project.workspacePath!),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             const Text(
               'This action cannot be undone and will delete all cards, columns, and history associated with this project.',
-              style: TextStyle(color: Colors.red, fontSize: 13),
+              style: TextStyle(color: AppConstants.errorColor, fontSize: 12),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             TextField(
               controller: _confirmController,
               decoration: InputDecoration(
                 labelText: 'Type project name to confirm',
                 hintText: widget.project.name,
-                border: const OutlineInputBorder(),
-                isDense: true,
               ),
               onChanged: (value) {
                 setState(() {
@@ -222,14 +232,14 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        TextButton(
+        ElevatedButton(
           onPressed: _isNameMatched
               ? () {
                   Navigator.pop(context);
                   widget.onConfirm();
                 }
               : null,
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          style: ElevatedButton.styleFrom(backgroundColor: AppConstants.errorColor),
           child: const Text('Delete Permanently'),
         ),
       ],
@@ -240,9 +250,10 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w500)),
-          Text(value),
+          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
         ],
       ),
     );
@@ -313,11 +324,12 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.edit, color: Theme.of(context).primaryColor),
-          const SizedBox(width: 8),
-          const Text('Edit Project'),
+          const Icon(Icons.edit_rounded, color: AppConstants.primaryColor),
+          const SizedBox(width: AppConstants.space12),
+          Text('Edit Project', style: Theme.of(context).textTheme.headlineMedium),
         ],
       ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SizedBox(
         width: 400,
         child: Column(
@@ -327,35 +339,32 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
               controller: _nameController,
               decoration: const InputDecoration(
                 labelText: 'Project Name',
-                prefixIcon: Icon(Icons.folder),
-                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.folder_rounded),
               ),
               autofocus: true,
               textCapitalization: TextCapitalization.words,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             TextField(
               controller: _descriptionController,
               decoration: const InputDecoration(
                 labelText: 'Project Description',
-                hintText: 'Brief description of this project...',
-                prefixIcon: Icon(Icons.description),
-                border: OutlineInputBorder(),
+                hintText: 'Brief description...',
+                prefixIcon: Icon(Icons.description_rounded),
               ),
               maxLines: 3,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppConstants.space8),
             Text(
-              '💡 Project description will be included in the context sent to LLM during card conversations.',
-              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
+              '💡 Description is included in the AI context.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             TextField(
               controller: _workspaceController,
               decoration: const InputDecoration(
                 labelText: 'Workspace Path',
-                prefixIcon: Icon(Icons.folder_open),
-                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.folder_open_rounded),
               ),
             ),
           ],
@@ -366,13 +375,13 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
           onPressed: _isUpdating ? null : () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        ElevatedButton(
           onPressed: _isUpdating ? null : _handleUpdate,
           child: _isUpdating
               ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
               : const Text('Save Changes'),
         ),

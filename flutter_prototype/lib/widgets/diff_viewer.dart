@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/content_block.dart';
+import '../constants/app_constants.dart';
 
 class DiffViewer extends StatefulWidget {
   final DiffContent diff;
@@ -75,67 +76,81 @@ class _DiffViewerState extends State<DiffViewer> {
         diffs.where((d) => d.type == DiffLineType.removed).length;
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: AppConstants.space8),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
+        color: AppConstants.surfaceColor,
+        borderRadius: BorderRadius.circular(AppConstants.space12),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ListTile(
-            leading: const Icon(Icons.code, size: 20),
-            title: Text(
-              widget.diff.path.split('/').last,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-            subtitle: Text(
-              widget.diff.path,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade100,
-                    borderRadius: BorderRadius.circular(4),
+          InkWell(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            borderRadius: BorderRadius.circular(AppConstants.space12),
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.space12),
+              child: Row(
+                children: [
+                  const Icon(Icons.code_rounded, size: 18, color: AppConstants.primaryColor),
+                  const SizedBox(width: AppConstants.space12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.diff.path.split('/').last,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        Text(
+                          widget.diff.path,
+                          style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Text('+$addedCount',
-                      style: TextStyle(
-                          color: Colors.green.shade800, fontSize: 11)),
-                ),
-                const SizedBox(width: 4),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade100,
-                    borderRadius: BorderRadius.circular(4),
+                  const SizedBox(width: AppConstants.space8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppConstants.successColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text('+$addedCount',
+                        style: const TextStyle(
+                            color: AppConstants.successColor, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
-                  child: Text('-$removedCount',
-                      style:
-                          TextStyle(color: Colors.red.shade800, fontSize: 11)),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(
-                      _isExpanded ? Icons.expand_less : Icons.expand_more,
-                      size: 20),
-                  onPressed: () => setState(() => _isExpanded = !_isExpanded),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppConstants.errorColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text('-$removedCount',
+                        style: const TextStyle(
+                            color: AppConstants.errorColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: AppConstants.space8),
+                  Icon(
+                      _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: AppConstants.textHint),
+                ],
+              ),
             ),
           ),
           if (_isExpanded)
             Container(
-              constraints: const BoxConstraints(maxHeight: 300),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppConstants.space12)),
+              ),
+              constraints: const BoxConstraints(maxHeight: 400),
               child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: AppConstants.space8),
                 child: Column(
                   children:
                       diffs.map((diff) => _DiffLineWidget(line: diff)).toList(),
@@ -165,9 +180,9 @@ class _DiffLineWidget extends StatelessWidget {
   Color get backgroundColor {
     switch (line.type) {
       case DiffLineType.added:
-        return Colors.green.shade50;
+        return Colors.green.withOpacity(0.1);
       case DiffLineType.removed:
-        return Colors.red.shade50;
+        return Colors.red.withOpacity(0.1);
       case DiffLineType.unchanged:
         return Colors.transparent;
     }
@@ -176,11 +191,11 @@ class _DiffLineWidget extends StatelessWidget {
   Color get textColor {
     switch (line.type) {
       case DiffLineType.added:
-        return Colors.green.shade800;
+        return const Color(0xFFB5CEA8);
       case DiffLineType.removed:
-        return Colors.red.shade800;
+        return const Color(0xFFF44747);
       case DiffLineType.unchanged:
-        return Colors.grey.shade700;
+        return const Color(0xFFD4D4D4);
     }
   }
 
@@ -199,19 +214,22 @@ class _DiffLineWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: backgroundColor,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 1),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(prefix,
-              style: TextStyle(
-                  color: textColor, fontFamily: 'monospace', fontSize: 12)),
+          SizedBox(
+            width: 12,
+            child: Text(prefix,
+                style: TextStyle(
+                    color: textColor, fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               line.text,
               style: TextStyle(
-                  color: textColor, fontFamily: 'monospace', fontSize: 12),
+                  color: textColor, fontFamily: 'monospace', fontSize: 11),
             ),
           ),
         ],

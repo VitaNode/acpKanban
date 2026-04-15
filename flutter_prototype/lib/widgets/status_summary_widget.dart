@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/project.dart';
+import '../constants/app_constants.dart';
 
 enum AgentState {
   idle,
@@ -55,14 +56,14 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
     if (activeStatuses.isEmpty) return const SizedBox.shrink();
 
     return Container(
-      height: 40,
+      height: 44,
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+        color: AppConstants.backgroundColor,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
         itemCount: activeStatuses.length,
         itemBuilder: (context, index) {
           return _buildStatusChip(activeStatuses[index]);
@@ -78,19 +79,19 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
 
     switch (status.state) {
       case AgentState.working:
-        color = Colors.orange;
-        icon = Icons.bolt;
+        color = Colors.orange.shade700;
+        icon = Icons.bolt_rounded;
         final duration = DateTime.now().difference(status.startTime ?? DateTime.now());
         text = 'Working (${_formatDuration(duration)})';
         break;
       case AgentState.needsAuthorization:
-        color = Colors.red;
-        icon = Icons.lock_clock;
+        color = AppConstants.errorColor;
+        icon = Icons.lock_clock_rounded;
         text = 'Needs Auth';
         break;
       case AgentState.completed:
-        color = Colors.green;
-        icon = Icons.check_circle;
+        color = AppConstants.successColor;
+        icon = Icons.check_circle_rounded;
         text = 'Completed';
         break;
       default:
@@ -98,25 +99,26 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
     }
 
     return Container(
-      margin: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      margin: const EdgeInsets.only(right: AppConstants.space8, top: AppConstants.space8, bottom: AppConstants.space8),
+      padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
+          const SizedBox(width: AppConstants.space6),
           Text(
-            '${status.project.name}: ',
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+            status.project.name,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppConstants.textPrimary),
           ),
+          const SizedBox(width: AppConstants.space4),
           Text(
             text,
-            style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+            style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
           ),
         ],
       ),

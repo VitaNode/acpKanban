@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
 import '../models/kanban_card.dart';
+import '../constants/app_constants.dart';
 import 'kanban_card_widget.dart';
 
 class KanbanColumnWidget extends StatefulWidget {
@@ -39,19 +40,14 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
     final activeCards = widget.cards.where((c) => c.status == 'active').toList();
     final completedCards = widget.cards.where((c) => c.status == 'completed').toList();
 
-    debugPrint('Column ${widget.column.name}: total=${widget.cards.length}, active=${activeCards.length}, completed=${completedCards.length}');
-    for (var c in widget.cards) {
-      debugPrint('  - Card: ${c.title}, status: ${c.status}');
-    }
-
     return Container(
-      width: 280,
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      width: 300,
+      margin: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
-        color: _parseColor(widget.column.color).withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
+        color: AppConstants.surfaceColor,
+        borderRadius: BorderRadius.circular(AppConstants.space16),
         border: Border.all(
-          color: _parseColor(widget.column.color).withOpacity(0.1),
+          color: Colors.grey.shade200,
           width: 1,
         ),
       ),
@@ -65,9 +61,12 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
               _buildHeader(context, activeCards.length, isOver),
               Expanded(
                 child: Container(
-                  color: isOver ? Colors.indigo.withOpacity(0.05) : Colors.transparent,
+                  decoration: BoxDecoration(
+                    color: isOver ? AppConstants.primaryColor.withOpacity(0.05) : Colors.transparent,
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppConstants.space16)),
+                  ),
                   child: ListView(
-                    padding: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
                     children: [
                       ...activeCards.map((card) => KanbanCardWidget(
                             key: ValueKey(card.id),
@@ -79,7 +78,10 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                             onDelete: widget.onCardDelete,
                           )),
                       if (completedCards.isNotEmpty) ...[
-                        const Divider(indent: 16, endIndent: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: AppConstants.space8),
+                          child: Divider(color: Colors.grey.shade300, thickness: 0.5),
+                        ),
                         _buildCompletedToggleButton(completedCards.length),
                         if (_showCompleted)
                           ...completedCards.map((card) => KanbanCardWidget(
@@ -106,27 +108,23 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
 
   Widget _buildCompletedToggleButton(int count) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
       child: InkWell(
         onTap: () => setState(() => _showCompleted = !_showCompleted),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppConstants.space8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          padding: const EdgeInsets.all(AppConstants.space8),
           child: Row(
             children: [
               Icon(
                 _showCompleted ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
                 size: 18,
-                color: Colors.grey[600],
+                color: AppConstants.textSecondary,
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: AppConstants.space4),
               Text(
-                'Completed ($count)',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[600],
-                ),
+                'COMPLETED ($count)',
+                style: Theme.of(context).textTheme.labelLarge,
               ),
             ],
           ),
@@ -138,41 +136,47 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
   Widget _buildHeader(BuildContext context, int activeCount, [bool isOver = false]) {
     final color = _parseColor(widget.column.color);
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: isOver ? BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.indigo.withOpacity(0.2))),
-      ) : null,
+      padding: const EdgeInsets.all(AppConstants.space16),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: isOver ? AppConstants.primaryColor : Colors.grey.shade200,
+            width: isOver ? 2 : 1,
+          ),
+        ),
+      ),
       child: Row(
         children: [
           Container(
-            width: 12,
-            height: 12,
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
               color: color,
               shape: BoxShape.circle,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppConstants.space12),
           Expanded(
             child: Text(
-              widget.column.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+              widget.column.name.toUpperCase(),
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontSize: 14,
+                letterSpacing: 1.2,
               ),
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(10),
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(AppConstants.space12),
             ),
             child: Text(
               '$activeCount',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
+                color: color,
               ),
             ),
           ),
@@ -183,15 +187,26 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
 
   Widget _buildFooter(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: TextButton.icon(
-        onPressed: widget.onAddCard,
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('Add Card'),
-        style: TextButton.styleFrom(
-          foregroundColor: Colors.grey[700],
-          minimumSize: const Size(double.infinity, 40),
-          alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.all(AppConstants.space8),
+      child: InkWell(
+        onTap: widget.onAddCard,
+        borderRadius: BorderRadius.circular(AppConstants.space8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: AppConstants.space8, horizontal: AppConstants.space12),
+          child: const Row(
+            children: [
+              Icon(Icons.add_rounded, size: 20, color: AppConstants.primaryColor),
+              SizedBox(width: AppConstants.space8),
+              Text(
+                'Add Card',
+                style: TextStyle(
+                  color: AppConstants.primaryColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

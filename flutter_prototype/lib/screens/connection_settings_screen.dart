@@ -3,6 +3,7 @@ import '../models/connection_config.dart';
 import '../services/connection_config_manager.dart';
 import '../services/smart_connect.dart';
 import '../services/acp_client.dart';
+import '../constants/app_constants.dart';
 
 class ConnectionSettingsScreen extends StatefulWidget {
   final ACPClient acpClient;
@@ -205,52 +206,59 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   }
 
   Color _getStatusColor() {
-    if (_connectionStatus.startsWith('Connected')) return Colors.green;
-    if (_connectionStatus.startsWith('Failed')) return Colors.red;
+    if (_connectionStatus.startsWith('Connected')) return AppConstants.successColor;
+    if (_connectionStatus.startsWith('Failed')) return AppConstants.errorColor;
     return Colors.orange;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppConstants.backgroundColor,
       appBar: AppBar(
         title: const Text('Connection Settings'),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppConstants.space16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Connection Mode',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Text(
+              'CONNECTION MODE',
+              style: Theme.of(context).textTheme.labelLarge,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppConstants.space12),
             _buildModeSelector(),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppConstants.space24),
             _buildModeSpecificFields(),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppConstants.space32),
+            Text(
+              'SYSTEM AGENT (LLM)',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: AppConstants.space12),
             _buildSystemAgentFields(),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppConstants.space32),
             _buildConnectionStatus(),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppConstants.space24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _isConnecting ? null : _saveAndConnect,
                 icon: _isConnecting
                     ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : const Icon(Icons.power),
-                label: Text(_isConnecting ? 'Connecting...' : 'Connect'),
+                    : const Icon(Icons.power_settings_new_rounded),
+                label: Text(_isConnecting ? 'CONNECTING...' : 'SAVE & CONNECT'),
                 style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
                 ),
               ),
             ),
+            const SizedBox(height: AppConstants.space32),
           ],
         ),
       ),
@@ -262,19 +270,19 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       children: [
         _buildModeButton(
           mode: ConnectionMode.local,
-          icon: Icons.home,
+          icon: Icons.home_rounded,
           label: 'Local',
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: AppConstants.space8),
         _buildModeButton(
           mode: ConnectionMode.relay,
-          icon: Icons.cloud,
+          icon: Icons.cloud_sync_rounded,
           label: 'Relay',
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: AppConstants.space8),
         _buildModeButton(
           mode: ConnectionMode.cloud,
-          icon: Icons.public,
+          icon: Icons.public_rounded,
           label: 'Cloud',
         ),
       ],
@@ -288,44 +296,77 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   }) {
     final isSelected = _selectedMode == mode;
     return Expanded(
-      child: OutlinedButton.icon(
-        onPressed: () => setState(() => _selectedMode = mode),
-        icon: Icon(icon),
-        label: Text(label),
-        style: OutlinedButton.styleFrom(
-          backgroundColor: isSelected
-              ? Theme.of(context).primaryColor.withOpacity(0.1)
-              : null,
-          side: BorderSide(
-            color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
-            width: isSelected ? 2 : 1,
+      child: Material(
+        color: isSelected ? AppConstants.primaryColor.withOpacity(0.1) : AppConstants.surfaceColor,
+        borderRadius: BorderRadius.circular(AppConstants.space8),
+        child: InkWell(
+          onTap: () => setState(() => _selectedMode = mode),
+          borderRadius: BorderRadius.circular(AppConstants.space8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: AppConstants.space12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppConstants.space8),
+              border: Border.all(
+                color: isSelected ? AppConstants.primaryColor : Colors.grey.shade200,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              children: [
+                Icon(icon, color: isSelected ? AppConstants.primaryColor : AppConstants.textHint, size: 20),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? AppConstants.primaryColor : AppConstants.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 12),
         ),
       ),
     );
   }
 
   Widget _buildModeSpecificFields() {
-    switch (_selectedMode) {
-      case ConnectionMode.local:
-        return _buildLocalFields();
-      case ConnectionMode.relay:
-        return _buildRelayFields();
-      case ConnectionMode.cloud:
-        return _buildCloudFields();
-    }
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.space16),
+      decoration: BoxDecoration(
+        color: AppConstants.surfaceColor,
+        borderRadius: BorderRadius.circular(AppConstants.space12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 16, color: AppConstants.primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                '${_selectedMode.name.toUpperCase()} CONFIGURATION',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(fontSize: 11),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.space16),
+          switch (_selectedMode) {
+            ConnectionMode.local => _buildLocalFields(),
+            ConnectionMode.relay => _buildRelayFields(),
+            ConnectionMode.cloud => _buildCloudFields(),
+          },
+        ],
+      ),
+    );
   }
 
   Widget _buildLocalFields() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Local Connection',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
@@ -333,59 +374,66 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
                 onPressed: _isScanning ? null : _scanMdns,
                 icon: _isScanning
                     ? const SizedBox(
-                        width: 16,
-                        height: 16,
+                        width: 14,
+                        height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.search),
-                label: Text(_isScanning ? 'Scanning...' : 'Scan mDNS'),
+                    : const Icon(Icons.search_rounded, size: 18),
+                label: Text(_isScanning ? 'SCANNING...' : 'SCAN LOCAL NETWORK'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
               ),
             ),
           ],
         ),
         if (_scannedIp != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _scannedIp!.startsWith('Scan') ? _scannedIp! : 'Found: $_scannedIp',
-            style: TextStyle(
-              color: _scannedIp!.startsWith('Scan') ? Colors.red : Colors.green,
-              fontSize: 12,
+          const SizedBox(height: AppConstants.space8),
+          Center(
+            child: Text(
+              _scannedIp!.startsWith('Scan') ? _scannedIp! : 'Found: $_scannedIp',
+              style: TextStyle(
+                color: _scannedIp!.startsWith('Scan') ? AppConstants.errorColor : AppConstants.successColor,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: AppConstants.space16),
         TextField(
           controller: _localIpController,
           decoration: const InputDecoration(
-            labelText: 'Manual IP Address',
-            hintText: '192.168.1.100',
-            border: OutlineInputBorder(),
+            labelText: 'IP Address',
+            hintText: '192.168.x.x',
           ),
-          keyboardType: TextInputType.text,
-          autocorrect: false,
-          enableSuggestions: false,
         ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _localPortController,
-          decoration: const InputDecoration(
-            labelText: 'WebSocket Port',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.number,
-          onChanged: (v) =>
-              setState(() => _localPort = int.tryParse(v) ?? 8766),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _apiPortController,
-          decoration: const InputDecoration(
-            labelText: 'API Port',
-            hintText: '8000',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.number,
-          onChanged: (v) => setState(() => _apiPort = int.tryParse(v) ?? 8000),
+        const SizedBox(height: AppConstants.space12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _localPortController,
+                decoration: const InputDecoration(
+                  labelText: 'WS Port',
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (v) =>
+                    setState(() => _localPort = int.tryParse(v) ?? 8766),
+              ),
+            ),
+            const SizedBox(width: AppConstants.space12),
+            Expanded(
+              child: TextField(
+                controller: _apiPortController,
+                decoration: const InputDecoration(
+                  labelText: 'API Port',
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (v) => setState(() => _apiPort = int.tryParse(v) ?? 8000),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -395,40 +443,29 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Relay Connection',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
         TextField(
           controller: _relayHostController,
           decoration: const InputDecoration(
             labelText: 'Relay Host',
-            hintText: '35.211.219.123 or mybot.siliconpulse.cc',
-            border: OutlineInputBorder(),
+            hintText: 'mybot.siliconpulse.cc',
           ),
-          keyboardType: TextInputType.text,
-          autocorrect: false,
-          enableSuggestions: false,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppConstants.space12),
         TextField(
           controller: _relayPortController,
           decoration: const InputDecoration(
-            labelText: 'Port',
-            border: OutlineInputBorder(),
+            labelText: 'Relay Port',
           ),
           keyboardType: TextInputType.number,
           onChanged: (v) =>
               setState(() => _relayPort = int.tryParse(v) ?? 8766),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppConstants.space12),
         TextField(
           controller: _relayTokenController,
           decoration: const InputDecoration(
-            labelText: 'Token (optional)',
-            hintText: 'Your relay token',
-            border: OutlineInputBorder(),
+            labelText: 'Access Token',
+            prefixIcon: Icon(Icons.key_rounded, size: 18),
           ),
           obscureText: true,
         ),
@@ -437,97 +474,90 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   }
 
   Widget _buildCloudFields() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Cloud Direct Connection',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _cloudUrlController,
-          decoration: const InputDecoration(
-            labelText: 'Cloud URL',
-            hintText: 'ws://host:port/direct',
-            border: OutlineInputBorder(),
-          ),
-        ),
-      ],
+    return TextField(
+      controller: _cloudUrlController,
+      decoration: const InputDecoration(
+        labelText: 'Cloud WebSocket URL',
+        hintText: 'ws://host:port/direct',
+      ),
     );
   }
 
   Widget _buildSystemAgentFields() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'System Agent (Summary & Embedding)',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _systemBaseUrlController,
-          decoration: const InputDecoration(
-            labelText: 'Base URL',
-            hintText: 'https://api.openai.com/v1',
-            border: OutlineInputBorder(),
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.space16),
+      decoration: BoxDecoration(
+        color: AppConstants.surfaceColor,
+        borderRadius: BorderRadius.circular(AppConstants.space12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _systemBaseUrlController,
+            decoration: const InputDecoration(
+              labelText: 'API Base URL',
+              hintText: 'https://api.openai.com/v1',
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _systemApiKeyController,
-          decoration: const InputDecoration(
-            labelText: 'API Key',
-            hintText: 'sk-...',
-            border: OutlineInputBorder(),
+          const SizedBox(height: AppConstants.space12),
+          TextField(
+            controller: _systemApiKeyController,
+            decoration: const InputDecoration(
+              labelText: 'API Key',
+              prefixIcon: Icon(Icons.vpn_key_rounded, size: 18),
+            ),
+            obscureText: true,
           ),
-          obscureText: true,
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _summaryModelController,
-          decoration: const InputDecoration(
-            labelText: 'Summary Model',
-            hintText: 'gpt-4o-mini',
-            border: OutlineInputBorder(),
+          const SizedBox(height: AppConstants.space12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _summaryModelController,
+                  decoration: const InputDecoration(
+                    labelText: 'Summary Model',
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppConstants.space12),
+              Expanded(
+                child: TextField(
+                  controller: _embeddingModelController,
+                  decoration: const InputDecoration(
+                    labelText: 'Embedding Model',
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _embeddingModelController,
-          decoration: const InputDecoration(
-            labelText: 'Embedding Model',
-            hintText: 'text-embedding-3-small',
-            border: OutlineInputBorder(),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildConnectionStatus() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppConstants.space12),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(8),
+        color: _getStatusColor().withOpacity(0.05),
+        borderRadius: BorderRadius.circular(AppConstants.space8),
+        border: Border.all(color: _getStatusColor().withOpacity(0.2)),
       ),
       child: Row(
         children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: _getStatusColor(),
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 12),
+          Icon(Icons.circle, size: 10, color: _getStatusColor()),
+          const SizedBox(width: AppConstants.space12),
           Expanded(
             child: Text(
-              _connectionStatus,
-              style: const TextStyle(fontSize: 14),
+              _connectionStatus.toUpperCase(),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: _getStatusColor(),
+                letterSpacing: 0.5,
+              ),
             ),
           ),
         ],

@@ -46,33 +46,33 @@ class MessageBubble extends StatelessWidget {
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.8,
+          maxWidth: MediaQuery.of(context).size.width * 0.85,
         ),
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        margin: const EdgeInsets.symmetric(vertical: AppConstants.space8, horizontal: AppConstants.space16),
         child: Column(
           crossAxisAlignment:
               isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             _buildHeader(isUser),
-            const SizedBox(height: 4),
+            const SizedBox(height: AppConstants.space4),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
-                color: isUser ? AppConstants.primaryColor : Colors.white,
+                color: isUser ? AppConstants.primaryColor : AppConstants.backgroundColor,
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isUser ? 16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 16),
+                  topLeft: const Radius.circular(AppConstants.space16),
+                  topRight: const Radius.circular(AppConstants.space16),
+                  bottomLeft: Radius.circular(isUser ? AppConstants.space16 : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : AppConstants.space16),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withAlpha(13),
+                    color: Colors.black.withOpacity(0.05),
                     blurRadius: 5,
                     offset: const Offset(0, 2),
                   ),
                 ],
-                border: isUser ? null : Border.all(color: Colors.grey[200]!),
+                border: isUser ? null : Border.all(color: Colors.grey.shade200),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,27 +94,29 @@ class MessageBubble extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (!isUser) ...[
-          Icon(_getProviderIcon(), size: 14, color: AppConstants.primaryColor),
-          const SizedBox(width: 4),
-          Text(_getProviderName(),
+          Icon(_getProviderIcon(), size: 12, color: AppConstants.primaryColor),
+          const SizedBox(width: AppConstants.space4),
+          Text(_getProviderName().toUpperCase(),
               style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
                   color: AppConstants.primaryColor)),
         ],
         if (isUser) ...[
-          const Text('You',
+          const Text('YOU',
               style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey)),
-          const SizedBox(width: 4),
-          const Icon(Icons.person, size: 14, color: Colors.grey),
+                  letterSpacing: 0.5,
+                  color: AppConstants.textHint)),
+          const SizedBox(width: AppConstants.space4),
+          const Icon(Icons.person_rounded, size: 12, color: AppConstants.textHint),
         ],
-        const SizedBox(width: 8),
+        const SizedBox(width: AppConstants.space8),
         Text(
           DateFormatter.formatTimeOnly(message.createdAt),
-          style: const TextStyle(fontSize: 10, color: Colors.grey),
+          style: const TextStyle(fontSize: 9, color: AppConstants.textHint),
         ),
       ],
     );
@@ -127,13 +129,18 @@ class MessageBubble extends StatelessWidget {
         data: (blocks[0] as TextContent).text,
         styleSheet: MarkdownStyleSheet(
           p: TextStyle(
-            color: isUser ? Colors.white : Colors.black87,
+            color: isUser ? Colors.white : AppConstants.textPrimary,
             fontSize: 14,
+            height: 1.5,
           ),
           code: TextStyle(
-            backgroundColor: isUser ? Colors.indigo[700] : Colors.grey[100],
+            backgroundColor: isUser ? Colors.teal.shade900 : Colors.grey.shade100,
             fontFamily: 'monospace',
             fontSize: 12,
+          ),
+          codeblockDecoration: BoxDecoration(
+            color: isUser ? Colors.teal.shade900 : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(AppConstants.space8),
           ),
         ),
       );
@@ -146,11 +153,14 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildThoughtSection(BuildContext context) {
+    final thought = message.metadata!['thought'].toString();
+    if (thought.isEmpty || thought == "...") return const SizedBox.shrink();
+    
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: AppConstants.space12),
       decoration: BoxDecoration(
-        color: Colors.amber.shade50.withAlpha(100),
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.amber.shade50.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(AppConstants.space8),
         border: Border.all(color: Colors.amber.shade100),
       ),
       child: Theme(
@@ -159,25 +169,27 @@ class MessageBubble extends StatelessWidget {
           dense: true,
           visualDensity: VisualDensity.compact,
           initiallyExpanded: false,
-          leading: const Icon(Icons.lightbulb_outline, size: 16, color: Colors.amber),
-          title: const Text(
-            'AI 思考过程',
+          leading: const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Colors.amber),
+          title: Text(
+            'THOUGHT PROCESS',
             style: TextStyle(
-              fontSize: 12, 
-              fontWeight: FontWeight.w600,
-              color: Colors.amber,
+              fontSize: 10, 
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+              color: Colors.amber.shade900,
             ),
           ),
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(AppConstants.space12, 0, AppConstants.space12, AppConstants.space12),
               child: MarkdownBody(
-                data: message.metadata!['thought'].toString(),
+                data: thought,
                 styleSheet: MarkdownStyleSheet(
                   p: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade800,
                     fontStyle: FontStyle.italic,
+                    height: 1.4,
                   ),
                 ),
               ),
@@ -198,45 +210,45 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildToolLog(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 24),
+      margin: const EdgeInsets.symmetric(vertical: AppConstants.space4, horizontal: AppConstants.space24),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[200]!),
+        color: AppConstants.surfaceColor,
+        borderRadius: BorderRadius.circular(AppConstants.space8),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: ExpansionTile(
         dense: true,
         visualDensity: VisualDensity.compact,
-        leading: const Icon(Icons.terminal, size: 16, color: Colors.blueGrey),
+        leading: const Icon(Icons.terminal_rounded, size: 16, color: Colors.blueGrey),
         title: Text(
-          'Tool Execution: ${message.metadata?['name'] ?? "Unknown"}',
+          'TOOL: ${message.metadata?['name']?.toString().toUpperCase() ?? "UNKNOWN"}',
           style: const TextStyle(
-              fontSize: 12, fontFamily: 'monospace', color: Colors.blueGrey),
+              fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5, fontFamily: 'monospace', color: Colors.blueGrey),
         ),
         subtitle: Text(
           DateFormatter.formatTimeOnly(message.createdAt),
-          style: const TextStyle(fontSize: 10, color: Colors.grey),
+          style: const TextStyle(fontSize: 9, color: AppConstants.textHint),
         ),
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            color: Colors.black.withAlpha(5),
+            padding: const EdgeInsets.all(AppConstants.space12),
+            color: Colors.black.withOpacity(0.02),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (message.metadata?['arguments'] != null) ...[
-                  const Text('Arguments:',
+                  const Text('ARGUMENTS',
                       style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
+                          TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                  const SizedBox(height: AppConstants.space4),
                   _buildCodeBlock(message.metadata!['arguments'].toString()),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppConstants.space8),
                 ],
-                const Text('Result:',
+                const Text('RESULT',
                     style:
-                        TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
+                        TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                const SizedBox(height: AppConstants.space4),
                 _buildCodeBlock(message.content),
               ],
             ),
@@ -249,15 +261,15 @@ class MessageBubble extends StatelessWidget {
   Widget _buildCodeBlock(String text) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(4),
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(AppConstants.space4),
       ),
       child: Text(
         text,
         style: const TextStyle(
-          color: Colors.greenAccent,
+          color: Color(0xFFCE9178),
           fontFamily: 'monospace',
           fontSize: 11,
         ),

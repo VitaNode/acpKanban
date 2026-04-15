@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
 import '../services/project_service.dart';
+import '../constants/app_constants.dart';
 
 class ColorEditResult {
   final String name;
@@ -32,22 +33,10 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
   late String _selectedColor;
 
   static const List<String> _colors = [
-    '#FF6B6B',
-    '#4ECDC4',
-    '#45B7D1',
-    '#96CEB4',
-    '#FFEAA7',
-    '#DDA0DD',
-    '#98D8C8',
-    '#F7DC6F',
-    '#BB8FCE',
-    '#85C1E9',
-    '#F8B500',
-    '#00CED1',
-    '#FF69B4',
-    '#32CD32',
-    '#FF4500',
-    '#6B5B95',
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+    '#F8B500', '#00CED1', '#FF69B4', '#32CD32', '#FF4500',
+    '#6B5B95', '#008080',
   ];
 
   @override
@@ -78,6 +67,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Edit Column'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -88,10 +78,9 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Column Name'),
             ),
-            const SizedBox(height: 20),
-            const Text('Color',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppConstants.space24),
+            Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: AppConstants.space8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -101,53 +90,35 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 return GestureDetector(
                   onTap: () => setState(() => _selectedColor = color),
                   child: Container(
-                    width: 36,
-                    height: 36,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: _parseColor(color),
                       shape: BoxShape.circle,
                       border: isSelected
-                          ? Border.all(color: Colors.black, width: 3)
-                          : null,
+                          ? Border.all(color: AppConstants.textPrimary, width: 2)
+                          : Border.all(color: Colors.grey.shade200),
                     ),
                     child: isSelected
-                        ? const Icon(Icons.check, color: Colors.white, size: 20)
+                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
                         : null,
                   ),
                 );
               }).toList(),
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Preview: ', style: TextStyle(fontSize: 12)),
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: _parseColor(_selectedColor),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.grey[300]!),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(_selectedColor, style: const TextStyle(fontSize: 12)),
-              ],
-            ),
-            const SizedBox(height: 20),
+            const SizedBox(height: AppConstants.space24),
             TextField(
               controller: _promptTemplateController,
               decoration: const InputDecoration(
-                labelText: 'Prompt Template (optional)',
-                hintText: 'Instructions for AI when working in this column...',
-                border: OutlineInputBorder(),
+                labelText: 'Prompt Template',
+                hintText: 'Instructions for AI in this column...',
               ),
               maxLines: 4,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppConstants.space8),
             Text(
-              '💡 This prompt will be included in the context sent to LLM for cards in this column.',
-              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
+              '💡 Custom prompt for cards in this column.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
             ),
           ],
         ),
@@ -157,7 +128,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        TextButton(
+        ElevatedButton(
           onPressed: () {
             final name = _nameController.text.trim();
             if (name.isNotEmpty) {
@@ -192,7 +163,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
     '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
     '#F8B500', '#00CED1', '#FF69B4', '#32CD32', '#FF4500',
-    '#6B5B95', '#808080',
+    '#6B5B95', '#008080', '#808080',
   ];
 
   @override
@@ -212,6 +183,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Add Column'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -222,10 +194,9 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Column Name'),
             ),
-            const SizedBox(height: 16),
-            const Text('Color',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppConstants.space24),
+            Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: AppConstants.space8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -241,30 +212,24 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                       color: _parseColor(color),
                       shape: BoxShape.circle,
                       border: isSelected
-                          ? Border.all(color: Colors.black, width: 3)
-                          : Border.all(color: Colors.grey[300]!),
+                          ? Border.all(color: AppConstants.textPrimary, width: 2)
+                          : Border.all(color: Colors.grey.shade200),
                     ),
                     child: isSelected
-                        ? const Icon(Icons.check, color: Colors.white, size: 16)
+                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
                         : null,
                   ),
                 );
               }).toList(),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space24),
             TextField(
               controller: _promptTemplateController,
               decoration: const InputDecoration(
-                labelText: 'Prompt Template (optional)',
-                hintText: 'Instructions for AI when working in this column...',
-                border: OutlineInputBorder(),
+                labelText: 'Prompt Template',
+                hintText: 'Instructions for AI...',
               ),
               maxLines: 3,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '💡 This prompt will be included in the context sent to LLM for cards in this column.',
-              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
             ),
           ],
         ),
@@ -274,7 +239,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        TextButton(
+        ElevatedButton(
           onPressed: () {
             final name = _nameController.text.trim();
             if (name.isNotEmpty) {
@@ -386,12 +351,13 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Column'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Move cards in "${column.name}" to:'),
-            const SizedBox(height: 16),
+            Text('Move cards in "${column.name}" to:', style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: AppConstants.space16),
             DropdownButtonFormField<String>(
               items: otherColumns
                   .map((c) => DropdownMenuItem(
@@ -400,7 +366,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                       ))
                   .toList(),
               onChanged: (v) => moveToId = v,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: 'Target Column'),
               hint: const Text('Select target column'),
             ),
           ],
@@ -411,7 +377,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
               child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AppConstants.errorColor),
             child: const Text('Delete'),
           ),
         ],
@@ -439,51 +405,56 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.view_column_outlined),
-          SizedBox(width: 8),
-          Text('Manage Columns'),
+          const Icon(Icons.view_column_rounded, color: AppConstants.primaryColor),
+          const SizedBox(width: AppConstants.space12),
+          Text('Manage Columns', style: Theme.of(context).textTheme.headlineMedium),
         ],
       ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SizedBox(
         width: 400,
         height: 500,
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8.0),
-                    child: Text('Drag to reorder columns',
-                        style: TextStyle(fontSize: 12, color: Colors.grey)),
-                  ),
+                  Text('DRAG TO REORDER', style: Theme.of(context).textTheme.labelLarge),
+                  const SizedBox(height: AppConstants.space8),
                   Expanded(
-                    child: ReorderableListView.builder(
-                      itemCount: _columns.length,
-                      onReorder: _onReorder,
-                      itemBuilder: (context, index) {
-                        final col = _columns[index];
-                        return ListTile(
-                          key: ValueKey(col.id),
-                          leading: const Icon(Icons.drag_handle),
-                          title: Text(col.name),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 20),
-                                onPressed: () => _editColumn(col),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    size: 20, color: Colors.redAccent),
-                                onPressed: () => _deleteColumn(col),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade200),
+                        borderRadius: BorderRadius.circular(AppConstants.space8),
+                      ),
+                      child: ReorderableListView.builder(
+                        itemCount: _columns.length,
+                        onReorder: _onReorder,
+                        itemBuilder: (context, index) {
+                          final col = _columns[index];
+                          return ListTile(
+                            key: ValueKey(col.id),
+                            leading: const Icon(Icons.drag_indicator_rounded, color: AppConstants.textHint),
+                            title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, size: 20),
+                                  onPressed: () => _editColumn(col),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded,
+                                      size: 20, color: AppConstants.errorColor),
+                                  onPressed: () => _deleteColumn(col),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -492,7 +463,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       actions: [
         TextButton.icon(
             onPressed: _addColumn,
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add_rounded),
             label: const Text('Add Column')),
         TextButton(
             onPressed: () => Navigator.pop(context),

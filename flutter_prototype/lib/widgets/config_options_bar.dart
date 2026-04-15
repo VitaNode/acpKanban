@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/config_option.dart';
 import '../services/session_websocket_service.dart';
+import '../constants/app_constants.dart';
 
 class ConfigOptionsBar extends StatelessWidget {
   final List<ConfigOption> options;
@@ -14,14 +15,14 @@ class ConfigOptionsBar extends StatelessWidget {
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppConstants.backgroundColor,
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
         itemCount: options.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8.0),
+        separatorBuilder: (context, index) => const SizedBox(width: AppConstants.space8),
         itemBuilder: (context, index) {
           final option = options[index];
           return _buildOptionChip(context, option);
@@ -36,26 +37,33 @@ class ConfigOptionsBar extends StatelessWidget {
       orElse: () => ConfigOptionValue(value: option.currentValue, name: option.currentValue),
     );
 
-    return InkWell(
-      onTap: () => _showOptionPicker(context, option),
-      borderRadius: BorderRadius.circular(8.0),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(_getIconForOption(option.category), size: 16, color: const Color(0xFF008080)),
-            const SizedBox(width: 8.0),
-            Text(
-              currentValue.name,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF424242),
+    return Center(
+      child: InkWell(
+        onTap: () => _showOptionPicker(context, option),
+        borderRadius: BorderRadius.circular(AppConstants.space8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space6),
+          decoration: BoxDecoration(
+            color: AppConstants.surfaceColor,
+            borderRadius: BorderRadius.circular(AppConstants.space8),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_getIconForOption(option.category), size: 14, color: AppConstants.primaryColor),
+              const SizedBox(width: AppConstants.space8),
+              Text(
+                currentValue.name,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppConstants.textPrimary,
+                ),
               ),
-            ),
-            const Icon(Icons.arrow_drop_down, size: 20, color: Colors.grey),
-          ],
+              const SizedBox(width: AppConstants.space4),
+              const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: AppConstants.textHint),
+            ],
+          ),
         ),
       ),
     );
@@ -66,7 +74,7 @@ class ConfigOptionsBar extends StatelessWidget {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: AppConstants.backgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -76,26 +84,28 @@ class ConfigOptionsBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(AppConstants.space16),
                 child: Column(
                   children: [
                     Row(
                       children: [
                         Icon(_getIconForOption(option.category),
-                            size: 20, color: const Color(0xFF008080)),
-                        const SizedBox(width: 8),
+                            size: 20, color: AppConstants.primaryColor),
+                        const SizedBox(width: AppConstants.space8),
                         Text(
                           option.name,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold),
+                          style: Theme.of(context).textTheme.headlineMedium,
                         ),
                       ],
                     ),
                     if (option.description != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        option.description!,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      const SizedBox(height: AppConstants.space4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          option.description!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                       ),
                     ],
                   ],
@@ -113,22 +123,21 @@ class ConfigOptionsBar extends StatelessWidget {
                       leading: isModeCategory
                           ? Icon(_getModeIcon(val.value),
                               color: isSelected
-                                  ? const Color(0xFF008080)
-                                  : Colors.grey)
+                                  ? AppConstants.primaryColor
+                                  : AppConstants.textHint)
                           : null,
                       title: Text(val.name,
                           style: TextStyle(
                             fontWeight:
                                 isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? const Color(0xFF008080) : null,
+                            color: isSelected ? AppConstants.primaryColor : AppConstants.textPrimary,
                           )),
                       subtitle: val.description != null
                           ? Text(val.description!,
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.grey[600]))
+                              style: Theme.of(context).textTheme.bodySmall)
                           : null,
                       trailing: isSelected
-                          ? const Icon(Icons.check, color: Color(0xFF008080))
+                          ? const Icon(Icons.check_rounded, color: AppConstants.primaryColor)
                           : null,
                       onTap: () {
                         SessionWebSocketService()
@@ -149,21 +158,21 @@ class ConfigOptionsBar extends StatelessWidget {
   IconData _getIconForOption(String category) {
     switch (category) {
       case 'mode':
-        return Icons.security;
+        return Icons.security_rounded;
       case 'model':
-        return Icons.smart_toy;
+        return Icons.smart_toy_rounded;
       case 'thought_level':
-        return Icons.psychology;
+        return Icons.psychology_rounded;
       default:
-        return Icons.settings;
+        return Icons.settings_rounded;
     }
   }
 
   IconData _getModeIcon(String mode) {
     final m = mode.toLowerCase();
-    if (m.contains('ask') || m.contains('autoedit')) return Icons.question_answer;
-    if (m.contains('code') || m.contains('yolo')) return Icons.code;
-    if (m.contains('plan') || m.contains('architect')) return Icons.architecture;
-    return Icons.security;
+    if (m.contains('ask') || m.contains('autoedit')) return Icons.question_answer_rounded;
+    if (m.contains('code') || m.contains('yolo')) return Icons.code_rounded;
+    if (m.contains('plan') || m.contains('architect')) return Icons.architecture_rounded;
+    return Icons.security_rounded;
   }
 }

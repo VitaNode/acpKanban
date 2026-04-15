@@ -18,6 +18,8 @@ import 'widgets/timeline_view.dart';
 import 'widgets/status_summary_widget.dart';
 import 'models/timeline_event.dart';
 import 'utils/icon_util.dart';
+import 'theme/app_theme.dart';
+import 'constants/app_constants.dart';
 
 void main() {
   runApp(const KanbanApp());
@@ -30,10 +32,8 @@ class KanbanApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'AI Kanban',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        useMaterial3: true,
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
       home: const MainScreen(),
     );
   }
@@ -155,9 +155,11 @@ class _MainScreenState extends State<MainScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text('Add Card to ${column.name}'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 TextField(
                   controller: titleController,
@@ -165,28 +167,25 @@ class _MainScreenState extends State<MainScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Title *',
                     hintText: 'Enter card title',
-                    border: OutlineInputBorder(),
                   ),
                   maxLines: 1,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppConstants.space16),
                 TextField(
                   controller: descriptionController,
                   decoration: const InputDecoration(
-                    labelText: 'Description (optional)',
+                    labelText: 'Description',
                     hintText: 'Enter card description',
-                    border: OutlineInputBorder(),
                   ),
                   maxLines: 4,
                   minLines: 2,
                 ),
                 if (showProviderSelector) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppConstants.space16),
                   DropdownButtonFormField<String>(
                     value: selectedProviderId,
                     decoration: const InputDecoration(
                       labelText: 'AI Provider',
-                      border: OutlineInputBorder(),
                     ),
                     items: _providers.map((p) {
                       return DropdownMenuItem(
@@ -196,9 +195,9 @@ class _MainScreenState extends State<MainScreen> {
                             Icon(
                               IconUtil.getProviderIcon(p.icon),
                               size: 18,
-                              color: Theme.of(context).primaryColor,
+                              color: AppConstants.primaryColor,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: AppConstants.space8),
                             Text(p.name),
                           ],
                         ),
@@ -209,27 +208,38 @@ class _MainScreenState extends State<MainScreen> {
                     },
                   ),
                 ],
-                const SizedBox(height: 16),
-                const Text('Session Mode', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppConstants.space16),
+                Text('SESSION MODE', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: AppConstants.space8),
                 ...sessionModes.map((mode) {
                   final isSelected = selectedSessionMode == mode['value'];
-                  return ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(mode['icon'] as IconData,
-                        color: isSelected ? const Color(0xFF008080) : Colors.grey, size: 20),
-                    title: Text(mode['name'] as String,
-                        style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? const Color(0xFF008080) : null,
-                        )),
-                    subtitle: Text(mode['desc'] as String,
-                        style: const TextStyle(fontSize: 11)),
-                    trailing: isSelected
-                        ? const Icon(Icons.check_circle, color: Color(0xFF008080), size: 20)
-                        : null,
-                    onTap: () => setDialogState(() => selectedSessionMode = mode['value'] as String),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: AppConstants.space8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppConstants.space8),
+                      border: Border.all(
+                        color: isSelected ? AppConstants.primaryColor : Colors.grey.shade200,
+                        width: isSelected ? 2 : 1,
+                      ),
+                      color: isSelected ? AppConstants.primaryColor.withOpacity(0.05) : null,
+                    ),
+                    child: ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space8)),
+                      leading: Icon(mode['icon'] as IconData,
+                          color: isSelected ? AppConstants.primaryColor : Colors.grey, size: 20),
+                      title: Text(mode['name'] as String,
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected ? AppConstants.primaryColor : null,
+                          )),
+                      subtitle: Text(mode['desc'] as String,
+                          style: const TextStyle(fontSize: 11)),
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle, color: AppConstants.primaryColor, size: 20)
+                          : null,
+                      onTap: () => setDialogState(() => selectedSessionMode = mode['value'] as String),
+                    ),
                   );
                 }),
               ],
@@ -239,7 +249,7 @@ class _MainScreenState extends State<MainScreen> {
             TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel')),
-            TextButton(
+            ElevatedButton(
                 onPressed: () {
                   if (titleController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(

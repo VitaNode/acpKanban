@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
+import '../constants/app_constants.dart';
 
 class ProjectSelector extends StatelessWidget {
   final Project? currentProject;
@@ -23,8 +24,8 @@ class ProjectSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     if (isLoading) {
       return const SizedBox(
-        width: 24,
-        height: 24,
+        width: 20,
+        height: 20,
         child: CircularProgressIndicator(strokeWidth: 2),
       );
     }
@@ -32,7 +33,7 @@ class ProjectSelector extends StatelessWidget {
     if (projects.isEmpty) {
       return TextButton.icon(
         onPressed: onCreateProject,
-        icon: const Icon(Icons.add, size: 18),
+        icon: const Icon(Icons.add_rounded, size: 18),
         label: const Text('New Project'),
       );
     }
@@ -40,89 +41,88 @@ class ProjectSelector extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: 'Switch Project',
       offset: const Offset(0, 45),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space12)),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space6),
         decoration: BoxDecoration(
-          color: Theme.of(context).primaryColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
+          color: AppConstants.primaryColor.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(AppConstants.space8),
+          border: Border.all(color: AppConstants.primaryColor.withOpacity(0.15)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.folder, size: 18),
-            const SizedBox(width: 8),
+            const Icon(Icons.folder_rounded, size: 16, color: AppConstants.primaryColor),
+            const SizedBox(width: AppConstants.space8),
             Text(
               currentProject?.name ?? 'Select Project',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppConstants.primaryColor,
+              ),
             ),
-            const SizedBox(width: 4),
-            const Icon(Icons.arrow_drop_down, size: 20),
+            const SizedBox(width: AppConstants.space4),
+            const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppConstants.primaryColor),
           ],
         ),
       ),
       itemBuilder: (context) => [
-        ...projects.map((project) => PopupMenuItem<String>(
-              value: project.id,
-              child: Row(
-                children: [
-                  Icon(
-                    project.id == currentProject?.id
-                        ? Icons.folder_open
-                        : Icons.folder,
-                    size: 20,
-                    color: project.id == currentProject?.id
-                        ? Theme.of(context).primaryColor
-                        : null,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          project.name,
-                          style: TextStyle(
-                            fontWeight: project.id == currentProject?.id
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
+        ...projects.map((project) {
+          final isCurrent = project.id == currentProject?.id;
+          return PopupMenuItem<String>(
+            value: project.id,
+            child: Row(
+              children: [
+                Icon(
+                  isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
+                  size: 20,
+                  color: isCurrent ? AppConstants.primaryColor : AppConstants.textHint,
+                ),
+                const SizedBox(width: AppConstants.space12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        project.name,
+                        style: TextStyle(
+                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
+                          color: isCurrent ? AppConstants.primaryColor : AppConstants.textPrimary,
                         ),
-                        Text(
-                          project.lastActive,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                      Text(
+                        'Last active: ${project.lastActive}',
+                        style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                      ),
+                    ],
                   ),
-                  if (project.id == currentProject?.id)
-                    Icon(Icons.check,
-                        size: 18, color: Theme.of(context).primaryColor),
-                ],
-              ),
-            )),
+                ),
+                if (isCurrent)
+                  const Icon(Icons.check_rounded, size: 18, color: AppConstants.primaryColor),
+              ],
+            ),
+          );
+        }),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: '_manage_',
           child: Row(
             children: [
-              Icon(Icons.settings_suggest, color: Theme.of(context).primaryColor),
-              const SizedBox(width: 12),
-              const Text('Manage Projects...'),
+              const Icon(Icons.settings_suggest_rounded, size: 20, color: AppConstants.primaryColor),
+              const SizedBox(width: AppConstants.space12),
+              Text('Manage Projects...', style: Theme.of(context).textTheme.bodyMedium),
             ],
           ),
         ),
-        const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: '_create_',
           child: Row(
             children: [
-              Icon(Icons.add, color: Theme.of(context).primaryColor),
-              const SizedBox(width: 12),
-              const Text('New Project'),
+              const Icon(Icons.add_rounded, size: 20, color: AppConstants.primaryColor),
+              const SizedBox(width: AppConstants.space12),
+              Text('New Project', style: Theme.of(context).textTheme.bodyMedium),
             ],
           ),
         ),
@@ -192,11 +192,12 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.create_new_folder, color: Theme.of(context).primaryColor),
-          const SizedBox(width: 8),
-          const Text('New Project'),
+          const Icon(Icons.create_new_folder_rounded, color: AppConstants.primaryColor),
+          const SizedBox(width: AppConstants.space12),
+          Text('New Project', style: Theme.of(context).textTheme.headlineMedium),
         ],
       ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
       content: SizedBox(
         width: 400,
         child: Column(
@@ -207,42 +208,33 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
               decoration: const InputDecoration(
                 labelText: 'Project Name',
                 hintText: 'e.g., My App Development',
-                prefixIcon: Icon(Icons.folder),
-                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.folder_rounded),
               ),
               autofocus: true,
               textCapitalization: TextCapitalization.words,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             TextField(
               controller: _descriptionController,
               decoration: const InputDecoration(
                 labelText: 'Project Description',
-                hintText: 'Brief description of this project...',
-                prefixIcon: Icon(Icons.description),
-                border: OutlineInputBorder(),
+                hintText: 'Brief description...',
+                prefixIcon: Icon(Icons.description_rounded),
               ),
               maxLines: 3,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppConstants.space8),
             Text(
-              '💡 Project description will be included in the context sent to LLM during card conversations.',
-              style: TextStyle(fontSize: 11, color: Colors.blue[700]),
+              '💡 Description is included in the AI context.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             TextField(
               controller: _workspaceController,
               decoration: const InputDecoration(
-                labelText: 'Workspace Path (optional)',
-                hintText: 'e.g., /Users/username/projects/myapp',
-                prefixIcon: Icon(Icons.folder_open),
-                border: OutlineInputBorder(),
+                labelText: 'Workspace Path',
+                prefixIcon: Icon(Icons.folder_open_rounded),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'The workspace path is the root directory for this project\'s files.',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
         ),
@@ -252,13 +244,13 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
           onPressed: _isCreating ? null : () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        ElevatedButton(
           onPressed: _isCreating ? null : _handleCreate,
           child: _isCreating
               ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
               : const Text('Create'),
         ),

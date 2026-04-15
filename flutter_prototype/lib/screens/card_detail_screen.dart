@@ -332,48 +332,53 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppConstants.backgroundColor,
       appBar: AppBar(
           title: Text(_card.shortId,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
-          elevation: 0,
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
           actions: [
             if (_isSavingCard)
               const Center(
                   child: Padding(
-                      padding: EdgeInsets.all(16),
+                      padding: EdgeInsets.all(AppConstants.space16),
                       child: SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2)))),
-            IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
+            IconButton(
+              icon: const Icon(Icons.more_vert), 
+              onPressed: () {},
+              tooltip: 'Card Actions',
+            ),
           ]),
       body: Column(children: [
         ConfigOptionsBar(options: _configOptions),
         Expanded(
             child: ListView(
                 controller: _scrollController,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
                 children: [
               _buildHeader(),
-              if (_currentPlan != null) PlanPanel(plan: _currentPlan!),
+              if (_currentPlan != null) 
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
+                  child: PlanPanel(plan: _currentPlan!),
+                ),
               if (_relatedCards.isNotEmpty) _buildRelatedCards(),
               const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
                   child: Divider()),
               if (_messages.isEmpty)
                 const Center(
                     child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 40),
-                        child: Text('开始对话吧',
-                            style: TextStyle(color: Colors.grey))))
+                        padding: EdgeInsets.symmetric(vertical: AppConstants.space32),
+                        child: Text('Start a conversation...',
+                            style: TextStyle(color: AppConstants.textHint))))
               else
                 ..._messages.map(
                     (m) => MessageBubble(message: m, providerName: 'AI Agent')),
               if (_isAgentProcessing) _buildProcessingIndicator(),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppConstants.space24),
             ])),
         _buildInputArea(),
       ]),
@@ -382,110 +387,137 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   Widget _buildHeader() {
     return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           TextField(
               controller: _titleController,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.headlineLarge,
               decoration: const InputDecoration(
-                  border: InputBorder.none, hintText: '标题'),
+                  border: InputBorder.none, 
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  hintText: 'Card Title',
+                  filled: false,
+                  contentPadding: EdgeInsets.zero),
               maxLines: null),
           TextField(
               controller: _descriptionController,
-              style: TextStyle(fontSize: 15, color: Colors.grey[700]),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppConstants.textSecondary),
               decoration: const InputDecoration(
-                  border: InputBorder.none, hintText: '描述...'),
+                  border: InputBorder.none, 
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  hintText: 'Add description...',
+                  filled: false,
+                  contentPadding: EdgeInsets.zero),
               maxLines: null),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppConstants.space8),
           Text('Created ${DateFormatter.formatFull(_card.createdAt)}',
-              style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          const SizedBox(height: 16),
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: AppConstants.space16),
         ]));
   }
 
   Widget _buildRelatedCards() {
     return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Icon(Icons.link, size: 16, color: Colors.grey[600]),
-            const SizedBox(width: 6),
-            Text('关联卡片 (${_relatedCards.length})',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[600])),
+            const Icon(Icons.link_rounded, size: 16, color: AppConstants.textSecondary),
+            const SizedBox(width: AppConstants.space8),
+            Text('RELATED CARDS (${_relatedCards.length})',
+                style: Theme.of(context).textTheme.labelLarge),
           ]),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppConstants.space8),
           ..._relatedCards.map((c) => _buildRelatedCardItem(c)),
         ]));
   }
 
   Widget _buildRelatedCardItem(KanbanCard card) {
     final statusColor = card.status == 'completed'
-        ? Colors.green
+        ? AppConstants.successColor
         : card.status == 'active'
-            ? Colors.blue
+            ? AppConstants.primaryColor
             : Colors.grey;
     return Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.all(10),
+        margin: const EdgeInsets.only(bottom: AppConstants.space8),
         decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[200]!)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                    color: statusColor, shape: BoxShape.circle)),
-            const SizedBox(width: 6),
-            Expanded(
-                child: Text(card.title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 14))),
-            if (card.columnName != null)
-              Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(4)),
-                  child: Text(card.columnName!,
-                      style: const TextStyle(fontSize: 10))),
-          ]),
-          if (card.summary != null) ...[
-            const SizedBox(height: 4),
-            Text(card.summary!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          ],
-        ]));
+            color: AppConstants.surfaceColor,
+            borderRadius: BorderRadius.circular(AppConstants.space12),
+            border: Border.all(color: Colors.grey.shade200)),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              Navigator.pushReplacement(
+                context, 
+                MaterialPageRoute(builder: (context) => CardDetailScreen(card: card, projectId: widget.projectId))
+              );
+            },
+            borderRadius: BorderRadius.circular(AppConstants.space12),
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.space12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                          color: statusColor, shape: BoxShape.circle)),
+                  const SizedBox(width: AppConstants.space8),
+                  Expanded(
+                      child: Text(card.title,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold))),
+                  if (card.columnName != null)
+                    Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: 2),
+                        decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(AppConstants.space8)),
+                        child: Text(card.columnName!,
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600))),
+                ]),
+                if (card.summary != null) ...[
+                  const SizedBox(height: AppConstants.space4),
+                  Text(card.summary!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ]),
+            ),
+          ),
+        ));
   }
 
   Widget _buildProcessingIndicator() {
     return Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(AppConstants.space16),
         child: Row(children: [
           const SizedBox(
               width: 12,
               height: 12,
               child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(width: 12),
-          Text('AI 正在执行...',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          const SizedBox(width: AppConstants.space12),
+          Text('Agent is working...',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
         ]));
   }
 
   Widget _buildInputArea() {
     return Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppConstants.space12),
         decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: Colors.grey[200]!))),
+            color: AppConstants.backgroundColor,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+            border: Border(top: BorderSide(color: Colors.grey.shade200))),
         child: SafeArea(
             child: Row(children: [
           Expanded(
@@ -493,19 +525,32 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   controller: _chatController,
                   focusNode: _chatFocusNode,
                   decoration: InputDecoration(
-                      hintText: '输入指令或 / 命令...',
-                      filled: true,
-                      fillColor: Colors.grey[100],
+                      hintText: 'Ask or type / command...',
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(AppConstants.space24),
+                          borderSide: BorderSide.none),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppConstants.space24),
+                          borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppConstants.space24),
                           borderSide: BorderSide.none),
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8)),
+                          horizontal: AppConstants.space16, vertical: AppConstants.space8)),
                   onSubmitted: (_) => _handleSend())),
-          const SizedBox(width: 8),
-          IconButton(
-              icon: const Icon(Icons.send, color: Color(0xFF008080)),
-              onPressed: _handleSend),
+          const SizedBox(width: AppConstants.space8),
+          Material(
+            color: AppConstants.primaryColor,
+            borderRadius: BorderRadius.circular(AppConstants.space24),
+            child: InkWell(
+              onTap: _handleSend,
+              borderRadius: BorderRadius.circular(AppConstants.space24),
+              child: const Padding(
+                padding: EdgeInsets.all(AppConstants.space8),
+                child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 24),
+              ),
+            ),
+          ),
         ])));
   }
 }
