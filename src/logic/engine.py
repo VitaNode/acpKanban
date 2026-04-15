@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Optional, List, Dict, Any, Callable
 from src.protocol.client import ACPClient
 from src.protocol.adapter import ACPProtocolAdapter
+from src.protocol.tool_registry import tool_registry
 from src.persistence.database import KanbanDB
 from src.config.manager import config
 from src.logger import setup_logger
@@ -19,11 +20,12 @@ class SessionState(Enum):
     ERROR = "error"
 
 class SessionEngine:
-    def __init__(self, card_id: str, provider_id: str, workspace_path: str, column_id: str):
+    def __init__(self, card_id: str, provider_id: str, workspace_path: str, column_id: str, db: Optional[KanbanDB] = None):
         self.card_id = card_id
         self.provider_id = provider_id
         self.workspace_path = workspace_path
         self.column_id = column_id
+        self.db = db
         self.logger = setup_logger(f"SessionEngine[{card_id[:8]}]")
         self.state = SessionState.IDLE
         self.last_active = time.time()
@@ -39,6 +41,12 @@ class SessionEngine:
     def is_alive(self) -> bool:
         return self.acp_client is not None and self.acp_client.process is not None and self.acp_client.process.returncode is None
 
+    def set_on_request(self, on_request: Optional[Callable]):
+        """Update the nested request callback."""
+        if self.adapter:
+            self.adapter.on_request = on_request
+        self.logger.debug(f"[*] on_request callback updated for card {self.card_id}")
+
     async def start(self, fallback_command=None, on_request: Optional[Callable] = None):
         async with self._lock:
             if self.is_alive: return
@@ -47,16 +55,39 @@ class SessionEngine:
                 providers = config.providers
                 cfg = next((p for p in providers if isinstance(p, dict) and p.get("id") == self.provider_id), None)
                 if not cfg: raise ValueError(f"Provider {self.provider_id} not found in {len(providers)} providers")
-                
+
                 self.acp_client = ACPClient(cfg["command"], self.workspace_path)
                 await self.acp_client.start()
                 self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path, provider_id=self.provider_id, on_request=on_request)
-                
-                # session/new
+
+                # Try to restore previous session if we have a saved sessionId
+                if self.acp_session_id:
+                    self.logger.info(f"Attempting to restore session: {self.acp_session_id}")
+                    try:
+                        load_params = {
+                            "sessionId": self.acp_session_id,
+                            "cwd": self.workspace_path,
+                            "mcpServers": tool_registry.get_mcp_servers()
+                        }
+                        load_res = await self.adapter.handle_request("session/load", load_params)
+                        # session/load returns {modes, models, configOptions}, NOT sessionId
+                        if load_res and ("modes" in load_res or "configOptions" in load_res or "models" in load_res):
+                            self.current_config_options = load_res.get("configOptions", [])
+                            self._save_config_options_to_db()
+                            self.logger.info(f"Session restored successfully: {self.acp_session_id} (configOptions: {len(self.current_config_options)})")
+                            self.state = SessionState.IDLE
+                            return self.acp_session_id
+                        else:
+                            self.logger.warning(f"Session load failed, creating new session")
+                    except Exception as e:
+                        self.logger.warning(f"Session load error: {e}, creating new session")
+
+                # session/new (fallback if no saved session or load failed)
                 res = await self.adapter.handle_request("session/new", {"cwd": self.workspace_path})
                 self.acp_session_id = res.get("sessionId")
                 self.current_config_options = res.get("configOptions", [])
-                
+                self._save_config_options_to_db()
+
                 self.state = SessionState.IDLE
                 return self.acp_session_id
             except Exception as e:
@@ -70,6 +101,18 @@ class SessionEngine:
                 self.acp_client = None
                 self.adapter = None
 
+    def _save_config_options_to_db(self):
+        """Persist config options to database for recovery after reconnect."""
+        if self.db and self.card_id and self.current_config_options:
+            import json
+            try:
+                self.db.update_card_config_options(
+                    self.card_id, json.dumps(self.current_config_options)
+                )
+                self.logger.debug(f"Saved {len(self.current_config_options)} config options to DB")
+            except Exception as e:
+                self.logger.error(f"Failed to save config options to DB: {e}")
+
     async def set_config_option(self, config_id: str, value: Any):
         """Phase 5.2: Set agent config at runtime."""
         if not self.adapter or not self.acp_session_id: return None
@@ -81,6 +124,7 @@ class SessionEngine:
             })
             if "configOptions" in res:
                 self.current_config_options = res["configOptions"]
+                self._save_config_options_to_db()
             return self.current_config_options
         except Exception as e:
             self.logger.error(f"Failed to set config: {e}")

@@ -38,7 +38,7 @@ class TaskRegistry:
         self._tasks.clear()
 
 class MessageDispatcher:
-    def __init__(self, db: KanbanDB):
+    def __init__(self, db: KanbanDB, ui_requests: Optional[Dict[str, asyncio.Future]] = None):
         self.db = db
         self.context_builder = ContextBuilder(db)
         self.summary_service = SummaryService(db)
@@ -48,6 +48,7 @@ class MessageDispatcher:
         self._setup_local_commands()
         self._engine_creation_locks: Dict[str, asyncio.Lock] = {}
         self._internal_sessions: Set[str] = set()
+        self._pending_ui_requests = ui_requests if ui_requests is not None else {}
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -187,7 +188,16 @@ class MessageDispatcher:
         return {"error": {"code": -32601, "message": f"Method {method} not handled"}}
 
     async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None, on_output: Optional[Callable] = None) -> (SessionEngine, bool):
-        if card_id in self.engines and self.engines[card_id].is_alive: return self.engines[card_id], False
+        if card_id in self.engines and self.engines[card_id].is_alive:
+            engine = self.engines[card_id]
+            # Phase 6: Always update callback to current WebSocket context
+            if on_nested_request:
+                engine.set_on_request(on_nested_request)
+            
+            # Re-push config options if engine already exists (e.g., after reconnect)
+            if engine.acp_session_id and engine.current_config_options and on_output:
+                bus.publish(card_id, {"type": "config_options", "options": engine.current_config_options})
+            return engine, False
         if card_id not in self._engine_creation_locks: self._engine_creation_locks[card_id] = asyncio.Lock()
         async with self._engine_creation_locks[card_id]:
             card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
@@ -197,7 +207,7 @@ class MessageDispatcher:
             workspace_path = config.get("system.workspace_root")
             project = await asyncio.to_thread(self.db.projects.get_by_id, column["project_id"])
             if project and project.get("workspace_path"): workspace_path = project["workspace_path"]
-            engine = SessionEngine(card_id, provider_id, workspace_path, card["column_id"])
+            engine = SessionEngine(card_id, provider_id, workspace_path, card["column_id"], db=self.db)
             engine.acp_session_id = card.get("acp_session_id")
             await engine.start(on_request=on_nested_request)
             self.engines[card_id] = engine
@@ -221,15 +231,37 @@ class MessageDispatcher:
         is_internal = session_id in self._internal_sessions
         try:
             async def handle_nested_request(inner_method, inner_params):
+                logger.info(f"[*] Nested request from engine for card {card_id}: {inner_method}")
                 if inner_method == "session/request_permission":
                     inner_params["card_id"] = card_id
-                    
+
                     # YOLO 模式：检查列的 approval_mode，自动放行权限请求
                     engine = self.engines.get(card_id)
                     if engine and engine.column_id:
                         column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
                         if column and column.get("approval_mode") == "yolo":
+                            logger.info(f"[*] YOLO mode detected for card {card_id}, auto-approving permission.")
                             return {"outcome": {"optionId": "allow"}}
+
+                    # Not YOLO: forward to Flutter UI for user approval
+                    rid = str(uuid.uuid4())
+                    fut = asyncio.get_event_loop().create_future()
+                    self._pending_ui_requests[rid] = fut
+                    logger.info(f"[*] Forwarding session/request_permission to UI (rid: {rid}, card_id: {card_id})")
+                    bus.publish(card_id, {
+                        "type": "ui_request",
+                        "id": rid,
+                        "method": inner_method,
+                        "params": inner_params
+                    })
+                    try:
+                        res = await asyncio.wait_for(fut, timeout=300.0)
+                        logger.info(f"[*] UI Response received for {rid}: {res}")
+                        return res
+                    except asyncio.TimeoutError:
+                        self._pending_ui_requests.pop(rid, None)
+                        logger.warning(f"[*] UI Request Timeout for {rid}")
+                        return {"error": {"code": -32000, "message": "UI Request Timeout"}}
 
                 if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
                     inner_params["_request_id"] = inner_params.get("id")

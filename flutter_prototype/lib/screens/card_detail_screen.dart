@@ -138,23 +138,57 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         (params['options'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     if (toolCall == null || options.isEmpty) return;
 
+    String toolName = toolCall['name'] ?? toolCall['title'] ?? 'Unknown Tool';
+    String arguments = toolCall['arguments'] ?? '';
+
+    // Handle official ACP content block if name/arguments are missing (e.g. Plan mode)
+    if (toolCall['content'] != null && toolCall['content'] is List) {
+      final contentList = toolCall['content'] as List;
+      for (var block in contentList) {
+        if (block is Map && block['type'] == 'content') {
+          final innerContent = block['content'];
+          if (innerContent is Map && innerContent['type'] == 'text') {
+            arguments += (arguments.isNotEmpty ? '\n' : '') +
+                innerContent['text'].toString();
+          }
+        }
+      }
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title:
             const Text('权限申请', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Agent 申请执行工具: ${toolCall['name']}',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            Text('参数: ${toolCall['arguments']}',
-                style: const TextStyle(
-                    fontSize: 13, color: Colors.grey, fontFamily: 'monospace')),
-          ],
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Agent 申请: $toolName',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              if (arguments.isNotEmpty)
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(arguments,
+                        style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black87,
+                            fontFamily: 'monospace')),
+                  ),
+                ),
+            ],
+          ),
         ),
         actions: options
             .map((opt) => TextButton(

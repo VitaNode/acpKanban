@@ -26,8 +26,8 @@ class UnifiedBridge:
         self.relay_url = relay_url
         self.token = token
         self.db = KanbanDB()
-        self.dispatcher = MessageDispatcher(self.db)
         self._pending_ui_requests: Dict[str, asyncio.Future] = {}
+        self.dispatcher = MessageDispatcher(self.db, ui_requests=self._pending_ui_requests)
         self._local_clients: Set[websockets.WebSocketServerProtocol] = set()
         self._client_e2ee_secrets: Dict[websockets.WebSocketServerProtocol, bytes] = {}
         

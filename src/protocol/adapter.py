@@ -73,6 +73,7 @@ class ACPProtocolAdapter:
         workspace_path: str = None,
         acp_session_id: str = None,
         on_notification: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        raw_prompt: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Convert chat/message to session/prompt and forward to ACP CLI.
@@ -117,15 +118,20 @@ class ACPProtocolAdapter:
 
                     # Handle Server-to-Client Requests
                     if "method" in data and "id" in data:
-                        self.log(f"Received nested request: {data['method']}")
+                        self.log(f"[*] Nested request from brain: {data['method']} (id: {data['id']})")
                         if self.on_request:
                             async def handle_and_respond(req_id, method, params):
                                 try:
+                                    self.log(f"[*] Dispatching nested request to handler: {method}")
                                     result = await self.on_request(method, params)
+                                    self.log(f"[*] Nested request handler returned: {result}")
                                     await self.acp.respond(req_id, result=result)
                                 except Exception as re:
+                                    self.log(f"[*] Nested request handler error: {re}")
                                     await self.acp.respond(req_id, error={"code": -32000, "message": str(re)})
                             asyncio.create_task(handle_and_respond(data["id"], data["method"], data.get("params", {})))
+                        else:
+                            self.log("[!] No on_request handler set for nested request")
                         continue
 
                     if on_notification:
@@ -152,11 +158,14 @@ class ACPProtocolAdapter:
 
         try:
             # 3. Send request and wait for JSON-RPC response
+            # Use raw_prompt if provided, otherwise build from message
+            prompt_payload = raw_prompt if raw_prompt else [self._build_prompt_item(message)]
+            
             response = await self.acp.request(
                 "session/prompt",
                 {
                     "sessionId": session_id,
-                    "prompt": [self._build_prompt_item(message)],
+                    "prompt": prompt_payload,
                 },
             )
             
@@ -239,7 +248,7 @@ class ACPProtocolAdapter:
         if method == "initialize":
             return await self.initialize(params)
         elif method == "session/new":
-            # Add mcpServers to session/new params (Qwen Code expects this as array)
+            # Add mcpServers to session/new params
             if self.provider_id and "openclaw" in self.provider_id.lower():
                 self.log("OpenClaw detected: Skipping per-session mcpServers")
             else:
@@ -250,16 +259,29 @@ class ACPProtocolAdapter:
             session_id = response.get("result", {}).get("sessionId")
             self._workspace_cwd = params.get("cwd", self._workspace_cwd)
             return response.get("result", {})
-        elif method == "chat/message" or (method == "session/prompt" and "message" in params):
+        
+        # Unified handling for prompt-like methods that generate notifications/requests
+        elif method in ("chat/message", "session/prompt"):
+            # Normalize params for chat_message
+            prompt_text = params.get("message")
+            if not prompt_text and "prompt" in params:
+                # Convert list of content blocks to string for chat_message logic
+                prompt_blocks = params["prompt"]
+                if isinstance(prompt_blocks, list):
+                    prompt_text = " ".join([b.get("text", "") for b in prompt_blocks if b.get("type") == "text"])
+            
             # Map sessionId from standard ACP params to acp_session_id
             session_id = params.get("acp_session_id") or params.get("sessionId")
+            
             return await self.chat_message(
-                params.get("message", ""),
+                prompt_text or "",
                 card_id=params.get("card_id"),
                 workspace_path=params.get("workspace_path"),
                 acp_session_id=session_id,
                 on_notification=on_notification,
+                raw_prompt=params.get("prompt")
             )
+            
         elif method.startswith("fs/") or method.startswith("terminal/"):
             if self.on_request:
                 result = await self.on_request(method, params)

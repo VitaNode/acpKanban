@@ -52,10 +52,18 @@ async def session_websocket(websocket: WebSocket, card_id: str):
 
             if msg_type == "get_history":
                 history = db.get_session_history(card_id)
-                await websocket.send_text(json.dumps({
+                config_opts = db.get_card_config_options(card_id)
+                response = {
                     "type": "history",
                     "messages": [format_session_message(m) for m in history]
-                }))
+                }
+                # Include config options if available from DB
+                if config_opts:
+                    try:
+                        response["config_options"] = json.loads(config_opts)
+                    except:
+                        pass
+                await websocket.send_text(json.dumps(response))
             
             elif msg_type == "send_message":
                 role = message.get("role", "user")
@@ -88,14 +96,20 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                 # UI requests (tool permissions). We pass a no-op that only
                                 # handles actual UI requests, not regular notifications.
                                 async def _bridge_ui_output(msg_or_method, *args):
-                                    # This only handles nested UI requests (permissions, fs access)
-                                    # Normal notifications are already handled by bus.publish
+                                    # Support both bridge.py (dict) and dispatcher.py (method, params) calls
                                     if args:
-                                        # Called as on_ui_request(method, params)
                                         method, params = msg_or_method, args[0]
-                                        rid = str(uuid.uuid4())
+                                    elif isinstance(msg_or_method, dict):
+                                        method = msg_or_method.get("method")
+                                        params = msg_or_method.get("params", {})
+                                    else:
+                                        return # Ignore unknown formats
+
+                                    if method == "session/request_permission" or method.startswith("fs/") or method.startswith("terminal/"):
+                                        rid = params.get("id") or str(uuid.uuid4())
                                         fut = asyncio.get_event_loop().create_future()
                                         bridge_instance._pending_ui_requests[rid] = fut
+                                        print(f"DEBUG: Publishing UI request {method} (rid: {rid}) to bus for card {card_id}")
                                         bus.publish(card_id, {
                                             "type": "ui_request",
                                             "id": rid,
