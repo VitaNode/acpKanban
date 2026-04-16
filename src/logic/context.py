@@ -1,7 +1,9 @@
 import os
+import json
 from pathlib import Path
 from typing import List, Dict, Optional
 from src.persistence.database import KanbanDB
+from src.persistence.embedding import embedding_service
 from src.logger import setup_logger
 
 logger = setup_logger("ContextBuilder")
@@ -9,10 +11,10 @@ logger = setup_logger("ContextBuilder")
 class ContextBuilder:
     """
     Assembles the system prompt and context for ACP sessions.
-    Follows the 3-level strategy:
-    Level 1 (Global): Project Info, agent.md, Summaries.
-    Level 2 (Related): Other card summaries (semantic search).
-    Level 3 (Focus): Current card details and column-specific template.
+    Optimized for token efficiency:
+    Level 1 (Global): Basic Project Info + Tooling Guidance.
+    Level 2 (Related): Semantically related historical card summaries.
+    Level 3 (Focus): Current card details + Recommended Files (from index).
     """
     def __init__(self, db: KanbanDB):
         self.db = db
@@ -20,7 +22,7 @@ class ContextBuilder:
     async def build_initial_context(self, card_id: str, column_prompt: Optional[str] = None) -> str:
         """
         Builds the comprehensive initial context string.
-        Includes Level 1-3 content and optional column-specific prompt.
+        Focuses on guiding the agent to use mcp-tools instead of bulk reading.
         """
         card = self.db.cards.get_by_id(card_id)
         if not card:
@@ -31,21 +33,29 @@ class ContextBuilder:
         
         sections = []
         
-        # --- Level 1: Global Context ---
+        # --- Level 1: Global Context (Slimmed) ---
         if project:
             sections.append(f"# Global Project Context: {project['name']}")
+            sections.append(f"Project ID: {project_id}")
             if project.get("workspace_path"):
                 sections.append(f"Root Workspace: {project['workspace_path']}")
-            if project.get("description"):
-                sections.append(f"Project Description:\n{project['description']}")
+            
+            # Guidelines on how to explore efficiently
+            sections.append("""## Efficiency Guidelines
+1. **Don't read full files immediately.** Use `code-tools` to get the project outline first.
+2. **Use `get_symbol_code`** to read specific classes/functions instead of whole files.
+3. **Semantic Search**: Use `search_code` if you are unsure where a feature is implemented.""")
 
         agent_md = self._load_agent_md(project.get("workspace_path") if project else None)
         if agent_md:
-            sections.append(f"## System Guidelines (agent.md)\n{agent_md}")
+            # We only take the first 1000 chars of agent.md to save tokens, or assume it's small
+            sections.append(f"## System Guidelines (agent.md)\n{agent_md[:2000]}")
 
-        # --- Level 2: Related Context (暂时移除，待验证效果后再决定) ---
-        # Previously: loaded summaries from summaries table for related cards.
-        # Removed to avoid context bloat and because summaries may not exist yet.
+        # --- Level 2: Related Context (Semantic Search) ---
+        related_summaries = await self._get_related_summaries(card, project_id)
+        if related_summaries:
+            sections.append("## Related Historical Context")
+            sections.append(related_summaries)
 
         # --- Level 3: Focus Context (Current Card & Stage) ---
         sections.append(f"## Active Card: {card['title']}")
@@ -55,13 +65,62 @@ class ContextBuilder:
         if card.get("last_summary"):
             sections.append(f"Status of previous stage:\n{card['last_summary']}")
 
+        # --- Recommended Files (Dynamic based on Card Intent) ---
+        recommended = await self._get_recommended_files(card, project_id)
+        if recommended:
+            sections.append(f"## Recommended Files to Explore\n{recommended}")
+
         # --- Column Specific Prompt ---
         if column_prompt:
             sections.append(f"## Current Workflow Stage Instructions\n{column_prompt}")
-        else:
-            sections.append("## Instructions\nYou are currently working on this card. Focus on completing the described task.")
 
         return "\n\n".join(sections)
+
+    async def _get_related_summaries(self, card: Dict, project_id: str, limit: int = 2) -> Optional[str]:
+        """Finds related cards based on semantic similarity of titles/descriptions."""
+        if not embedding_service.is_available():
+            return None
+            
+        card_text = f"{card['title']} {card.get('description', '')}"
+        query_vector = embedding_service.get_embedding(card_text)
+        if not query_vector:
+            return None
+            
+        # For now, we use a simple keyword-based search as a placeholder if vector search isn't in SQLite yet
+        # But conceptually this is where we'd call db.summaries.search_semantic
+        summaries = self.db.summaries.get_all_for_project(project_id)
+        # Filter out current card
+        summaries = [s for s in summaries if s['card_id'] != card['id']]
+        
+        if not summaries:
+            return None
+            
+        # Simple match for demonstration (Phase 3 optimization)
+        matches = []
+        for s in summaries:
+            if any(word.lower() in s['summary'].lower() for word in card['title'].split() if len(word) > 3):
+                matches.append(f"### Historical Task: {s['title']}\n{s['summary']}")
+        
+        return "\n".join(matches[:limit]) if matches else None
+
+    async def _get_recommended_files(self, card: Dict, project_id: str) -> Optional[str]:
+        """Suggests files based on symbol indexing matching the card's intent."""
+        symbols = self.db.code_symbols.get_by_project(project_id)
+        if not symbols:
+            return None
+            
+        # Keyword-based recommendation
+        keywords = [word.lower() for word in card['title'].split() if len(word) > 3]
+        matched_files = set()
+        for s in symbols:
+            if any(k in s['symbol_name'].lower() for k in keywords):
+                matched_files.add(s['file_path'])
+            if len(matched_files) >= 3:
+                break
+        
+        if matched_files:
+            return "- " + "\n- ".join(list(matched_files))
+        return None
 
     def _load_agent_md(self, workspace_path: Optional[str]) -> Optional[str]:
         """Loads agent.md from the workspace or project root."""

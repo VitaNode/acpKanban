@@ -17,7 +17,7 @@ class PythonParser:
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
                     symbols.append(self._make_symbol(node, "class", code))
-                elif isinstance(node, ast.FunctionDef):
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     # Check if it's a method (inside a class)
                     symbol_type = "method" if any(isinstance(p, ast.ClassDef) for p in self._get_parents(tree, node)) else "function"
                     symbols.append(self._make_symbol(node, symbol_type, code))
