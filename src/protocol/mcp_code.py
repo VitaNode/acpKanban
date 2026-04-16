@@ -8,6 +8,10 @@ from src.logger import setup_logger
 
 logger = setup_logger("MCPCodeServer")
 
+# Internal limits
+MAX_CODE_RESPONSE_CHARS = 8000
+MIN_SEARCH_QUERY_LEN = 2
+
 class MCPCodeServer:
     """A lightweight MCP server for codebase indexing and retrieval."""
     def __init__(self):
@@ -56,7 +60,9 @@ class MCPCodeServer:
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         try:
             project_id = arguments.get("project_id")
-            
+            if not project_id or not isinstance(project_id, str):
+                return {"content": [{"type": "text", "text": "Error: Missing or invalid project_id"}], "isError": True}
+
             if name == "get_project_outline":
                 symbols = self.db.code_symbols.get_by_project(project_id)
                 outline = {}
@@ -70,22 +76,31 @@ class MCPCodeServer:
 
             elif name == "get_symbol_code":
                 symbol_name = arguments.get("symbol_name")
+                if not symbol_name:
+                    return {"content": [{"type": "text", "text": "Error: Missing symbol_name"}], "isError": True}
+
                 symbols = self.db.code_symbols.get_by_project(project_id)
                 match = next((s for s in symbols if s["symbol_name"] == symbol_name), None)
                 if match:
-                    return {"content": [{"type": "text", "text": f"--- {match['file_path']} ---\n{match['code_content']}"}]}
+                    content = match['code_content']
+                    if len(content) > MAX_CODE_RESPONSE_CHARS:
+                        content = content[:MAX_CODE_RESPONSE_CHARS] + f"\n\n... [TRUNCATED {len(content)-MAX_CODE_RESPONSE_CHARS} chars for efficiency] ..."
+                    return {"content": [{"type": "text", "text": f"--- {match['file_path']} ---\n{content}"}]}
                 return {"content": [{"type": "text", "text": f"Error: Symbol '{symbol_name}' not found."}], "isError": True}
 
             elif name == "search_code":
                 query = arguments.get("query")
+                if not query or len(query) < MIN_SEARCH_QUERY_LEN:
+                    return {"content": [{"type": "text", "text": f"Error: Query must be at least {MIN_SEARCH_QUERY_LEN} chars"}], "isError": True}
                 
                 # 1. Try semantic search if available
                 if embedding_service.is_available():
-                    # For now, minimalistic implementation in DB.py handle similarity
-                    results = self.db.code_symbols.search_semantic(embedding_service.get_embedding(query), project_id, limit=5)
-                    if results:
-                        text_res = "\n".join([f"{s['file_path']}: {s['symbol_name']}" for s in results])
-                        return {"content": [{"type": "text", "text": f"Semantic matches:\n{text_res}"}]}
+                    embed = embedding_service.get_embedding(query)
+                    if embed:
+                        results = self.db.code_symbols.search_semantic(embed, project_id, limit=5)
+                        if results:
+                            text_res = "\n".join([f"{s['file_path']}: {s['symbol_name']} (score: {s.get('similarity', 0):.2f})" for s in results])
+                            return {"content": [{"type": "text", "text": f"Semantic matches:\n{text_res}"}]}
 
                 # 2. Keyword fallback
                 symbols = self.db.code_symbols.get_by_project(project_id)

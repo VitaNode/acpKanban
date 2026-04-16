@@ -9,6 +9,9 @@ from src.logger import setup_logger
 
 logger = setup_logger("ContextBuilder")
 
+# Configuration constants
+MAX_AGENT_MD_CHARS = 3000
+
 class ContextBuilder:
     """
     Assembles the system prompt and context for ACP sessions.
@@ -49,8 +52,11 @@ class ContextBuilder:
 
         agent_md = self._load_agent_md(project.get("workspace_path") if project else None)
         if agent_md:
-            # We only take the first 1000 chars of agent.md to save tokens, or assume it's small
-            sections.append(f"## System Guidelines (agent.md)\n{agent_md[:2000]}")
+            content = agent_md
+            if len(agent_md) > MAX_AGENT_MD_CHARS:
+                content = agent_md[:MAX_AGENT_MD_CHARS] + f"\n\n[WARNING: agent.md content truncated at {MAX_AGENT_MD_CHARS} chars for efficiency]"
+                logger.warning(f"agent.md truncated ({len(agent_md)} -> {MAX_AGENT_MD_CHARS})")
+            sections.append(f"## System Guidelines (agent.md)\n{content}")
 
         # --- Level 2: Related Context (Semantic Search) ---
         related_summaries = await self._get_related_summaries(card, project_id)
@@ -107,6 +113,7 @@ class ContextBuilder:
     async def _get_recommended_files(self, card: Dict, project_id: str) -> Optional[str]:
         """Suggests files using semantic search against indexed code symbols."""
         if not embedding_service.is_available():
+            # Fallback to keyword search
             return self._get_recommended_files_keyword(card, project_id)
             
         card_text = f"{card['title']} {card.get('description', '')}"
@@ -114,6 +121,7 @@ class ContextBuilder:
         if not query_vector:
             return self._get_recommended_files_keyword(card, project_id)
 
+        # Call real semantic search for code symbols
         symbols = self.db.code_symbols.search_semantic(query_vector, project_id, limit=5)
         
         matched_files = set()

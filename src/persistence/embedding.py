@@ -17,9 +17,18 @@ class EmbeddingService:
         return cls._instance
 
     def __init__(self, model: str = None, dimensions: int = 1536):
+        target_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        
+        # If already initialized with different params, force re-initialization of client
         if self._initialized:
+            if target_model != self.default_model or dimensions != self.dimensions:
+                print(f"[EmbeddingService] Reconfiguring: {self.default_model} -> {target_model}")
+                self.default_model = target_model
+                self.dimensions = dimensions
+                self.client = None # Will be recreated on next _get_client()
             return
-        self.default_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+        self.default_model = target_model
         self.dimensions = dimensions
         self.client = None
         self._last_api_key = None
