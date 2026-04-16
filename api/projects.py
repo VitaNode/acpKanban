@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+from src.persistence.embedding import embedding_service
 from api.dependencies import (
     get_db,
     validate_project_exists,
@@ -80,28 +81,25 @@ async def get_projects():
 
 
 @router.post("/projects", response_model=ProjectResponse, status_code=201)
-async def create_project(request: ProjectCreateRequest):
+async def create_project(request: ProjectCreateRequest, background_tasks: BackgroundTasks):
     """
     Create a new project.
     """
-    print(f"\n🔥 CREATE PROJECT CALLED: name='{request.name}', workspace_path='{request.workspace_path}'")
-    
     db = get_db()
     try:
-        print(f"📡 Calling db.create_project...")
         project_id = db.create_project(
             name=request.name,
             workspace_path=request.workspace_path,
             description=request.description,
         )
-        print(f"📡 project_id created: {project_id}")
 
         project = db.get_project(project_id)
-        print(f"📡 db.get_project result: {project}")
-
         if not project:
-            print(f"❌ Project not found after creation!")
             raise HTTPError(500, "Failed to create project")
+
+        # Trigger indexing in background
+        if request.workspace_path:
+            background_tasks.add_task(embedding_service.index_codebase, project_id, request.workspace_path)
 
         return ProjectResponse(
             id=project["id"],
@@ -173,7 +171,7 @@ async def get_project(project_id: str):
 
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
-async def update_project(project_id: str, request: ProjectUpdateRequest):
+async def update_project(project_id: str, request: ProjectUpdateRequest, background_tasks: BackgroundTasks):
     """
     Update a project.
     """
@@ -190,6 +188,10 @@ async def update_project(project_id: str, request: ProjectUpdateRequest):
         project = db.get_project(project_id)
         if not project:
             raise HTTPError(404, "Project not found")
+
+        # Trigger indexing if workspace changed or just to refresh
+        if project.get("workspace_path"):
+            background_tasks.add_task(embedding_service.index_codebase, project_id, project["workspace_path"])
 
         with db.get_connection() as conn:
             cursor = conn.execute(

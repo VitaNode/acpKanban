@@ -28,6 +28,22 @@ async def run_with_export():
     args, unknown = p.parse_known_args()
     
     bridge_instance = UnifiedBridge(args.user_id, args.relay_url, token=args.token, session_key=args.e2ee_key, workspace_cwd=args.workspace_cwd)
+    
+    # Trigger indexing if workspace_cwd is set
+    if args.workspace_cwd:
+        async def background_index():
+            from src.persistence.database import KanbanDB
+            from src.persistence.embedding import embedding_service
+            db = KanbanDB()
+            # Try to find a project with this workspace path
+            projects = db.get_projects()
+            target_project = next((p for p in projects if p.get('workspace_path') == args.workspace_cwd), None)
+            if target_project:
+                print(f"[*] Auto-indexing workspace: {args.workspace_cwd}")
+                await embedding_service.index_codebase(target_project['id'], args.workspace_cwd)
+        
+        asyncio.create_task(background_index())
+
     await bridge_instance.start()
 
 if __name__ == "__main__":
