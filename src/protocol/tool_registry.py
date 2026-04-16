@@ -13,17 +13,20 @@ class ToolRegistry:
 
     def _setup_internal_tools(self):
         """Register the built-in Kanban MCP server."""
-        # Fix: ACP/MCP expects 'command' as string, 'args' as list.
-        # Adding 'env' as an empty list based on the error log 'expected array'.
+        # Use the absolute path to .venv/bin/python to ensure dependency availability
+        venv_python = str(Path(__file__).parent.parent.parent / ".venv" / "bin" / "python")
+        if not os.path.exists(venv_python):
+            venv_python = sys.executable # Fallback
+
         self._mcp_servers.append({
             "name": "kanban-tools",
-            "command": sys.executable,
+            "command": venv_python,
             "args": [str(Path(__file__).parent / "mcp_kanban.py")],
             "env": []
         })
         self._mcp_servers.append({
             "name": "code-tools",
-            "command": sys.executable,
+            "command": venv_python,
             "args": [str(Path(__file__).parent / "mcp_code.py")],
             "env": []
         })

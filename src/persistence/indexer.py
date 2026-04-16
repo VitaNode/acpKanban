@@ -1,114 +1,115 @@
 import os
-import ast
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional
+import tree_sitter
+from tree_sitter_language_pack import get_language, get_parser
 from src.persistence.database import KanbanDB
 from src.logger import setup_logger
 
 logger = setup_logger("CodeIndexer")
 
-class PythonParser:
-    """Enhanced symbols extractor for Python code."""
+class TreeSitterParser:
+    """Robust multi-language symbol extractor using Node Walking instead of fragile Queries."""
     
-    def parse(self, code: str, file_path: str) -> List[Dict]:
+    def __init__(self, lang_name: str):
+        self.lang_name = lang_name
         try:
-            tree = ast.parse(code)
+            self.language = get_language(lang_name)
+            self.parser = get_parser(lang_name)
+        except Exception as e:
+            logger.error(f"Failed to initialize Tree-sitter for {lang_name}: {e}")
+            self.parser = None
+
+    def parse(self, code: str, file_path: str) -> List[Dict]:
+        if not self.parser: return []
+        
+        try:
+            tree = self.parser.parse(bytes(code, "utf8"))
             symbols = []
-            self._process_node(tree, "", symbols, code)
+            code_lines = code.splitlines()
+            self._walk_node(tree.root_node, symbols, code_lines)
             return symbols
         except Exception as e:
-            logger.error(f"Failed to parse Python file {file_path}: {e}")
+            logger.error(f"Tree-sitter parse error in {file_path}: {e}")
             return []
 
-    def _process_node(self, node: Any, parent_prefix: str, symbols: List[Dict], code: str):
-        """Recursive node processor to handle nesting and prefixes."""
-        lines = code.splitlines()
+    def _walk_node(self, node: tree_sitter.Node, symbols: List[Dict], lines: List[str]):
+        """Recursively walk the tree to find symbol-like nodes."""
+        node_type = node.type.lower()
         
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                symbol = self._make_symbol(child, parent_prefix, lines, code)
-                symbols.append(symbol)
-                
-                # Recursive call for nested structures
-                new_prefix = f"{parent_prefix}{child.name}."
-                self._process_node(child, new_prefix, symbols, code)
+        # Determine if this node is a symbol we care about
+        is_symbol = False
+        sym_type = ""
+        
+        if "class" in node_type and "definition" in node_type:
+            is_symbol = True
+            sym_type = "class"
+        elif "function" in node_type or "method" in node_type:
+            # Avoid matching too many small nodes, ensure it looks like a declaration
+            if "definition" in node_type or "declaration" in node_type or "signature" in node_type:
+                is_symbol = True
+                sym_type = "function"
 
-    def _make_symbol(self, node: Any, prefix: str, lines: List[str], code: str) -> Dict:
-        start_line = node.lineno
-        end_line = getattr(node, "end_lineno", start_line)
-        
-        symbol_type = "class"
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbol_type = "method" if prefix else "function"
+        if is_symbol:
+            # Robust name extraction
+            name = "unknown"
+            name_node = node.child_by_field_name("name")
+            if not name_node:
+                # Search children for first identifier
+                for child in node.children:
+                    if "identifier" in child.type:
+                        name_node = child
+                        break
+            
+            if name_node:
+                try:
+                    name = name_node.text.decode("utf8")
+                except: pass
 
-        # 1. Extract Full Signature (including Decorators and Type Hints)
-        # Decorators
-        decorators = []
-        for dec in getattr(node, "decorator_list", []):
-            try:
-                decorators.append(f"@{ast.unparse(dec)}")
-            except: pass
-        
-        # Base signature
-        raw_sig = lines[start_line-1].strip()
-        full_signature = "\n".join(decorators) + ("\n" if decorators else "") + raw_sig
+            if len(name) > 1:
+                symbols.append({
+                    "symbol_name": name,
+                    "symbol_type": sym_type,
+                    "signature": lines[node.start_point[0]].strip() if node.start_point[0] < len(lines) else "",
+                    "start_line": node.start_point[0] + 1,
+                    "end_line": node.end_point[0] + 1,
+                    "documentation": "",
+                    "code_content": node.text.decode("utf8") if hasattr(node, 'text') else ""
+                })
 
-        # 2. Extract Documentation
-        docstring = ast.get_docstring(node)
-        
-        # 3. Code Content
-        # We include decorators in the code content
-        actual_start = start_line
-        if node.decorator_list:
-            actual_start = min(d.lineno for d in node.decorator_list)
-        
-        code_content = "\n".join(lines[actual_start-1:end_line])
-
-        return {
-            "symbol_name": f"{prefix}{node.name}",
-            "symbol_type": symbol_type,
-            "signature": full_signature,
-            "start_line": actual_start,
-            "end_line": end_line,
-            "documentation": docstring,
-            "code_content": code_content
-        }
+        # Recurse into children
+        for child in node.children:
+            self._walk_node(child, symbols, lines)
 
 class CodeIndexer:
-    """Manages project-wide code indexing with concurrency and batching."""
+    """Unified Indexer using Tree-sitter Walking."""
     def __init__(self, db: KanbanDB):
         self.db = db
         self.parsers = {
-            ".py": PythonParser()
+            ".py": TreeSitterParser("python"),
+            ".dart": TreeSitterParser("dart")
         }
-        self.max_concurrency = 10
 
     async def index_project(self, project_id: str, workspace_path: str):
-        """Walks the workspace and indexes supported files in parallel batches."""
-        if not workspace_path or not os.path.exists(workspace_path):
-            return
-
-        files_to_index = []
+        if not workspace_path or not os.path.exists(workspace_path): return
+        
+        files_to_process = []
         for root, _, files in os.walk(workspace_path):
-            if any(part.startswith('.') or part in ('venv', '__pycache__', 'node_modules') for part in Path(root).parts):
+            if any(p.startswith('.') or p in ('venv', 'build', 'ios', 'android', 'node_modules', '.dart_tool') for p in Path(root).parts):
                 continue
-
-            for file in files:
-                ext = os.path.splitext(file)[1]
+            for f in files:
+                ext = os.path.splitext(f)[1]
                 if ext in self.parsers:
-                    abs_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(abs_path, workspace_path)
-                    files_to_index.append((abs_path, rel_path))
-
-        # Async batch processing
-        logger.info(f"Starting index for {len(files_to_index)} files in project {project_id}")
+                    abs_p = os.path.join(root, f)
+                    rel_p = os.path.relpath(abs_p, workspace_path)
+                    files_to_process.append((abs_p, rel_p))
         
-        for i in range(0, len(files_to_index), self.max_concurrency):
-            batch = files_to_index[i:i+self.max_concurrency]
-            tasks = [self.index_file(project_id, abs_p, rel_p) for abs_p, rel_p in batch]
-            await asyncio.gather(*tasks)
-        
-        logger.info(f"Completed indexing for project {project_id}")
+        logger.info(f"[*] Tree-sitter walking {len(files_to_process)} files for project {project_id}")
+        # Process in batches for performance
+        batch_size = 20
+        for i in range(0, len(files_to_process), batch_size):
+            batch = files_to_process[i:i+batch_size]
+            await asyncio.gather(*(self.index_file(project_id, ap, rp) for ap, rp in batch))
 
     async def index_file(self, project_id: str, abs_path: str, rel_path: str):
         ext = os.path.splitext(abs_path)[1]
@@ -120,11 +121,8 @@ class CodeIndexer:
                 code = f.read()
             
             symbols = parser.parse(code, rel_path)
-            
-            # Use a transaction for upserting batch symbols from one file
-            # This is handled by CodeSymbolRepository.delete_by_file + upsert
             self.db.code_symbols.delete_by_file(project_id, rel_path)
             for sym in symbols:
                 self.db.code_symbols.upsert(project_id=project_id, file_path=rel_path, **sym)
         except Exception as e:
-            logger.error(f"Error indexing {rel_path}: {str(e)}")
+            logger.error(f"Failed to index {rel_path}: {e}")
