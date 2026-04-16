@@ -353,6 +353,40 @@ class SummaryRepository(BaseRepository):
                 (card_id, summary, now),
             )
 
+class CodeSymbolRepository(BaseRepository):
+    def upsert(self, project_id: str, file_path: str, symbol_name: str, symbol_type: str, 
+               signature: str, start_line: int, end_line: int, documentation: Optional[str] = None,
+               code_content: Optional[str] = None, embedding: Optional[List[float]] = None):
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """INSERT INTO code_symbols 
+                   (project_id, file_path, symbol_name, symbol_type, signature, start_line, end_line, documentation, code_content, embedding)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(project_id, file_path, symbol_name, symbol_type) 
+                   DO UPDATE SET 
+                        signature=excluded.signature, 
+                        start_line=excluded.start_line, 
+                        end_line=excluded.end_line, 
+                        documentation=excluded.documentation,
+                        code_content=excluded.code_content,
+                        embedding=excluded.embedding""",
+                (project_id, file_path, symbol_name, symbol_type, signature, start_line, end_line, 
+                 documentation, code_content, json.dumps(embedding) if embedding else None)
+            )
+
+    def get_by_project(self, project_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM code_symbols WHERE project_id = ?", (project_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_by_file(self, project_id: str, file_path: str):
+        with self.db.get_connection() as conn:
+            conn.execute("DELETE FROM code_symbols WHERE project_id = ? AND file_path = ?", (project_id, file_path))
+
+    def search_semantic(self, embedding_vector: List[float], project_id: str, limit: int = 10) -> List[Dict]:
+        # Placeholder for sqlite-vec
+        return []
+
 class SessionRepository(BaseRepository):
     def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None):
         now = datetime.now().isoformat()
@@ -510,6 +544,7 @@ class KanbanDB:
         self.cards = CardRepository(self)
         self.summaries = SummaryRepository(self)
         self.sessions = SessionRepository(self)
+        self.code_symbols = CodeSymbolRepository(self)
 
         self._initialized = True
 
@@ -649,6 +684,22 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS project_agent_status (project_id TEXT PRIMARY KEY, state TEXT, start_time DATETIME, last_message TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS summaries (card_id TEXT PRIMARY KEY, summary TEXT NOT NULL, updated_at DATETIME)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS code_symbols (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    symbol_name TEXT NOT NULL,
+                    symbol_type TEXT NOT NULL,
+                    signature TEXT,
+                    start_line INTEGER,
+                    end_line INTEGER,
+                    documentation TEXT,
+                    code_content TEXT,
+                    embedding TEXT,
+                    UNIQUE(project_id, file_path, symbol_name, symbol_type)
+                )
+            """)
             
             # Migration: Check if new columns exist, if not add them
             try:

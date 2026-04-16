@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -30,14 +30,12 @@ class EmbeddingService:
         api_key = os.getenv("KANBAN_API_KEY")
         base_url = os.getenv("KANBAN_BASE_URL")
 
-        # Fallback to DB settings if environment variables are not set (for standalone API)
         if not api_key or not base_url:
             try:
                 from database import KanbanDB
                 db = KanbanDB()
                 raw_config = db.get_setting("system_config")
                 if raw_config:
-                    # Parse JSON if it's a string
                     system_config = raw_config
                     if isinstance(raw_config, str):
                         try:
@@ -46,7 +44,6 @@ class EmbeddingService:
                             system_config = {}
 
                     if isinstance(system_config, dict):
-                        # Handle both snake_case and camelCase
                         api_key = api_key or system_config.get("api_key") or system_config.get("apiKey")
                         base_url = base_url or system_config.get("base_url") or system_config.get("baseUrl")
                         
@@ -57,11 +54,10 @@ class EmbeddingService:
                             embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
                             os.environ["EMBEDDING_MODEL"] = embedding_model
                 else:
-                    pass # Silent fallback
+                    pass
             except Exception as e:
                 print(f"[EmbeddingService] Database settings fallback failed: {e}")
 
-        # Ensure base_url is an OpenAI compatible endpoint if not provided
         base_url = base_url or "https://api.openai.com/v1"
 
         if not api_key or api_key == "your_new_key_here":
@@ -150,7 +146,6 @@ class EmbeddingService:
             ]
         )
         
-        # Truncate logs if too long (approx 3000 characters) to avoid context issues
         if len(logs) > 3000:
             logs = logs[:1500] + "\n... [truncated] ...\n" + logs[-1500:]
 
@@ -186,6 +181,42 @@ Provide a concise summary (max 300 words).
         except Exception as e:
             print(f"[!] Summary generation error with model {model}: {e}")
             return None
+
+    async def index_codebase(self, project_id: str, workspace_path: str):
+        """Indexes the entire codebase and generates embeddings for symbols."""
+        from src.persistence.database import KanbanDB
+        from src.persistence.indexer import CodeIndexer
+        
+        db = KanbanDB()
+        indexer = CodeIndexer(db)
+        
+        # 1. Structural indexing
+        await indexer.index_project(project_id, workspace_path)
+        
+        # 2. Vectorization (Phase 1)
+        symbols = db.code_symbols.get_by_project(project_id)
+        for sym in symbols:
+            # Check if embedding already exists (stored as JSON string in DB)
+            if not sym.get("embedding") or sym["embedding"] == "null":
+                text_to_embed = f"{sym['symbol_type']} {sym['symbol_name']}\nSignature: {sym['signature']}"
+                if sym.get("documentation"):
+                    text_to_embed += f"\nDocumentation: {sym['documentation']}"
+                
+                embedding = self.get_embedding(text_to_embed)
+                if embedding:
+                    db.code_symbols.upsert(
+                        project_id=project_id,
+                        file_path=sym['file_path'],
+                        symbol_name=sym['symbol_name'],
+                        symbol_type=sym['symbol_type'],
+                        signature=sym['signature'],
+                        start_line=sym['start_line'],
+                        end_line=sym['end_line'],
+                        documentation=sym['documentation'],
+                        code_content=sym['code_content'],
+                        embedding=embedding
+                    )
+        print(f"[EmbeddingService] Completed indexing and vectorization for project {project_id}")
 
 
 embedding_service = EmbeddingService()
