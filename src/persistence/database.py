@@ -6,12 +6,16 @@ import sys
 import os
 import math
 from datetime import datetime
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
 import threading
 from queue import Queue, Empty
 
-# Ensure sqlite_vec is available
+# Constants to avoid magic numbers
+DEFAULT_PAGE_SIZE = 100
+MAX_SESSION_HISTORY = 200
+DEFAULT_POOL_SIZE = 5
+
 try:
     import sqlite_vec
 except ImportError:
@@ -29,7 +33,7 @@ def cosine_similarity(v1: List[float], v2: List[float]) -> float:
     return dot_product / (norm_a * norm_b)
 
 class ConnectionPool:
-    def __init__(self, create_fn, max_size=5):
+    def __init__(self, create_fn, max_size=DEFAULT_POOL_SIZE):
         self._create_fn = create_fn
         self._pool = Queue(max_size)
         self._max_size = max_size
@@ -127,12 +131,9 @@ class CardRepository(BaseRepository):
                 params.append(project_id)
             cursor = conn.execute(sql, params)
             all_rows = [dict(row) for row in cursor.fetchall()]
-            
-            # Pure Python fallback for similarity
             for row in all_rows:
                 row['similarity'] = cosine_similarity(embedding_vector, json.loads(row['embedding']))
-            
-            all_rows.sort(key=lambda x: row['similarity'], reverse=True)
+            all_rows.sort(key=lambda x: x['similarity'], reverse=True)
             return all_rows[:limit]
 
 class SummaryRepository(BaseRepository):
@@ -140,6 +141,9 @@ class SummaryRepository(BaseRepository):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             conn.execute("INSERT INTO summaries (card_id, summary, embedding, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(card_id) DO UPDATE SET summary=excluded.summary, embedding=excluded.embedding, updated_at=excluded.updated_at", (card_id, summary, json.dumps(embedding) if embedding else None, now))
+
+    def update_card_summary(self, card_id: str, summary: str):
+        return self.upsert(card_id, summary)
 
     def get_all_for_project(self, project_id: str) -> List[Dict]:
         with self.db.get_connection() as conn:
@@ -161,9 +165,9 @@ class CodeSymbolRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("INSERT INTO code_symbols (project_id, file_path, symbol_name, symbol_type, signature, start_line, end_line, documentation, code_content, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, file_path, symbol_name, symbol_type) DO UPDATE SET signature=excluded.signature, start_line=excluded.start_line, end_line=excluded.end_line, documentation=excluded.documentation, code_content=excluded.code_content, embedding=excluded.embedding", (project_id, file_path, symbol_name, symbol_type, signature, start_line, end_line, documentation, code_content, json.dumps(embedding) if embedding else None))
 
-    def get_by_project(self, project_id: str) -> List[Dict]:
+    def get_by_project(self, project_id: str, limit: int = DEFAULT_PAGE_SIZE, offset: int = 0) -> List[Dict]:
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM code_symbols WHERE project_id = ?", (project_id,))
+            cursor = conn.execute("SELECT * FROM code_symbols WHERE project_id = ? LIMIT ? OFFSET ?", (project_id, limit, offset))
             return [dict(row) for row in cursor.fetchall()]
 
     def delete_by_file(self, project_id: str, file_path: str):
@@ -171,7 +175,8 @@ class CodeSymbolRepository(BaseRepository):
             conn.execute("DELETE FROM code_symbols WHERE project_id = ? AND file_path = ?", (project_id, file_path))
 
     def search_semantic(self, embedding_vector: List[float], project_id: str, limit: int = 10) -> List[Dict]:
-        all_symbols = self.get_by_project(project_id)
+        # We fetch a larger batch to do memory similarity calculation if no vec extension
+        all_symbols = self.get_by_project(project_id, limit=500) 
         results = []
         for s in all_symbols:
             if s.get('embedding'):
@@ -179,7 +184,7 @@ class CodeSymbolRepository(BaseRepository):
                     s['similarity'] = cosine_similarity(embedding_vector, json.loads(s['embedding']))
                     results.append(s)
                 except: continue
-        results.sort(key=lambda x: x['similarity'], reverse=True)
+        results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
         return results[:limit]
 
 class SessionRepository(BaseRepository):
@@ -188,7 +193,7 @@ class SessionRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now))
 
-    def get_history(self, card_id: str, limit: int = 50) -> List[Dict]:
+    def get_history(self, card_id: str, limit: int = MAX_SESSION_HISTORY) -> List[Dict]:
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT * FROM card_sessions WHERE card_id = ? ORDER BY created_at ASC LIMIT ?", (card_id, limit))
             return [dict(row) for row in cursor.fetchall()]

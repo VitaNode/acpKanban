@@ -159,8 +159,8 @@ class MessageDispatcher:
                 workspace_root = Path(config.get("system.workspace_root")).resolve()
                 for ref in file_refs:
                     try:
-                        ref_path = (workspace_root / ref).resolve()
-                        if workspace_root in ref_path.parents or workspace_root == ref_path:
+                        if self._is_safe_path(workspace_root, ref):
+                            ref_path = (workspace_root / ref).resolve()
                             if ref_path.exists() and ref_path.is_file():
                                 with open(ref_path, 'r', encoding='utf-8') as f:
                                     params["prompt"].append({"type": "resource", "resource": {"uri": f"file://{ref}", "text": f.read(), "mimeType": "text/plain"}})
@@ -223,9 +223,13 @@ class MessageDispatcher:
     def _is_safe_path(self, workspace_root: Path, target_path: str) -> bool:
         """Strict sandbox check for fs operations."""
         try:
-            resolved = (workspace_root / target_path).resolve()
-            return workspace_root in resolved.parents or workspace_root == resolved
-        except:
+            # Join and resolve to absolute paths
+            workspace_root = workspace_root.resolve()
+            target_abs = (workspace_root / target_path).resolve()
+            
+            # check if target_abs is under workspace_root
+            return workspace_root == target_abs or workspace_root in target_abs.parents
+        except Exception:
             return False
 
     async def _process_engine_request(self, card_id, method, params, request_id, on_output):

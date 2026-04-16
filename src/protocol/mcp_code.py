@@ -95,10 +95,13 @@ class MCPCodeServer:
             
             return {"content": [{"type": "text", "text": "No symbols found matching the query."}], "isError": False}
 
-        return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
+        except Exception as e:
+            logger.error(f"MCP Tool Execution Error ({name}): {str(e)}", exc_info=True)
+            return {"content": [{"type": "text", "text": f"Internal Error: {str(e)}"}], "isError": True}
 
 async def run_mcp():
     server = MCPCodeServer()
+    logger.info("MCP Code Server started.")
     while True:
         try:
             line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
@@ -121,8 +124,10 @@ async def run_mcp():
                 response = {"id": req_id, "error": {"code": -32601, "message": f"Method {method} not found"}}
 
             print(json.dumps(response), flush=True)
+        except json.JSONDecodeError:
+            continue
         except Exception as e:
-            # Silently ignore parse errors for now
+            logger.error(f"MCP RPC Loop Error: {str(e)}", exc_info=True)
             continue
 
 if __name__ == "__main__":
