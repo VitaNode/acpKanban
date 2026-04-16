@@ -19,7 +19,13 @@ class ToolRegistry:
             "name": "kanban-tools",
             "command": sys.executable,
             "args": [str(Path(__file__).parent / "mcp_kanban.py")],
-            "env": [] # Based on error log: 'expected array'
+            "env": []
+        })
+        self._mcp_servers.append({
+            "name": "code-tools",
+            "command": sys.executable,
+            "args": [str(Path(__file__).parent / "mcp_code.py")],
+            "env": []
         })
 
     def _load_external_mcp(self):
