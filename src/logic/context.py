@@ -77,7 +77,7 @@ class ContextBuilder:
         return "\n\n".join(sections)
 
     async def _get_related_summaries(self, card: Dict, project_id: str, limit: int = 2) -> Optional[str]:
-        """Finds related cards based on semantic similarity of titles/descriptions."""
+        """Finds related cards using true semantic similarity."""
         if not embedding_service.is_available():
             return None
             
@@ -86,41 +86,53 @@ class ContextBuilder:
         if not query_vector:
             return None
             
-        # For now, we use a simple keyword-based search as a placeholder if vector search isn't in SQLite yet
-        # But conceptually this is where we'd call db.summaries.search_semantic
-        summaries = self.db.summaries.get_all_for_project(project_id)
+        # Call the new semantic search method
+        related = self.db.summaries.search_semantic(query_vector, project_id, limit=limit + 1)
         # Filter out current card
-        summaries = [s for s in summaries if s['card_id'] != card['id']]
+        related = [s for s in related if s['card_id'] != card['id']][:limit]
         
-        if not summaries:
+        if not related:
             return None
             
-        # Simple match for demonstration (Phase 3 optimization)
         matches = []
-        for s in summaries:
-            if any(word.lower() in s['summary'].lower() for word in card['title'].split() if len(word) > 3):
-                matches.append(f"### Historical Task: {s['title']}\n{s['summary']}")
+        for s in related:
+            matches.append(f"### Historical Task: {s.get('title', 'Unknown')}\n{s['summary']}")
         
-        return "\n".join(matches[:limit]) if matches else None
+        return "\n".join(matches) if matches else None
 
     async def _get_recommended_files(self, card: Dict, project_id: str) -> Optional[str]:
-        """Suggests files based on symbol indexing matching the card's intent."""
-        symbols = self.db.code_symbols.get_by_project(project_id)
-        if not symbols:
-            return None
+        """Suggests files using semantic search against indexed code symbols."""
+        if not embedding_service.is_available():
+            # Fallback to keyword search (already implemented in previous step)
+            return self._get_recommended_files_keyword(card, project_id)
             
-        # Keyword-based recommendation
+        card_text = f"{card['title']} {card.get('description', '')}"
+        query_vector = embedding_service.get_embedding(card_text)
+        if not query_vector:
+            return self._get_recommended_files_keyword(card, project_id)
+
+        # Call real semantic search for code symbols
+        symbols = self.db.code_symbols.search_semantic(query_vector, project_id, limit=5)
+        
+        matched_files = set()
+        for s in symbols:
+            matched_files.add(s['file_path'])
+        
+        if matched_files:
+            return "- " + "\n- ".join(list(matched_files))
+        return None
+
+    def _get_recommended_files_keyword(self, card: Dict, project_id: str) -> Optional[str]:
+        """Fallback keyword-based recommendation."""
+        symbols = self.db.code_symbols.get_by_project(project_id)
+        if not symbols: return None
         keywords = [word.lower() for word in card['title'].split() if len(word) > 3]
         matched_files = set()
         for s in symbols:
             if any(k in s['symbol_name'].lower() for k in keywords):
                 matched_files.add(s['file_path'])
-            if len(matched_files) >= 3:
-                break
-        
-        if matched_files:
-            return "- " + "\n- ".join(list(matched_files))
-        return None
+            if len(matched_files) >= 3: break
+        return "- " + "\n- ".join(list(matched_files)) if matched_files else None
 
     def _load_agent_md(self, workspace_path: Optional[str]) -> Optional[str]:
         """Loads agent.md from the workspace or project root."""
