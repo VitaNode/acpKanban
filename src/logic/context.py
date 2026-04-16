@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from src.persistence.database import KanbanDB
 from src.persistence.embedding import embedding_service
+from src.utils.tokens import log_context_stats
 from src.logger import setup_logger
 
 logger = setup_logger("ContextBuilder")
@@ -74,7 +75,10 @@ class ContextBuilder:
         if column_prompt:
             sections.append(f"## Current Workflow Stage Instructions\n{column_prompt}")
 
-        return "\n\n".join(sections)
+        full_context = "\n\n".join(sections)
+        log_context_stats(logger, "Initial", full_context)
+        
+        return full_context
 
     async def _get_related_summaries(self, card: Dict, project_id: str, limit: int = 2) -> Optional[str]:
         """Finds related cards using true semantic similarity."""
@@ -103,7 +107,6 @@ class ContextBuilder:
     async def _get_recommended_files(self, card: Dict, project_id: str) -> Optional[str]:
         """Suggests files using semantic search against indexed code symbols."""
         if not embedding_service.is_available():
-            # Fallback to keyword search (already implemented in previous step)
             return self._get_recommended_files_keyword(card, project_id)
             
         card_text = f"{card['title']} {card.get('description', '')}"
@@ -111,7 +114,6 @@ class ContextBuilder:
         if not query_vector:
             return self._get_recommended_files_keyword(card, project_id)
 
-        # Call real semantic search for code symbols
         symbols = self.db.code_symbols.search_semantic(query_vector, project_id, limit=5)
         
         matched_files = set()

@@ -4,6 +4,9 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from src.persistence.database import KanbanDB
 from src.persistence.embedding import embedding_service
+from src.logger import setup_logger
+
+logger = setup_logger("MCPCodeServer")
 
 class MCPCodeServer:
     """A lightweight MCP server for codebase indexing and retrieval."""
@@ -51,49 +54,50 @@ class MCPCodeServer:
         ]
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        project_id = arguments.get("project_id")
-        
-        if name == "get_project_outline":
-            symbols = self.db.code_symbols.get_by_project(project_id)
-            # Group by file_path
-            outline = {}
-            for s in symbols:
-                fp = s["file_path"]
-                if fp not in outline:
-                    outline[fp] = []
-                outline[fp].append(f"{s['symbol_type']} {s['symbol_name']} ({s['signature']})")
+        try:
+            project_id = arguments.get("project_id")
             
-            return {"content": [{"type": "text", "text": json.dumps(outline, indent=2)}]}
-
-        elif name == "get_symbol_code":
-            symbol_name = arguments.get("symbol_name")
-            symbols = self.db.code_symbols.get_by_project(project_id)
-            match = next((s for s in symbols if s["symbol_name"] == symbol_name), None)
-            if match:
-                return {"content": [{"type": "text", "text": f"--- {match['file_path']} ---\n{match['code_content']}"}]}
-            return {"content": [{"type": "text", "text": f"Error: Symbol '{symbol_name}' not found."}], "isError": True}
-
-        elif name == "search_code":
-            query = arguments.get("query")
-            results = []
-            
-            # 1. Try semantic search if available
-            if embedding_service.is_available():
-                # For now, simplistic implementation of semantic search matches Top 5
+            if name == "get_project_outline":
                 symbols = self.db.code_symbols.get_by_project(project_id)
-                # In a real scenario, this would use vector distance
-                # Here we just use keyword as a placeholder for this step
-                pass
+                outline = {}
+                for s in symbols:
+                    fp = s["file_path"]
+                    if fp not in outline:
+                        outline[fp] = []
+                    outline[fp].append(f"{s['symbol_type']} {s['symbol_name']} ({s['signature']})")
+                
+                return {"content": [{"type": "text", "text": json.dumps(outline, indent=2)}]}
 
-            # 2. Keyword fallback (Search in symbol_name and documentation)
-            symbols = self.db.code_symbols.get_by_project(project_id)
-            matches = [s for s in symbols if query.lower() in s["symbol_name"].lower() or (s["documentation"] and query.lower() in s["documentation"].lower())]
-            
-            if matches:
-                results = [f"{s['file_path']}: {s['symbol_type']} {s['symbol_name']}" for s in matches[:10]]
-                return {"content": [{"type": "text", "text": "Matches (Top 10):\n" + "\n".join(results)}]}
-            
-            return {"content": [{"type": "text", "text": "No symbols found matching the query."}], "isError": False}
+            elif name == "get_symbol_code":
+                symbol_name = arguments.get("symbol_name")
+                symbols = self.db.code_symbols.get_by_project(project_id)
+                match = next((s for s in symbols if s["symbol_name"] == symbol_name), None)
+                if match:
+                    return {"content": [{"type": "text", "text": f"--- {match['file_path']} ---\n{match['code_content']}"}]}
+                return {"content": [{"type": "text", "text": f"Error: Symbol '{symbol_name}' not found."}], "isError": True}
+
+            elif name == "search_code":
+                query = arguments.get("query")
+                
+                # 1. Try semantic search if available
+                if embedding_service.is_available():
+                    # For now, minimalistic implementation in DB.py handle similarity
+                    results = self.db.code_symbols.search_semantic(embedding_service.get_embedding(query), project_id, limit=5)
+                    if results:
+                        text_res = "\n".join([f"{s['file_path']}: {s['symbol_name']}" for s in results])
+                        return {"content": [{"type": "text", "text": f"Semantic matches:\n{text_res}"}]}
+
+                # 2. Keyword fallback
+                symbols = self.db.code_symbols.get_by_project(project_id)
+                matches = [s for s in symbols if query.lower() in s["symbol_name"].lower() or (s["documentation"] and query.lower() in s["documentation"].lower())]
+                
+                if matches:
+                    results = [f"{s['file_path']}: {s['symbol_type']} {s['symbol_name']}" for s in matches[:10]]
+                    return {"content": [{"type": "text", "text": "Keyword matches (Top 10):\n" + "\n".join(results)}]}
+                
+                return {"content": [{"type": "text", "text": "No symbols found matching the query."}], "isError": False}
+
+            return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 
         except Exception as e:
             logger.error(f"MCP Tool Execution Error ({name}): {str(e)}", exc_info=True)
