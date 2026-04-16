@@ -56,13 +56,9 @@ class ACPClient:
                 line_str = line.decode().strip()
                 if not line_str:
                     continue
-                
-                # Log all incoming lines to help debug
-                # Log configOptions messages in full to debug session mode
-                if "configOptions" in line_str:
-                    self.logger.info(f"ACP -> BRIDGE: {line_str}")
-                else:
-                    self.logger.info(f"ACP -> BRIDGE: {line_str[:200]}")
+
+                # Log all incoming lines (no truncation for debugging)
+                self.logger.info(f"ACP -> BRIDGE: {line_str}")
 
                 if not (line_str.startswith("{") or line_str.startswith("[")):
                     self.logger.debug(f"Non-JSON stdout: {line_str}")

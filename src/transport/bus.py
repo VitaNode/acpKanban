@@ -13,6 +13,8 @@ class NotificationBus:
         return cls._instance
 
     def publish(self, card_id: str, message: dict):
+        # logger.debug is not available here without import, use print for now
+        # print(f"[Bus] Publishing to {card_id}: {message.get('type')}")
         if card_id in self._subscribers:
             for queue in self._subscribers[card_id]:
                 queue.put_nowait(message)
