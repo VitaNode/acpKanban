@@ -334,30 +334,55 @@ async def get_related_cards(
     limit: int = Query(5, ge=1, le=20),
 ):
     """
-    Get related cards from the same project with their summaries.
-    Returns other cards in the project, prioritizing those with summaries.
+    Get related cards from the same project using semantic search if available.
     """
+    from src.persistence.embedding import embedding_service
+    
     db = get_db()
     card = validate_card_exists(card_id, db)
     project_id = card.get("project_id")
     if not project_id:
         return {"cards": [], "total": 0}
 
-    # Get all other cards in the same project
-    with db.get_connection() as conn:
-        cursor = conn.execute(
-            """SELECT c.id, c.title, c.description, c.status, c.column_id, c.position,
-                      c.created_at, c.updated_at, col.name as column_name, col.project_id,
-                      s.summary as card_summary
-               FROM cards c
-               JOIN columns col ON col.id = c.column_id
-               LEFT JOIN summaries s ON s.card_id = c.id
-               WHERE col.project_id = ? AND c.id != ?
-               ORDER BY s.updated_at DESC NULLS LAST, c.updated_at DESC
-               LIMIT ?""",
-            (project_id, card_id, limit),
-        )
-        related_cards = [dict(row) for row in cursor.fetchall()]
+    related_cards = []
+    
+    # Try semantic search first
+    if embedding_service.is_available():
+        card_text = f"{card['title']} {card.get('description', '')}"
+        query_vector = embedding_service.get_embedding(card_text)
+        if query_vector:
+            # Search in summaries for better semantic context
+            results = db.summaries.search_semantic(query_vector, project_id, limit=limit + 1)
+            # Map back to card details and exclude self
+            for s in results:
+                if s["card_id"] != card_id:
+                    c = db.get_card(s["card_id"])
+                    if c:
+                        c["card_summary"] = s["summary"]
+                        related_cards.append(c)
+                if len(related_cards) >= limit:
+                    break
+
+    # Fallback to recent cards in project if semantic search didn't yield enough
+    if len(related_cards) < limit:
+        already_added = {c["id"] for c in related_cards}
+        already_added.add(card_id)
+        
+        with db.get_connection() as conn:
+            cursor = conn.execute(
+                """SELECT c.id, c.title, c.description, c.status, c.column_id, c.position,
+                        c.created_at, c.updated_at, col.name as column_name, col.project_id,
+                        s.summary as card_summary
+                FROM cards c
+                JOIN columns col ON col.id = c.column_id
+                LEFT JOIN summaries s ON s.card_id = c.id
+                WHERE col.project_id = ? AND c.id NOT IN ({})
+                ORDER BY s.updated_at DESC NULLS LAST, c.updated_at DESC
+                LIMIT ?""".format(",".join(["?"] * len(already_added))),
+                (project_id, *already_added, limit - len(related_cards)),
+            )
+            fallback_cards = [dict(row) for row in cursor.fetchall()]
+            related_cards.extend(fallback_cards)
 
     return {
         "cards": [

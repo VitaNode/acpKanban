@@ -68,7 +68,11 @@ class ProjectRepository(BaseRepository):
 
     def get_all(self) -> List[Dict]:
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM projects ORDER BY created_at DESC")
+            cursor = conn.execute("""
+                SELECT p.*, 
+                (SELECT COUNT(*) FROM cards c JOIN columns col ON c.column_id = col.id WHERE col.project_id = p.id) as card_count
+                FROM projects p ORDER BY created_at DESC
+            """)
             return [dict(row) for row in cursor.fetchall()]
 
     def get_by_id(self, project_id: str) -> Optional[Dict]:
@@ -76,6 +80,33 @@ class ProjectRepository(BaseRepository):
             cursor = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    def update(self, project_id: str, name: str = None, workspace_path: str = None, description: str = None):
+        updates = []
+        params = []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if workspace_path is not None:
+            updates.append("workspace_path = ?")
+            params.append(workspace_path)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        
+        if not updates:
+            return
+
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(project_id)
+
+        with self.db.get_connection() as conn:
+            conn.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
+
+    def delete(self, project_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
 class ColumnRepository(BaseRepository):
     def create(self, project_id: str, name: str, position: int = None, color: str = "#808080", prompt_template: str = None) -> str:
@@ -101,6 +132,39 @@ class ColumnRepository(BaseRepository):
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def update(self, column_id: str, name: str = None, color: str = None, prompt_template: str = None):
+        updates = []
+        params = []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if color is not None:
+            updates.append("color = ?")
+            params.append(color)
+        if prompt_template is not None:
+            updates.append("prompt_template = ?")
+            params.append(prompt_template)
+        
+        if not updates:
+            return
+
+        params.append(column_id)
+        with self.db.get_connection() as conn:
+            conn.execute(f"UPDATE columns SET {', '.join(updates)} WHERE id = ?", params)
+
+    def delete(self, column_id: str, move_to_column_id: str = None):
+        with self.db.get_connection() as conn:
+            if move_to_column_id:
+                conn.execute("UPDATE cards SET column_id = ? WHERE column_id = ?", (move_to_column_id, column_id))
+            else:
+                conn.execute("DELETE FROM cards WHERE column_id = ?", (column_id,))
+            conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+
+    def reorder(self, positions: List[Dict[str, Any]]):
+        with self.db.get_connection() as conn:
+            for item in positions:
+                conn.execute("UPDATE columns SET position = ? WHERE id = ?", (item["position"], item["id"]))
+
 class CardRepository(BaseRepository):
     def create(self, column_id: str, title: str, description: str = None, parent_id: str = None) -> str:
         card_id = str(uuid.uuid4())[:8]
@@ -114,9 +178,86 @@ class CardRepository(BaseRepository):
 
     def get_by_id(self, card_id: str) -> Optional[Dict]:
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT c.*, col.project_id FROM cards c JOIN columns col ON col.id = c.column_id WHERE c.id = ?", (card_id,))
+            cursor = conn.execute("""
+                SELECT c.*, col.project_id, col.name as column_name,
+                (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count
+                FROM cards c 
+                JOIN columns col ON col.id = c.column_id 
+                WHERE c.id = ?
+            """, (card_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    def get_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]:
+        query = "SELECT * FROM cards WHERE column_id = ?"
+        params = [column_id]
+        if not include_completed:
+            query += " AND status != 'completed'"
+        query += " ORDER BY position ASC"
+        
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update(self, card_id: str, title: str = None, description: str = None, status: str = None):
+        updates = []
+        params = []
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if status is not None:
+            updates.append("status = ?")
+            params.append(status)
+            if status == 'completed':
+                updates.append("completed_at = ?")
+                params.append(datetime.now().isoformat())
+            else:
+                updates.append("completed_at = NULL")
+        
+        if not updates:
+            return
+
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(card_id)
+
+        with self.db.get_connection() as conn:
+            conn.execute(f"UPDATE cards SET {', '.join(updates)} WHERE id = ?", params)
+
+    def delete(self, card_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+
+    def move(self, card_id: str, target_column_id: str, target_position: int = None):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            if target_position is None:
+                cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (target_column_id,))
+                max_pos = cursor.fetchone()[0]
+                target_position = (max_pos + 1) if max_pos is not None else 0
+            
+            conn.execute("UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?", (target_column_id, target_position, now, card_id))
+
+    def update_provider(self, card_id: str, provider_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET acp_provider_id = ? WHERE id = ?", (provider_id, card_id))
+
+    def update_session_id(self, card_id: str, session_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET acp_session_id = ? WHERE id = ?", (session_id, card_id))
+
+    def get_config_options(self, card_id: str) -> Optional[str]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT config_options FROM cards WHERE id = ?", (card_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def update_config_options(self, card_id: str, config_options: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET config_options = ? WHERE id = ?", (config_options, card_id))
 
     def upsert_card_embedding(self, card_id: str, embedding_vector: List[float]):
         with self.db.get_connection() as conn:
@@ -145,6 +286,12 @@ class SummaryRepository(BaseRepository):
     def update_card_summary(self, card_id: str, summary: str):
         return self.upsert(card_id, summary)
 
+    def get_by_card_id(self, card_id: str) -> Optional[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM summaries WHERE card_id = ?", (card_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_all_for_project(self, project_id: str) -> List[Dict]:
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT s.*, c.title FROM summaries s JOIN cards c ON c.id = s.card_id JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?", (project_id,))
@@ -155,8 +302,10 @@ class SummaryRepository(BaseRepository):
         results = []
         for s in all_summaries:
             if s.get('embedding'):
-                s['similarity'] = cosine_similarity(embedding_vector, json.loads(s['embedding']))
-                results.append(s)
+                try:
+                    s['similarity'] = cosine_similarity(embedding_vector, json.loads(s['embedding']))
+                    results.append(s)
+                except: continue
         results.sort(key=lambda x: x['similarity'], reverse=True)
         return results[:limit]
 
@@ -175,7 +324,6 @@ class CodeSymbolRepository(BaseRepository):
             conn.execute("DELETE FROM code_symbols WHERE project_id = ? AND file_path = ?", (project_id, file_path))
 
     def search_semantic(self, embedding_vector: List[float], project_id: str, limit: int = 10) -> List[Dict]:
-        # We fetch a larger batch to do memory similarity calculation if no vec extension
         all_symbols = self.get_by_project(project_id, limit=500) 
         results = []
         for s in all_symbols:
@@ -196,6 +344,49 @@ class SessionRepository(BaseRepository):
     def get_history(self, card_id: str, limit: int = MAX_SESSION_HISTORY) -> List[Dict]:
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT * FROM card_sessions WHERE card_id = ? ORDER BY created_at ASC LIMIT ?", (card_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+class TimelineRepository(BaseRepository):
+    def add_event(self, project_id: str, card_id: str, event_type: str, content: str, metadata: Dict = None):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("INSERT INTO project_timeline (project_id, card_id, event_type, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?, ?)", (project_id, card_id, event_type, content, json.dumps(metadata) if metadata else None, now))
+
+    def get_for_project(self, project_id: str, limit: int = 100) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.*, c.title as card_title 
+                FROM project_timeline t 
+                LEFT JOIN cards c ON t.card_id = c.id 
+                WHERE t.project_id = ? 
+                ORDER BY timestamp DESC LIMIT ?
+            """, (project_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+class AgentStatusRepository(BaseRepository):
+    def update(self, project_id: str, state: str, message: str = None):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO project_agent_status (project_id, state, last_message, updated_at, start_time) 
+                VALUES (?, ?, ?, ?, ?) 
+                ON CONFLICT(project_id) DO UPDATE SET 
+                state=excluded.state, last_message=excluded.last_message, updated_at=excluded.updated_at
+            """, (project_id, state, message, now, now))
+
+    def get_by_project(self, project_id: str) -> Optional[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM project_agent_status WHERE project_id = ?", (project_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_all(self) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT s.*, p.name as project_name 
+                FROM project_agent_status s 
+                JOIN projects p ON s.project_id = p.id
+            """)
             return [dict(row) for row in cursor.fetchall()]
 
 class KanbanDB:
@@ -220,6 +411,8 @@ class KanbanDB:
         self.summaries = SummaryRepository(self)
         self.sessions = SessionRepository(self)
         self.code_symbols = CodeSymbolRepository(self)
+        self.timeline = TimelineRepository(self)
+        self.agent_status = AgentStatusRepository(self)
         self._initialized = True
 
     def _create_new_connection(self):
@@ -253,23 +446,58 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS summaries (card_id TEXT PRIMARY KEY, summary TEXT NOT NULL, embedding TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS code_symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL, symbol_type TEXT NOT NULL, signature TEXT, start_line INTEGER, end_line INTEGER, documentation TEXT, code_content TEXT, embedding TEXT, UNIQUE(project_id, file_path, symbol_name, symbol_type))")
+            
+            # Migration/Maintenance
             for table, col in [("projects", "description"), ("columns", "prompt_template"), ("columns", "acp_provider_id"), ("columns", "approval_mode"), ("cards", "last_summary"), ("cards", "config_options"), ("cards", "embedding"), ("summaries", "embedding")]:
                 try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
                 except: pass
 
+    # --- API Bridge Methods (Flattened for backward compatibility) ---
     def get_projects(self): return self.projects.get_all()
     def create_project(self, name, workspace_path=None, description=None): return self.projects.create(name, workspace_path, description)
     def get_project(self, project_id): return self.projects.get_by_id(project_id)
-    def create_column(self, project_id, name, position=None, color="#808080", prompt_template=None): return self.columns.create(project_id, name, position, color, prompt_template)
+    def update_project(self, project_id, name=None, workspace_path=None, description=None): return self.projects.update(project_id, name, workspace_path, description)
+    def delete_project(self, project_id): return self.projects.delete(project_id)
+
     def get_columns(self, project_id): return self.columns.get_all(project_id)
-    def create_card(self, column_id, title, description=None, parent_id=None): return self.cards.create(column_id, title, description, parent_id)
+    def get_column(self, column_id): return self.columns.get_by_id(column_id)
+    def create_column(self, project_id, name, position=None, color="#808080", prompt_template=None): return self.columns.create(project_id, name, position, color, prompt_template)
+    def update_column(self, column_id, name=None, color=None, prompt_template=None): return self.columns.update(column_id, name, color, prompt_template)
+    def delete_column(self, column_id, move_to_column_id=None): return self.columns.delete(column_id, move_to_column_id)
+    def reorder_columns(self, positions): return self.columns.reorder(positions)
+
     def get_card(self, card_id): return self.cards.get_by_id(card_id)
+    def get_cards_by_column(self, column_id, include_completed=False): return self.cards.get_by_column(column_id, include_completed)
+    def create_card(self, column_id, title, description=None, parent_id=None): return self.cards.create(column_id, title, description, parent_id)
+    def update_card(self, card_id, title=None, description=None, status=None): return self.cards.update(card_id, title, description, status)
+    def delete_card(self, card_id): return self.cards.delete(card_id)
+    def move_card(self, card_id, target_column_id, target_position=None): return self.cards.move(card_id, target_column_id, target_position)
+    def update_card_provider(self, card_id, provider_id): return self.cards.update_provider(card_id, provider_id)
+    def update_card_session_id(self, card_id, session_id): return self.cards.update_session_id(card_id, session_id)
+    def get_card_config_options(self, card_id): return self.cards.get_config_options(card_id)
+    def update_card_config_options(self, card_id, config_options): return self.cards.update_config_options(card_id, config_options)
+    def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
+    def uncomplete_card(self, card_id): return self.cards.update(card_id, status='active')
+
+    def get_summary(self, card_id): return self.summaries.get_by_card_id(card_id)
     def get_all_summaries(self, project_id): return self.summaries.get_all_for_project(project_id)
+    
+    def get_session_history(self, card_id, limit=50): return self.sessions.get_history(card_id, limit)
+    def add_session_message(self, card_id, role, content, metadata=None): return self.sessions.add_message(card_id, role, content, metadata)
+
+    def get_timeline(self, project_id, limit=100): return self.timeline.get_for_project(project_id, limit)
+    def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)
+
+    def get_project_agent_status(self, project_id): return self.agent_status.get_by_project(project_id)
+    def get_all_agent_statuses(self): return self.agent_status.get_all()
+    def update_agent_status(self, project_id, state, message=None): return self.agent_status.update(project_id, state, message)
+
     def get_setting(self, key: str, default: Any = None) -> Any:
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
             row = cursor.fetchone()
             return row[0] if row else default
+            
     def set_setting(self, key: str, value: Any):
         now = datetime.now().isoformat()
         with self.get_connection() as conn:
