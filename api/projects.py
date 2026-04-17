@@ -26,12 +26,14 @@ class ColumnCreateRequest(BaseModel):
     position: Optional[int] = None
     color: Optional[str] = "#808080"
     prompt_template: Optional[str] = Field(None, max_length=5000)
+    acp_provider_id: Optional[str] = Field(None, max_length=50)
 
 
 class ColumnUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     color: Optional[str] = None
     prompt_template: Optional[str] = Field(None, max_length=5000)
+    acp_provider_id: Optional[str] = Field(None, max_length=50)
 
 
 class ProjectCreateRequest(BaseModel):
@@ -276,6 +278,7 @@ async def create_column(project_id: str, request: ColumnCreateRequest):
             position=request.position,
             color=request.color,
             prompt_template=request.prompt_template,
+            acp_provider_id=request.acp_provider_id,
         )
         column = db.get_column(column_id)
         if not column:
@@ -305,6 +308,7 @@ async def update_column(column_id: str, request: ColumnUpdateRequest):
             name=request.name,
             color=request.color,
             prompt_template=request.prompt_template,
+            acp_provider_id=request.acp_provider_id,
         )
         return db.get_column(column_id)
     except HTTPException:

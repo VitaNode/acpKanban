@@ -323,9 +323,28 @@ async def get_card_summary(card_id: str):
 
     summary = db.get_summary(card_id)
     if not summary:
-        raise HTTPError(404, "Summary not found for this card")
+        return {"card_id": card_id, "summary": ""}
 
     return summary
+
+
+@router.put("/cards/{card_id}/summary", response_model=dict)
+async def update_card_summary(card_id: str, request: dict):
+    """
+    Update the summary for a card manually.
+    """
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    summary_text = request.get("summary")
+    if summary_text is None:
+        raise HTTPError(400, "summary field is required")
+
+    try:
+        db.summaries.upsert(card_id, summary_text)
+        return {"card_id": card_id, "summary": summary_text}
+    except Exception as e:
+        raise HTTPError(400, str(e))
 
 
 @router.get("/cards/{card_id}/related")

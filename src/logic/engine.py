@@ -39,7 +39,16 @@ class SessionEngine:
 
     @property
     def is_alive(self) -> bool:
-        return self.acp_client is not None and self.acp_client.process is not None and self.acp_client.process.returncode is None
+        # Use local snapshots to avoid race conditions between checks
+        client = self.acp_client
+        if client is None:
+            return False
+        
+        proc = client.process
+        if proc is None:
+            return False
+            
+        return proc.returncode is None
 
     def set_on_request(self, on_request: Optional[Callable]):
         """Update the nested request callback."""
@@ -47,9 +56,16 @@ class SessionEngine:
             self.adapter.on_request = on_request
         self.logger.debug(f"[*] on_request callback updated for card {self.card_id}")
 
-    async def start(self, fallback_command=None, on_request: Optional[Callable] = None):
+    async def start(self, fallback_command=None, on_request: Optional[Callable] = None, is_quiet: bool = False):
         async with self._lock:
-            if self.is_alive: return
+            if self.is_alive: 
+                # If already alive, just return current session info if quiet
+                if is_quiet:
+                    return {
+                        "sessionId": self.acp_session_id,
+                        "configOptions": self.current_config_options
+                    }
+                return self.acp_session_id
             try:
                 # Use the property helper from ConfigManager
                 providers = config.providers
@@ -72,7 +88,7 @@ class SessionEngine:
                         load_res = await self.adapter.handle_request("session/load", load_params)
                         # session/load returns {modes, models, configOptions}, NOT sessionId
                         if load_res and ("modes" in load_res or "configOptions" in load_res or "models" in load_res):
-                            self.current_config_options = load_res.get("configOptions", [])
+                            self.current_config_options = self._normalize_session_config(load_res)
                             self._save_config_options_to_db()
                             self.logger.info(f"Session restored successfully: {self.acp_session_id} (configOptions: {len(self.current_config_options)})")
                             self.state = SessionState.IDLE
@@ -85,7 +101,7 @@ class SessionEngine:
                 # session/new (fallback if no saved session or load failed)
                 res = await self.adapter.handle_request("session/new", {"cwd": self.workspace_path})
                 self.acp_session_id = res.get("sessionId")
-                self.current_config_options = res.get("configOptions", [])
+                self.current_config_options = self._normalize_session_config(res)
                 self._save_config_options_to_db()
 
                 self.state = SessionState.IDLE
@@ -104,7 +120,10 @@ class SessionEngine:
                     
                     asyncio.create_task(ensure_indexed())
 
-                return self.acp_session_id
+                return {
+                    "sessionId": self.acp_session_id,
+                    "configOptions": self.current_config_options
+                }
             except Exception as e:
                 self.state = SessionState.ERROR
                 raise
@@ -128,21 +147,88 @@ class SessionEngine:
             except Exception as e:
                 self.logger.error(f"Failed to save config options to DB: {e}")
 
+    def _normalize_session_config(self, res: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Normalize ACP session/new or session/load result to a flat configOptions list.
+        Handles both legacy configOptions and explicit modes/models.
+        Deduplicates by preferring explicit modes/models over configOptions items.
+        """
+        raw_options = res.get("configOptions", [])
+        
+        # Deduplicate: remove any existing items with category 'mode' or 'model' (or corresponding IDs)
+        # to prevent duplicates when explicit 'modes' or 'models' are also present.
+        options = [
+            opt for opt in raw_options 
+            if opt.get("category") not in ("mode", "model") and opt.get("id") not in ("mode", "model")
+        ]
+        
+        # Handle explicit modes
+        if "modes" in res:
+            modes = res["modes"]
+            available = modes.get("availableModes", [])
+            if available:
+                options.insert(0, { # Put mode at the beginning
+                    "id": "mode",
+                    "name": "Mode",
+                    "category": "mode",
+                    "type": "select",
+                    "currentValue": modes.get("currentModeId"),
+                    "options": [{"value": m.get("id"), "name": m.get("name"), "description": m.get("description")} for m in available]
+                })
+
+        # Handle explicit models
+        if "models" in res:
+            models = res["models"]
+            available = models.get("availableModels", [])
+            if available:
+                options.insert(1 if "modes" in res else 0, { # Put model after mode
+                    "id": "model",
+                    "name": "Model",
+                    "category": "model",
+                    "type": "select",
+                    "currentValue": models.get("currentModelId"),
+                    "options": [{"value": m.get("modelId"), "name": m.get("name"), "description": m.get("description")} for m in available]
+                })
+        
+        # If we removed them from raw_options but res didn't have top-level modes/models, 
+        # add them back (this handles engines that only use configOptions)
+        if "modes" not in res:
+            mode_opts = [opt for opt in raw_options if opt.get("category") == "mode" or opt.get("id") == "mode"]
+            if mode_opts: options.extend(mode_opts)
+            
+        if "models" not in res:
+            model_opts = [opt for opt in raw_options if opt.get("category") == "model" or opt.get("id") == "model"]
+            if model_opts: options.extend(model_opts)
+        
+        return options
+
     async def set_config_option(self, config_id: str, value: Any):
-        """Phase 5.2: Set agent config at runtime."""
+        """Phase 5.2: Set agent config at runtime. Also handles mode/model via ACP specialized methods."""
         if not self.adapter or not self.acp_session_id: return None
         try:
-            res = await self.adapter.handle_request("session/set_config_option", {
-                "sessionId": self.acp_session_id,
-                "configId": config_id,
-                "value": value
-            })
-            if "configOptions" in res:
-                self.current_config_options = res["configOptions"]
+            # ACP Standard: Modes and Models have dedicated methods if returned explicitly
+            method = "session/set_config_option"
+            params = {"sessionId": self.acp_session_id}
+            
+            if config_id == "mode":
+                method = "session/set_mode"
+                params["modeId"] = value
+            elif config_id == "model":
+                method = "session/set_model"
+                params["modelId"] = value
+            else:
+                params["configId"] = config_id
+                params["value"] = value
+            
+            res = await self.adapter.handle_request(method, params)
+            
+            # Update our local state with the new config state returned by agent
+            if res:
+                self.current_config_options = self._normalize_session_config(res)
                 self._save_config_options_to_db()
             return self.current_config_options
         except Exception as e:
-            self.logger.error(f"Failed to set config: {e}")
+            self.logger.error(f"Failed to set config ({config_id}={value}): {e}")
             return None
 
     async def process_prompt(self, method: str, params: Dict, on_notification: Optional[Callable] = None):

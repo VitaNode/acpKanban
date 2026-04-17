@@ -109,7 +109,7 @@ class ProjectRepository(BaseRepository):
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
 
 class ColumnRepository(BaseRepository):
-    def create(self, project_id: str, name: str, position: int = None, color: str = "#808080", prompt_template: str = None) -> str:
+    def create(self, project_id: str, name: str, position: int = None, color: str = "#808080", prompt_template: str = None, acp_provider_id: str = None) -> str:
         col_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
         if position is None:
@@ -118,7 +118,7 @@ class ColumnRepository(BaseRepository):
                 max_pos = cursor.fetchone()[0]
                 position = (max_pos + 1) if max_pos is not None else 0
         with self.db.get_connection() as conn:
-            conn.execute("INSERT INTO columns (id, project_id, name, position, color, prompt_template, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (col_id, project_id, name, position, color, prompt_template, now))
+            conn.execute("INSERT INTO columns (id, project_id, name, position, color, prompt_template, acp_provider_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (col_id, project_id, name, position, color, prompt_template, acp_provider_id, now))
             return col_id
 
     def get_all(self, project_id: str) -> List[Dict]:
@@ -132,7 +132,7 @@ class ColumnRepository(BaseRepository):
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def update(self, column_id: str, name: str = None, color: str = None, prompt_template: str = None):
+    def update(self, column_id: str, name: str = None, color: str = None, prompt_template: str = None, acp_provider_id: str = None):
         updates = []
         params = []
         if name is not None:
@@ -144,6 +144,9 @@ class ColumnRepository(BaseRepository):
         if prompt_template is not None:
             updates.append("prompt_template = ?")
             params.append(prompt_template)
+        if acp_provider_id is not None:
+            updates.append("acp_provider_id = ?")
+            params.append(acp_provider_id)
         
         if not updates:
             return
@@ -336,10 +339,84 @@ class CodeSymbolRepository(BaseRepository):
         return results[:limit]
 
 class SessionRepository(BaseRepository):
-    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None):
+    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None, is_milestone: bool = False):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now))
+            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0))
+
+    def append_message(self, card_id: str, role: str, chunk: str, is_complete: bool = False, is_milestone: bool = False):
+        with self.db.get_connection() as conn:
+            # Find the most recent incomplete message for this card and role
+            cursor = conn.execute(
+                "SELECT id, content FROM card_sessions WHERE card_id = ? AND role = ? AND is_complete = 0 ORDER BY created_at DESC LIMIT 1",
+                (card_id, role)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                new_content = row['content'] + chunk
+                conn.execute(
+                    "UPDATE card_sessions SET content = ?, is_complete = ?, is_milestone = ? WHERE id = ?",
+                    (new_content, 1 if is_complete else 0, 1 if is_milestone else 0, row['id'])
+                )
+            elif chunk or not is_complete:
+                # Create a new message if there's no incomplete one
+                now = datetime.now().isoformat()
+                conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, is_complete, created_at, is_milestone) VALUES (?, ?, ?, ?, ?, ?)",
+                    (card_id, role, chunk, 1 if is_complete else 0, now, 1 if is_milestone else 0)
+                )
+
+    def append_thought(self, card_id: str, thought_chunk: str):
+        with self.db.get_connection() as conn:
+            # Find the most recent incomplete assistant message to append the thought to
+            cursor = conn.execute(
+                "SELECT id, metadata FROM card_sessions WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                metadata = json.loads(row['metadata']) if row['metadata'] else {}
+                current_thought = metadata.get('thought', '')
+                metadata['thought'] = current_thought + thought_chunk
+                conn.execute(
+                    "UPDATE card_sessions SET metadata = ? WHERE id = ?",
+                    (json.dumps(metadata), row['id'])
+                )
+            else:
+                # No active assistant message, create a placeholder one with is_complete=0
+                now = datetime.now().isoformat()
+                metadata = {'thought': thought_chunk}
+                conn.execute(
+                    "INSERT INTO card_sessions (card_id, role, content, metadata, is_complete, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (card_id, 'assistant', '', json.dumps(metadata), 0, now)
+                )
+
+    def update_message_with_metadata(self, card_id: str, meta_key: str, meta_value: Any, new_content: str = None, is_complete: bool = True):
+        with self.db.get_connection() as conn:
+            # Find messages that have the specific metadata key/value
+            cursor = conn.execute(
+                "SELECT id, content, metadata FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC",
+                (card_id,)
+            )
+            rows = cursor.fetchall()
+            
+            target_id = None
+            for row in rows:
+                metadata = json.loads(row['metadata']) if row['metadata'] else {}
+                if metadata.get(meta_key) == meta_value:
+                    target_id = row['id']
+                    break
+            
+            if target_id:
+                updates = ["is_complete = ?"]
+                params = [1 if is_complete else 0]
+                if new_content is not None:
+                    updates.append("content = ?")
+                    params.append(new_content)
+                params.append(target_id)
+                conn.execute(f"UPDATE card_sessions SET {', '.join(updates)} WHERE id = ?", params)
 
     def get_history(self, card_id: str, limit: int = MAX_SESSION_HISTORY) -> List[Dict]:
         with self.db.get_connection() as conn:
@@ -440,17 +517,32 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, card_id TEXT, event_type TEXT, content TEXT, metadata TEXT, timestamp DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_agent_status (project_id TEXT PRIMARY KEY, state TEXT, start_time DATETIME, last_message TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS summaries (card_id TEXT PRIMARY KEY, summary TEXT NOT NULL, embedding TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS code_symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL, symbol_type TEXT NOT NULL, signature TEXT, start_line INTEGER, end_line INTEGER, documentation TEXT, code_content TEXT, embedding TEXT, UNIQUE(project_id, file_path, symbol_name, symbol_type))")
             
-            # Migration/Maintenance
-            for table, col in [("projects", "description"), ("columns", "prompt_template"), ("columns", "acp_provider_id"), ("columns", "approval_mode"), ("cards", "last_summary"), ("cards", "config_options"), ("cards", "embedding"), ("summaries", "embedding")]:
+            # Migration/Maintenance: Add columns if they were missing from older versions
+            # Note: columns.acp_provider_id is already in CREATE TABLE above. 
+            # We keep migrations here for fields added over the project lifecycle.
+            for table, col in [
+                ("projects", "description"), 
+                ("columns", "prompt_template"), 
+                ("columns", "approval_mode"), 
+                ("cards", "last_summary"), 
+                ("cards", "config_options"), 
+                ("cards", "embedding"), 
+                ("summaries", "embedding"), 
+                ("card_sessions", "is_milestone")
+            ]:
                 try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-                except: pass
+                except: 
+                    if col == "is_milestone":
+                        try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0")
+                        except: pass
+                    pass
 
     # --- API Bridge Methods (Flattened for backward compatibility) ---
     def get_projects(self): return self.projects.get_all()
@@ -461,8 +553,8 @@ class KanbanDB:
 
     def get_columns(self, project_id): return self.columns.get_all(project_id)
     def get_column(self, column_id): return self.columns.get_by_id(column_id)
-    def create_column(self, project_id, name, position=None, color="#808080", prompt_template=None): return self.columns.create(project_id, name, position, color, prompt_template)
-    def update_column(self, column_id, name=None, color=None, prompt_template=None): return self.columns.update(column_id, name, color, prompt_template)
+    def create_column(self, project_id, name, position=None, color="#808080", prompt_template=None, acp_provider_id=None): return self.columns.create(project_id, name, position, color, prompt_template, acp_provider_id)
+    def update_column(self, column_id, name=None, color=None, prompt_template=None, acp_provider_id=None): return self.columns.update(column_id, name, color, prompt_template, acp_provider_id)
     def delete_column(self, column_id, move_to_column_id=None): return self.columns.delete(column_id, move_to_column_id)
     def reorder_columns(self, positions): return self.columns.reorder(positions)
 
@@ -483,7 +575,10 @@ class KanbanDB:
     def get_all_summaries(self, project_id): return self.summaries.get_all_for_project(project_id)
     
     def get_session_history(self, card_id, limit=50): return self.sessions.get_history(card_id, limit)
-    def add_session_message(self, card_id, role, content, metadata=None): return self.sessions.add_message(card_id, role, content, metadata)
+    def add_session_message(self, card_id, role, content, metadata=None, is_milestone=False): return self.sessions.add_message(card_id, role, content, metadata, is_milestone)
+    def append_session_message(self, card_id, role, content, is_complete=False, is_milestone=False): return self.sessions.append_message(card_id, role, content, is_complete, is_milestone)
+    def append_thought(self, card_id, thought_text): return self.sessions.append_thought(card_id, thought_text)
+    def update_session_message_metadata(self, card_id, meta_key, meta_value, new_content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, meta_key, meta_value, new_content, is_complete)
 
     def get_timeline(self, project_id, limit=100): return self.timeline.get_for_project(project_id, limit)
     def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)
@@ -502,3 +597,4 @@ class KanbanDB:
         now = datetime.now().isoformat()
         with self.get_connection() as conn:
             conn.execute("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", (key, str(value), now))
+

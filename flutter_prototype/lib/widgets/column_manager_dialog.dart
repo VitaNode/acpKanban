@@ -1,26 +1,31 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
+import '../models/connection_config.dart';
 import '../services/project_service.dart';
 import '../constants/app_constants.dart';
+import '../utils/icon_util.dart';
 
 class ColorEditResult {
   final String name;
   final String color;
   final String? promptTemplate;
+  final String? acpProviderId;
 
-  ColorEditResult({required this.name, required this.color, this.promptTemplate});
+  ColorEditResult({required this.name, required this.color, this.promptTemplate, this.acpProviderId});
 }
 
 class ColumnEditDialog extends StatefulWidget {
   final String initialName;
   final String initialColor;
   final String? initialPromptTemplate;
+  final String? initialProviderId;
 
   const ColumnEditDialog({
     super.key,
     required this.initialName,
     required this.initialColor,
     this.initialPromptTemplate,
+    this.initialProviderId,
   });
 
   @override
@@ -28,9 +33,13 @@ class ColumnEditDialog extends StatefulWidget {
 }
 
 class _ColumnEditDialogState extends State<ColumnEditDialog> {
+  final _projectService = ProjectService();
   late TextEditingController _nameController;
   late TextEditingController _promptTemplateController;
   late String _selectedColor;
+  String? _selectedProviderId;
+  List<ACPProvider> _providers = [];
+  bool _isLoadingProviders = true;
 
   static const List<String> _colors = [
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
@@ -46,6 +55,23 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
     _selectedColor = widget.initialColor;
     _promptTemplateController =
         TextEditingController(text: widget.initialPromptTemplate ?? '');
+    _selectedProviderId = widget.initialProviderId;
+    _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    try {
+      final data = await _projectService.getProviders();
+      if (data != null && mounted) {
+        final List<dynamic> providersJson = data['providers'] ?? [];
+        setState(() {
+          _providers = providersJson.map((p) => ACPProvider.fromJson(p)).toList();
+          _isLoadingProviders = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingProviders = false);
+    }
   }
 
   @override
@@ -107,6 +133,34 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
               }).toList(),
             ),
             const SizedBox(height: AppConstants.space24),
+            if (_isLoadingProviders)
+              const Center(child: CircularProgressIndicator())
+            else
+              DropdownButtonFormField<String>(
+                value: _selectedProviderId,
+                decoration: const InputDecoration(
+                  labelText: 'Default AI Provider',
+                  hintText: 'Select an agent for this column',
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('None (Manual selection)'),
+                  ),
+                  ..._providers.map((p) => DropdownMenuItem(
+                    value: p.id,
+                    child: Row(
+                      children: [
+                        Icon(IconUtil.getProviderIcon(p.icon), size: 18),
+                        const SizedBox(width: 8),
+                        Text(p.name),
+                      ],
+                    ),
+                  )),
+                ],
+                onChanged: (v) => setState(() => _selectedProviderId = v),
+              ),
+            const SizedBox(height: AppConstants.space24),
             TextField(
               controller: _promptTemplateController,
               decoration: const InputDecoration(
@@ -137,7 +191,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                   context, ColorEditResult(
                       name: name,
                       color: _selectedColor,
-                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate));
+                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate,
+                      acpProviderId: _selectedProviderId));
             }
           },
           child: const Text('Save'),
@@ -155,9 +210,13 @@ class _AddColumnDialog extends StatefulWidget {
 }
 
 class _AddColumnDialogState extends State<_AddColumnDialog> {
+  final _projectService = ProjectService();
   final _nameController = TextEditingController();
   final _promptTemplateController = TextEditingController();
   String _selectedColor = '#808080';
+  String? _selectedProviderId;
+  List<ACPProvider> _providers = [];
+  bool _isLoadingProviders = true;
 
   static const List<String> _colors = [
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
@@ -165,6 +224,27 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
     '#F8B500', '#00CED1', '#FF69B4', '#32CD32', '#FF4500',
     '#6B5B95', '#008080', '#808080',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    try {
+      final data = await _projectService.getProviders();
+      if (data != null && mounted) {
+        final List<dynamic> providersJson = data['providers'] ?? [];
+        setState(() {
+          _providers = providersJson.map((p) => ACPProvider.fromJson(p)).toList();
+          _isLoadingProviders = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingProviders = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -223,6 +303,33 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
               }).toList(),
             ),
             const SizedBox(height: AppConstants.space24),
+            if (_isLoadingProviders)
+              const Center(child: CircularProgressIndicator())
+            else
+              DropdownButtonFormField<String>(
+                value: _selectedProviderId,
+                decoration: const InputDecoration(
+                  labelText: 'Default AI Provider',
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('None (Manual selection)'),
+                  ),
+                  ..._providers.map((p) => DropdownMenuItem(
+                    value: p.id,
+                    child: Row(
+                      children: [
+                        Icon(IconUtil.getProviderIcon(p.icon), size: 18),
+                        const SizedBox(width: 8),
+                        Text(p.name),
+                      ],
+                    ),
+                  )),
+                ],
+                onChanged: (v) => setState(() => _selectedProviderId = v),
+              ),
+            const SizedBox(height: AppConstants.space24),
             TextField(
               controller: _promptTemplateController,
               decoration: const InputDecoration(
@@ -249,7 +356,8 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                   ColorEditResult(
                       name: name,
                       color: _selectedColor,
-                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate));
+                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate,
+                      acpProviderId: _selectedProviderId));
             }
           },
           child: const Text('Create'),
@@ -301,7 +409,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
   Future<void> _addColumn() async {
     final result = await showDialog<ColorEditResult>(
       context: context,
-      builder: (context) => _AddColumnDialog(),
+      builder: (context) => const _AddColumnDialog(),
     );
     if (result != null) {
       setState(() => _isLoading = true);
@@ -310,6 +418,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         result.name,
         color: result.color,
         promptTemplate: result.promptTemplate,
+        acpProviderId: result.acpProviderId,
       );
       _refreshColumns();
     }
@@ -322,6 +431,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         initialName: column.name,
         initialColor: column.color,
         initialPromptTemplate: column.promptTemplate,
+        initialProviderId: column.acpProviderId,
       ),
     );
     if (result != null) {
@@ -331,6 +441,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         name: result.name,
         color: result.color,
         promptTemplate: result.promptTemplate,
+        acpProviderId: result.acpProviderId,
       );
       _refreshColumns();
     }

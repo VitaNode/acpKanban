@@ -139,13 +139,14 @@ class ProjectService {
   }
 
   Future<KanbanColumn?> createColumn(String projectId, String name,
-      {String? color, String? promptTemplate}) async {
+      {String? color, String? promptTemplate, String? acpProviderId}) async {
     try {
       final response = await _post('/api/projects/$projectId/columns', {
         'name': name,
         if (color != null) 'color': color,
         if (promptTemplate != null && promptTemplate.isNotEmpty)
           'prompt_template': promptTemplate,
+        if (acpProviderId != null) 'acp_provider_id': acpProviderId,
       });
       if (response.statusCode == 201) {
         return KanbanColumn.fromJson(jsonDecode(response.body));
@@ -158,12 +159,13 @@ class ProjectService {
   }
 
   Future<bool> updateColumn(String columnId,
-      {String? name, String? color, String? promptTemplate}) async {
+      {String? name, String? color, String? promptTemplate, String? acpProviderId}) async {
     try {
       final body = <String, dynamic>{};
       if (name != null) body['name'] = name;
       if (color != null) body['color'] = color;
       if (promptTemplate != null) body['prompt_template'] = promptTemplate;
+      if (acpProviderId != null) body['acp_provider_id'] = acpProviderId;
       final response = await _put('/api/columns/$columnId', body);
       return response.statusCode == 200;
     } catch (e) {
@@ -271,6 +273,29 @@ class ProjectService {
     } catch (e) {
       debugPrint('getRelatedCards error: $e');
       return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> getCardSummary(String cardId) async {
+    try {
+      final response = await _get('/api/cards/$cardId/summary');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getCardSummary error: $e');
+      return null;
+    }
+  }
+
+  Future<bool> updateCardSummary(String cardId, String summary) async {
+    try {
+      final response = await _put('/api/cards/$cardId/summary', {'summary': summary});
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('updateCardSummary error: $e');
+      return false;
     }
   }
 

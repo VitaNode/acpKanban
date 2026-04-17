@@ -134,139 +134,58 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _addCard(KanbanColumn column) async {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
-    String selectedProviderId = _lastSelectedProviderId ?? _defaultProviderId;
-    String selectedSessionMode = 'ask'; // Default mode
-
-    // If _providers is still loading, try loading it now
-    if (_providers.isEmpty) {
-      await _loadProviders();
-    }
-
-    final showProviderSelector = _providers.length > 1;
-
-    const sessionModes = [
-      {'value': 'ask', 'name': 'Ask', 'icon': Icons.question_answer, 'desc': 'Request permission before making changes'},
-      {'value': 'code', 'name': 'Code / Yolo', 'icon': Icons.code, 'desc': 'Write and modify code freely'},
-      {'value': 'plan', 'name': 'Plan / Architect', 'icon': Icons.architecture, 'desc': 'Only plan, do not execute'},
-    ];
 
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('Add Card to ${column.name}'),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: titleController,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Title *',
-                    hintText: 'Enter card title',
-                  ),
-                  maxLines: 1,
+      builder: (context) => AlertDialog(
+        title: Text('Add Card to ${column.name}'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: titleController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Title *',
+                  hintText: 'Enter card title',
                 ),
-                const SizedBox(height: AppConstants.space16),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
-                    hintText: 'Enter card description',
-                  ),
-                  maxLines: 4,
-                  minLines: 2,
+                maxLines: 1,
+              ),
+              const SizedBox(height: AppConstants.space16),
+              TextField(
+                controller: descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'Enter card description',
                 ),
-                if (showProviderSelector) ...[
-                  const SizedBox(height: AppConstants.space16),
-                  DropdownButtonFormField<String>(
-                    value: selectedProviderId,
-                    decoration: const InputDecoration(
-                      labelText: 'AI Provider',
-                    ),
-                    items: _providers.map((p) {
-                      return DropdownMenuItem(
-                        value: p.id,
-                        child: Row(
-                          children: [
-                            Icon(
-                              IconUtil.getProviderIcon(p.icon),
-                              size: 18,
-                              color: AppConstants.primaryColor,
-                            ),
-                            const SizedBox(width: AppConstants.space8),
-                            Text(p.name),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) setDialogState(() => selectedProviderId = value);
-                    },
-                  ),
-                ],
-                const SizedBox(height: AppConstants.space16),
-                Text('SESSION MODE', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: AppConstants.space8),
-                ...sessionModes.map((mode) {
-                  final isSelected = selectedSessionMode == mode['value'];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: AppConstants.space8),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppConstants.space8),
-                      border: Border.all(
-                        color: isSelected ? AppConstants.primaryColor : Colors.grey.shade200,
-                        width: isSelected ? 2 : 1,
-                      ),
-                      color: isSelected ? AppConstants.primaryColor.withOpacity(0.05) : null,
-                    ),
-                    child: ListTile(
-                      dense: true,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space8)),
-                      leading: Icon(mode['icon'] as IconData,
-                          color: isSelected ? AppConstants.primaryColor : Colors.grey, size: 20),
-                      title: Text(mode['name'] as String,
-                          style: TextStyle(
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? AppConstants.primaryColor : null,
-                          )),
-                      subtitle: Text(mode['desc'] as String,
-                          style: const TextStyle(fontSize: 11)),
-                      trailing: isSelected
-                          ? const Icon(Icons.check_circle, color: AppConstants.primaryColor, size: 20)
-                          : null,
-                      onTap: () => setDialogState(() => selectedSessionMode = mode['value'] as String),
-                    ),
-                  );
-                }),
-              ],
-            ),
+                maxLines: 4,
+                minLines: 2,
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel')),
-            ElevatedButton(
-                onPressed: () {
-                  if (titleController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Title is required')),
-                    );
-                    return;
-                  }
-                  Navigator.pop(context, {
-                    'title': titleController.text.trim(),
-                    'description': descriptionController.text.trim(),
-                    'provider_id': selectedProviderId,
-                    'session_mode': selectedSessionMode,
-                  });
-                },
-                child: const Text('Add')),
-          ],
         ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () {
+                if (titleController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Title is required')),
+                  );
+                  return;
+                }
+                Navigator.pop(context, {
+                  'title': titleController.text.trim(),
+                  'description': descriptionController.text.trim(),
+                });
+              },
+              child: const Text('Add')),
+        ],
       ),
     );
 
@@ -275,15 +194,9 @@ class _MainScreenState extends State<MainScreen> {
         column.id,
         result['title']!,
         description: result['description'],
-        acpProviderId: result['provider_id'],
       );
       if (card != null && _currentProject != null) {
-        final configManager = await ConnectionConfigManager.getInstance();
-        configManager.setLastProvider(result['provider_id']!);
         if (mounted) {
-          setState(() {
-            _lastSelectedProviderId = result['provider_id'];
-          });
           await _loadProjectData(_currentProject!.id);
         }
       }

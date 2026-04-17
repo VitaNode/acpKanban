@@ -232,6 +232,12 @@ class SessionWebSocketService {
     }
   }
 
+  Future<void> sendInit() async {
+    if (_channel != null && _isConnected) {
+      _channel!.sink.add(jsonEncode({'type': 'session_init'}));
+    }
+  }
+
   Future<void> setConfigOption(String configId, String value) async {
     if (_channel != null && _isConnected)
       _channel!.sink.add(jsonEncode(

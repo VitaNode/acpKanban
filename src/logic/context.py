@@ -69,8 +69,12 @@ class ContextBuilder:
         if card.get("description"):
             sections.append(f"Card Description:\n{card['description']}")
         
-        if card.get("last_summary"):
-            sections.append(f"Status of previous stage:\n{card['last_summary']}")
+        # Phase 5.3: Fetch editable summary from the summaries table
+        summary_obj = self.db.get_summary(card_id)
+        if summary_obj and summary_obj.get("summary"):
+            sections.append(f"## Progress Summary (Current State)\n{summary_obj['summary']}")
+        elif card.get("last_summary"):
+            sections.append(f"## Progress Summary (Current State)\n{card['last_summary']}")
 
         # --- Recommended Files (Dynamic based on Card Intent) ---
         recommended = await self._get_recommended_files(card, project_id)

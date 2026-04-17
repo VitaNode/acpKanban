@@ -5,6 +5,7 @@ class KanbanColumn {
   final String color;
   final int position;
   final String? promptTemplate;
+  final String? acpProviderId;
   final String? approvalMode;
 
   KanbanColumn({
@@ -14,6 +15,7 @@ class KanbanColumn {
     this.color = '#FFFFFF',
     required this.position,
     this.promptTemplate,
+    this.acpProviderId,
     this.approvalMode,
   });
 
@@ -25,6 +27,7 @@ class KanbanColumn {
       color: json['color'] ?? '#FFFFFF',
       position: json['position'] ?? 0,
       promptTemplate: json['prompt_template'],
+      acpProviderId: json['acp_provider_id'],
       approvalMode: json['approval_mode'],
     );
   }
@@ -37,6 +40,7 @@ class KanbanColumn {
       'color': color,
       'position': position,
       'prompt_template': promptTemplate,
+      'acp_provider_id': acpProviderId,
       'approval_mode': approvalMode,
     };
   }

@@ -37,8 +37,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   AgentPlan? _currentPlan;
   List<ConfigOption> _configOptions = [];
   List<Map<String, dynamic>> _availableCommands = [];
-  List<KanbanCard> _relatedCards = [];
+  
+  String? _summary;
+  late TextEditingController _summaryController;
+  bool _isEditingSummary = false;
+  bool _isSavingSummary = false;
 
+  bool _isInitializing = false;
+  bool _isAgentConnected = false;
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
   OverlayEntry? _commandOverlay;
@@ -48,6 +54,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   StreamSubscription? _configSub;
   StreamSubscription? _commandSub;
   StreamSubscription? _cardSub;
+  StreamSubscription? _requestSub;
   Timer? _debounceTimer;
 
   @override
@@ -56,16 +63,26 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _card = widget.card;
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
+    _summaryController = TextEditingController();
     _setupWebSocket();
-    _loadRelatedCards();
+    _loadSummary();
     _chatController.addListener(_onChatChanged);
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
   }
 
-  Future<void> _loadRelatedCards() async {
-    final cards = await _projectService.getRelatedCards(_card.id);
-    if (mounted) setState(() => _relatedCards = cards);
+  Future<void> _loadSummary() async {
+    try {
+      final summaryObj = await _projectService.getCardSummary(_card.id);
+      if (mounted) {
+        setState(() {
+          _summary = summaryObj?['summary'];
+          _summaryController.text = _summary ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint('Load summary error: $e');
+    }
   }
 
   void _setupWebSocket() {
@@ -79,7 +96,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           _isAgentProcessing = msgs.isNotEmpty &&
               msgs.last.role == 'assistant' &&
               !msgs.last.isComplete &&
-              msgs.last.id.startsWith('streaming-');
+              (msgs.last.id.startsWith('streaming-') || msgs.last.id.startsWith('thought-'));
         });
       _scrollToBottom();
     });
@@ -87,33 +104,43 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (mounted) setState(() => _currentPlan = p);
     });
 
-    // 如果卡片有 sessionMode，则在收到 configOptions 后设置
-    bool _modeApplied = _card.sessionMode == null;
     _configSub = _wsService.configOptions.listen((options) {
       if (mounted) {
-        setState(() => _configOptions = options);
-        // 应用 session mode
-        if (!_modeApplied && _card.sessionMode != null && options.isNotEmpty) {
-          final modeOption = options.firstWhere(
-            (o) => o.category == 'mode',
-            orElse: () => options.first,
-          );
-          if (modeOption.options.any((o) => o.value == _card.sessionMode)) {
-            _wsService.setConfigOption(modeOption.id, _card.sessionMode!);
-            _modeApplied = true;
-          }
-        }
+        setState(() {
+          _configOptions = options;
+          if (options.isNotEmpty) _isAgentConnected = true;
+        });
       }
     });
+
     _commandSub = _wsService.availableCommands.listen((c) {
       if (mounted) setState(() => _availableCommands = c);
     });
     _cardSub = _wsService.cardUpdates.listen(_onCardUpdate);
-    _wsService.requests.listen((req) {
+    
+    _requestSub = _wsService.requests.listen((req) {
       if (req['method'] == 'session/request_permission') {
         _showPermissionDialog(req['params'], req['id']);
+      } else if (req['type'] == 'session_info') {
+        if (mounted) {
+          setState(() {
+            _isInitializing = false;
+            _isAgentConnected = true;
+            _configOptions = (req['config_options'] as List?)
+                ?.map((x) => ConfigOption.fromJson(x))
+                .toList() ?? [];
+          });
+        }
       }
     });
+  }
+
+  Future<void> _initializeAgent() async {
+    if (_isInitializing) return;
+    setState(() => _isInitializing = true);
+    // Send session_init command via WebSocket
+    // We need to add this method to SessionWebSocketService or use raw sink
+    _wsService.sendInit();
   }
 
   void _onCardUpdate(KanbanCard updatedCard) {
@@ -337,7 +364,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           title: Text(_card.shortId,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
           actions: [
-            if (_isSavingCard)
+            if (_isSavingCard || _isSavingSummary)
               const Center(
                   child: Padding(
                       padding: EdgeInsets.all(AppConstants.space16),
@@ -352,7 +379,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
             ),
           ]),
       body: Column(children: [
-        ConfigOptionsBar(options: _configOptions),
+        if (_isAgentConnected) ConfigOptionsBar(options: _configOptions),
         Expanded(
             child: ListView(
                 controller: _scrollController,
@@ -364,7 +391,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
                   child: PlanPanel(plan: _currentPlan!),
                 ),
-              if (_relatedCards.isNotEmpty) _buildRelatedCards(),
+              _buildSummarySection(),
               const Padding(
                   padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
                   child: Divider()),
@@ -375,13 +402,55 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                         child: Text('Start a conversation...',
                             style: TextStyle(color: AppConstants.textHint))))
               else
-                ..._messages.map(
-                    (m) => MessageBubble(message: m, providerName: 'AI Agent')),
+                ..._buildMessageList(),
               if (_isAgentProcessing) _buildProcessingIndicator(),
               const SizedBox(height: AppConstants.space24),
             ])),
         _buildInputArea(),
       ]),
+    );
+  }
+
+  List<Widget> _buildMessageList() {
+    final List<Widget> list = [];
+    List<CardMessage> currentBlock = [];
+    
+    for (var m in _messages) {
+      if (m.metadata?['is_milestone'] == 1 || m.metadata?['is_milestone'] == true) {
+        if (currentBlock.isNotEmpty) {
+          list.add(_buildFoldedHistory(currentBlock));
+          currentBlock = [];
+        }
+        list.add(MessageBubble(message: m, providerName: 'System'));
+      } else {
+        currentBlock.add(m);
+      }
+    }
+    
+    for (var m in currentBlock) {
+      list.add(MessageBubble(message: m, providerName: 'AI Agent'));
+    }
+    
+    return list;
+  }
+
+  Widget _buildFoldedHistory(List<CardMessage> messages) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(AppConstants.space12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          title: Text('Previous Stage (${messages.length} messages)', 
+              style: const TextStyle(fontSize: 12, color: AppConstants.textSecondary, fontWeight: FontWeight.w500)),
+          leading: const Icon(Icons.history_rounded, size: 18, color: AppConstants.textSecondary),
+          children: messages.map((m) => MessageBubble(message: m, providerName: 'AI Agent')).toList(),
+        ),
+      ),
     );
   }
 
@@ -418,77 +487,64 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ]));
   }
 
-  Widget _buildRelatedCards() {
+  Widget _buildSummarySection() {
     return Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.link_rounded, size: 16, color: AppConstants.textSecondary),
+            const Icon(Icons.summarize_rounded, size: 16, color: AppConstants.textSecondary),
             const SizedBox(width: AppConstants.space8),
-            Text('RELATED CARDS (${_relatedCards.length})',
+            Text('PROGRESS SUMMARY',
                 style: Theme.of(context).textTheme.labelLarge),
+            const Spacer(),
+            if (!_isEditingSummary)
+              TextButton.icon(
+                onPressed: () => setState(() => _isEditingSummary = true),
+                icon: const Icon(Icons.edit_rounded, size: 14),
+                label: const Text('Edit', style: TextStyle(fontSize: 12)),
+              )
+            else
+              Row(children: [
+                TextButton(
+                  onPressed: () => setState(() {
+                    _isEditingSummary = false;
+                    _summaryController.text = _summary ?? '';
+                  }),
+                  child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                ),
+                TextButton(
+                  onPressed: _saveSummary,
+                  child: const Text('Save', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ]),
           ]),
           const SizedBox(height: AppConstants.space8),
-          ..._relatedCards.map((c) => _buildRelatedCardItem(c)),
-        ]));
-  }
-
-  Widget _buildRelatedCardItem(KanbanCard card) {
-    final statusColor = card.status == 'completed'
-        ? AppConstants.successColor
-        : card.status == 'active'
-            ? AppConstants.primaryColor
-            : Colors.grey;
-    return Container(
-        margin: const EdgeInsets.only(bottom: AppConstants.space8),
-        decoration: BoxDecoration(
-            color: AppConstants.surfaceColor,
-            borderRadius: BorderRadius.circular(AppConstants.space12),
-            border: Border.all(color: Colors.grey.shade200)),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () {
-              Navigator.pushReplacement(
-                context, 
-                MaterialPageRoute(builder: (context) => CardDetailScreen(card: card, projectId: widget.projectId))
-              );
-            },
-            borderRadius: BorderRadius.circular(AppConstants.space12),
-            child: Padding(
+          if (_isEditingSummary)
+            TextField(
+              controller: _summaryController,
+              maxLines: null,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'Add a summary of the current progress...',
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppConstants.space8), borderSide: BorderSide.none),
+              ),
+            )
+          else
+            Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(AppConstants.space12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                          color: statusColor, shape: BoxShape.circle)),
-                  const SizedBox(width: AppConstants.space8),
-                  Expanded(
-                      child: Text(card.title,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold))),
-                  if (card.columnName != null)
-                    Container(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: 2),
-                        decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(AppConstants.space8)),
-                        child: Text(card.columnName!,
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600))),
-                ]),
-                if (card.summary != null) ...[
-                  const SizedBox(height: AppConstants.space4),
-                  Text(card.summary!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ]),
+              decoration: BoxDecoration(
+                  color: AppConstants.surfaceColor,
+                  borderRadius: BorderRadius.circular(AppConstants.space12),
+                  border: Border.all(color: Colors.grey.shade200)),
+              child: Text(
+                (_summary == null || _summary!.isEmpty) ? 'No summary available yet.' : _summary!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
+              ),
             ),
-          ),
-        ));
+        ]));
   }
 
   Widget _buildProcessingIndicator() {
@@ -519,39 +575,70 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
             ],
             border: Border(top: BorderSide(color: Colors.grey.shade200))),
         child: SafeArea(
-            child: Row(children: [
-          Expanded(
-              child: TextField(
-                  controller: _chatController,
-                  focusNode: _chatFocusNode,
-                  decoration: InputDecoration(
-                      hintText: 'Ask or type / command...',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppConstants.space24),
-                          borderSide: BorderSide.none),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppConstants.space24),
-                          borderSide: BorderSide.none),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(AppConstants.space24),
-                          borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: AppConstants.space16, vertical: AppConstants.space8)),
-                  onSubmitted: (_) => _handleSend())),
-          const SizedBox(width: AppConstants.space8),
-          Material(
-            color: AppConstants.primaryColor,
-            borderRadius: BorderRadius.circular(AppConstants.space24),
-            child: InkWell(
-              onTap: _handleSend,
-              borderRadius: BorderRadius.circular(AppConstants.space24),
-              child: const Padding(
-                padding: EdgeInsets.all(AppConstants.space8),
-                child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 24),
+            child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!_isAgentConnected)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 16, color: AppConstants.textSecondary),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Agent is not connected.', style: TextStyle(fontSize: 12, color: AppConstants.textSecondary)),
+                    ),
+                    if (_isInitializing)
+                      const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    else
+                      TextButton(
+                        onPressed: _initializeAgent,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('INITIALIZE'),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ])));
+            Row(children: [
+              Expanded(
+                  child: TextField(
+                      controller: _chatController,
+                      focusNode: _chatFocusNode,
+                      enabled: _isAgentConnected,
+                      decoration: InputDecoration(
+                          hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppConstants.space24),
+                              borderSide: BorderSide.none),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppConstants.space24),
+                              borderSide: BorderSide.none),
+                          focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppConstants.space24),
+                              borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: AppConstants.space16, vertical: AppConstants.space8)),
+                      onSubmitted: (_) => _handleSend())),
+              const SizedBox(width: AppConstants.space8),
+              Material(
+                color: _isAgentConnected ? AppConstants.primaryColor : Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(AppConstants.space24),
+                child: InkWell(
+                  onTap: _isAgentConnected ? _handleSend : null,
+                  borderRadius: BorderRadius.circular(AppConstants.space24),
+                  child: const Padding(
+                    padding: EdgeInsets.all(AppConstants.space8),
+                    child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 24),
+                  ),
+                ),
+              ),
+            ]),
+          ],
+        )));
   }
 }
 
