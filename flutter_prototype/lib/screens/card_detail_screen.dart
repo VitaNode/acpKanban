@@ -559,8 +559,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   borderRadius: BorderRadius.circular(AppConstants.space12),
                   border: Border.all(color: Colors.grey.shade200)),
               child: Text(
-                (_summary == null || _summary!.isEmpty) ? 'No summary available yet.' : _summary!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
+                (_summary == null || _summary!.isEmpty) 
+                  ? 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks. You can also manually edit this area to provide context for the next stage.' 
+                  : _summary!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  height: 1.4,
+                  color: (_summary == null || _summary!.isEmpty) ? AppConstants.textHint : null,
+                  fontStyle: (_summary == null || _summary!.isEmpty) ? FontStyle.italic : null,
+                ),
               ),
             ),
         ]));

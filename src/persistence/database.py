@@ -544,8 +544,13 @@ class KanbanDB:
                 ("summaries", "embedding"), 
                 ("card_sessions", "is_milestone")
             ]:
-                try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-                except: 
+                try: 
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+                except Exception as e: 
+                    # Column already exists is expected on repeated runs
+                    if "duplicate column name" not in str(e).lower():
+                        print(f"[DB Migration] Note: Could not add {table}.{col}: {e}")
+                    
                     if col == "is_milestone":
                         try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0")
                         except: pass
