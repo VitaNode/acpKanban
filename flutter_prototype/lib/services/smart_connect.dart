@@ -111,20 +111,29 @@ class SmartConnect {
 
     final MDnsClient client = MDnsClient();
     try {
-      await client.start();
+      // Phase 5.3 FIX: On iOS, start() can throw SocketException if permission is denied
+      await client.start().catchError((e) {
+        print('[SmartConnect] mDNS client start failed: $e');
+        return;
+      });
+      
       final String? ip = await (() async {
-        await for (final PtrResourceRecord ptr
-            in client.lookup<PtrResourceRecord>(
-                ResourceRecordQuery.serverPointer(_serviceType))) {
-          await for (final SrvResourceRecord srv
-              in client.lookup<SrvResourceRecord>(
-                  ResourceRecordQuery.service(ptr.domainName))) {
-            await for (final IPAddressResourceRecord ipRecord
-                in client.lookup<IPAddressResourceRecord>(
-                    ResourceRecordQuery.addressIPv4(srv.target))) {
-              return ipRecord.address.address;
+        try {
+          await for (final PtrResourceRecord ptr
+              in client.lookup<PtrResourceRecord>(
+                  ResourceRecordQuery.serverPointer(_serviceType))) {
+            await for (final SrvResourceRecord srv
+                in client.lookup<SrvResourceRecord>(
+                    ResourceRecordQuery.service(ptr.domainName))) {
+              await for (final IPAddressResourceRecord ipRecord
+                  in client.lookup<IPAddressResourceRecord>(
+                      ResourceRecordQuery.addressIPv4(srv.target))) {
+                return ipRecord.address.address;
+              }
             }
           }
+        } catch (lookupError) {
+          print('[SmartConnect] mDNS lookup error: $lookupError');
         }
         return null;
       })()
@@ -132,9 +141,12 @@ class SmartConnect {
 
       return ip;
     } catch (e) {
+      print('[SmartConnect] discoverLocalMac outer catch: $e');
       return null;
     } finally {
-      client.stop();
+      try {
+        client.stop();
+      } catch (_) {}
     }
   }
 
