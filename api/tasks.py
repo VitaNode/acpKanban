@@ -21,25 +21,26 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
     for attempt in range(max_retries):
         try:
             # 1. Get card details
-            card = await asyncio.to_thread(db.get_card, card_id)
+            card = await asyncio.to_thread(db.cards.get_by_id, card_id)
             if not card:
                 logger.error(f"Card {card_id} not found for summary task")
                 return
                 
             # 2. Get session history
-            messages = await asyncio.to_thread(db.get_session_history, card_id, limit=100)
+            messages = await asyncio.to_thread(db.sessions.get_history, card_id, limit=100)
             if not messages:
                 logger.info(f"No messages for card {card_id}, skipping summary")
                 return
                 
             # 3. Check if summary already exists
-            summary_obj = await asyncio.to_thread(db.get_summary, card_id)
+            summary_obj = await asyncio.to_thread(db.summaries.get_by_card_id, card_id)
             if summary_obj:
                 summary = summary_obj['summary']
                 logger.info(f"Summary already exists for card {card_id}")
                 
-                # Ensure card table also has it
-                await asyncio.to_thread(db.update_card_summary, card_id, summary)
+                # Ensure card table also has it (if we still use that field)
+                # Note: db.summaries.update_card_summary currently calls upsert internally
+                await asyncio.to_thread(db.summaries.update_card_summary, card_id, summary)
                 break # Move to embedding phase
             
             # 4. Generate summary using LLM
@@ -55,9 +56,7 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 raise Exception("LLM returned empty summary")
             
             # 5. Save summary to database
-            await asyncio.to_thread(db.save_summary, card_id, summary)
-            # HIGH-4: Also update the card table's fast-access summary field
-            await asyncio.to_thread(db.update_card_summary, card_id, summary)
+            await asyncio.to_thread(db.summaries.upsert, card_id, summary)
             
             logger.info(f"Summary generated and saved for card {card_id}")
             break # Success, move to embedding phase
@@ -78,7 +77,7 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 logger.info(f"Generating embedding for card {card_id} (Attempt {emb_attempt+1})")
                 emb = await asyncio.to_thread(embedding_service.get_embedding, summary)
                 if emb:
-                    await asyncio.to_thread(db.upsert_card_embedding, card_id, emb)
+                    await asyncio.to_thread(db.cards.upsert_card_embedding, card_id, emb)
                     logger.info(f"Embedding generated and saved for card {card_id}")
                     return # Success
                 else:
