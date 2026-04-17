@@ -96,6 +96,12 @@ class _MainScreenState extends State<MainScreen> {
         _userId ?? 'test_user',
       );
       await _acpClient.smartConnect(acpConfig);
+      
+      // Phase 5.3 FIX: Synchronize ProjectService with the discovered IP
+      if (_acpClient.activeUrl != null) {
+        _projectService.updateBaseUrl(_acpClient.activeUrl!);
+      }
+      
       await _acpClient.initialize(acpConfig.systemConfig);
 
       // Load projects and providers in parallel to avoid blocking UI

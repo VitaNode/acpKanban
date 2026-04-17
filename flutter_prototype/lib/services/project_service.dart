@@ -6,7 +6,20 @@ import '../models/kanban_card.dart';
 import '../models/timeline_event.dart';
 
 class ProjectService {
-  static const String _baseUrl = 'http://localhost:8000';
+  String _baseUrl = 'http://localhost:8000';
+
+  void updateBaseUrl(String newUrl) {
+    if (newUrl.startsWith('ws')) {
+      _baseUrl = newUrl.replaceFirst('ws', 'http');
+    } else {
+      _baseUrl = newUrl;
+    }
+    // Ensure we are using the API port (8000) not the Bridge port (8766) if only IP is provided
+    if (_baseUrl.contains(':8766')) {
+      _baseUrl = _baseUrl.replaceFirst(':8766', ':8000');
+    }
+    print('[ProjectService] Base URL updated to: $_baseUrl');
+  }
 
   Future<List<Project>> getProjects() async {
     try {

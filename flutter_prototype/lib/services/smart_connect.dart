@@ -111,33 +111,36 @@ class SmartConnect {
 
     final MDnsClient client = MDnsClient();
     try {
-      await client.start().catchError((e) {
+      // Phase 5.3 FIX: Even client.start() can throw if OS restricts UDP 5353
+      try {
+        await client.start();
+      } catch (e) {
         print('[SmartConnect] mDNS client start failed: $e');
-      });
+        return null;
+      }
       
       final String? ip = await (() async {
         try {
-          // Phase 5.3 FIX: Use .handleError to catch SocketExceptions thrown during stream iteration
+          // Wrap the entire lookup in a secondary try-catch to be absolutely safe
           final lookupStream = client.lookup<PtrResourceRecord>(
-              ResourceRecordQuery.serverPointer(_serviceType))
-              .handleError((e) {
-                print('[SmartConnect] mDNS lookup stream error: $e');
-              });
+              ResourceRecordQuery.serverPointer(_serviceType));
 
-          await for (final PtrResourceRecord ptr in lookupStream) {
-            final srvStream = client.lookup<SrvResourceRecord>(
-                ResourceRecordQuery.service(ptr.domainName))
-                .handleError((e) => print('[SmartConnect] SRV lookup error: $e'));
+          await for (final PtrResourceRecord ptr in lookupStream.handleError((e) => print('mDNS Stream Error: $e'))) {
+            try {
+              final srvStream = client.lookup<SrvResourceRecord>(
+                  ResourceRecordQuery.service(ptr.domainName));
 
-            await for (final SrvResourceRecord srv in srvStream) {
-              final ipStream = client.lookup<IPAddressResourceRecord>(
-                  ResourceRecordQuery.addressIPv4(srv.target))
-                  .handleError((e) => print('[SmartConnect] IP lookup error: $e'));
+              await for (final SrvResourceRecord srv in srvStream.handleError((e) => print('SRV Stream Error: $e'))) {
+                try {
+                  final ipStream = client.lookup<IPAddressResourceRecord>(
+                      ResourceRecordQuery.addressIPv4(srv.target));
 
-              await for (final IPAddressResourceRecord ipRecord in ipStream) {
-                return ipRecord.address.address;
+                  await for (final IPAddressResourceRecord ipRecord in ipStream.handleError((e) => print('IP Stream Error: $e'))) {
+                    return ipRecord.address.address;
+                  }
+                } catch (ipE) { print('IP Outer Error: $ipE'); }
               }
-            }
+            } catch (srvE) { print('SRV Outer Error: $srvE'); }
           }
         } catch (lookupError) {
           print('[SmartConnect] mDNS lookup outer error: $lookupError');
