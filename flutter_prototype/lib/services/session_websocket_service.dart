@@ -22,6 +22,8 @@ class SessionWebSocketService {
       StreamController<List<Map<String, dynamic>>>.broadcast();
   final _requestController = StreamController<Map<String, dynamic>>.broadcast();
   final _cardUpdateController = StreamController<KanbanCard>.broadcast();
+  final _errorController = StreamController<String>.broadcast();
+  final _initializingController = StreamController<bool>.broadcast();
 
   String? _currentCardId;
   bool _isConnected = false;
@@ -40,6 +42,8 @@ class SessionWebSocketService {
       _commandController.stream;
   Stream<Map<String, dynamic>> get requests => _requestController.stream;
   Stream<KanbanCard> get cardUpdates => _cardUpdateController.stream;
+  Stream<String> get errors => _errorController.stream;
+  Stream<bool> get isInitializing => _initializingController.stream;
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
@@ -60,6 +64,7 @@ class SessionWebSocketService {
     _planController.add(null);
     _configController.add([]);
     _commandController.add([]);
+    _initializingController.add(true);
     _reconnectCount = 0;
     try {
       final uri = Uri.parse(
@@ -125,7 +130,9 @@ class SessionWebSocketService {
       } else if (data is Map<String, dynamic>) {
         m = data;
       } else {
-        print('WS: Unexpected message type: ${data.runtimeType}');
+        final errorMsg = 'WS: Unexpected message type: ${data.runtimeType}';
+        print(errorMsg);
+        _errorController.add(errorMsg);
         return;
       }
       if (m['method'] != null && m['id'] != null) {
@@ -226,14 +233,30 @@ class SessionWebSocketService {
             ));
           }
           break;
+        case 'session_info':
+          _initializingController.add(false);
+          if (m['config_options'] != null) {
+            _configController.add((m['config_options'] as List?)
+                    ?.map((x) => ConfigOption.fromJson(x))
+                    .toList() ??
+                []);
+          }
+          break;
+        case 'error':
+          _initializingController.add(false);
+          _errorController.add(m['message'] ?? 'Unknown agent error');
+          break;
       }
     } catch (e) {
+      _initializingController.add(false);
       print('WS Parse Error: $e');
+      _errorController.add('Failed to process message: $e');
     }
   }
 
   Future<void> sendInit() async {
     if (_channel != null && _isConnected) {
+      _initializingController.add(true);
       _channel!.sink.add(jsonEncode({'type': 'session_init'}));
     }
   }

@@ -56,6 +56,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   StreamSubscription? _commandSub;
   StreamSubscription? _cardSub;
   StreamSubscription? _requestSub;
+  StreamSubscription? _errorSub;
+  StreamSubscription? _initializingSub;
   Timer? _debounceTimer;
 
   @override
@@ -134,6 +136,22 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     });
     _cardSub = _wsService.cardUpdates.listen(_onCardUpdate);
     
+    _errorSub = _wsService.errors.listen((error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error),
+            backgroundColor: AppConstants.errorColor,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
+    _initializingSub = _wsService.isInitializing.listen((init) {
+      if (mounted) setState(() => _isInitializing = init);
+    });
+
     _requestSub = _wsService.requests.listen((req) {
       if (req['method'] == 'session/request_permission') {
         _showPermissionDialog(req['params'], req['id']);
@@ -362,9 +380,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _configSub?.cancel();
     _commandSub?.cancel();
     _cardSub?.cancel();
+    _requestSub?.cancel();
+    _errorSub?.cancel();
+    _initializingSub?.cancel();
     _debounceTimer?.cancel();
     _titleController.dispose();
     _descriptionController.dispose();
+    _summaryController.dispose();
     _chatController.dispose();
     _scrollController.dispose();
     _chatFocusNode.dispose();
