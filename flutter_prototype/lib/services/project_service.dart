@@ -6,6 +6,10 @@ import '../models/kanban_card.dart';
 import '../models/timeline_event.dart';
 
 class ProjectService {
+  static final ProjectService _instance = ProjectService._internal();
+  factory ProjectService() => _instance;
+  ProjectService._internal();
+
   String _baseUrl = 'http://localhost:8000';
 
   void updateBaseUrl(String newUrl) {
