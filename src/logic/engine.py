@@ -260,10 +260,19 @@ class SessionEngine:
             if self.state != SessionState.ERROR: self.state = SessionState.IDLE
 
 class SummaryService:
+    _locks = {} # Phase 5.3 FIX: Class-level locks to prevent concurrent tasks per card
+
     def __init__(self, db: KanbanDB): self.db = db
+    
     async def generate_and_save_summary(self, card_id: str):
-        from api.tasks import generate_card_summary_task
-        await generate_card_summary_task(card_id)
+        # Ensure only one summary task runs per card at a time
+        if card_id not in self._locks:
+            self._locks[card_id] = asyncio.Lock()
+            
+        async with self._locks[card_id]:
+            from api.tasks import generate_card_summary_task
+            await generate_card_summary_task(card_id)
+            
     async def summarize_move(self, card_id: str, from_col: str, to_col: str):
         await self.generate_and_save_summary(card_id)
         obj = await asyncio.to_thread(self.db.summaries.get_by_card_id, card_id)
