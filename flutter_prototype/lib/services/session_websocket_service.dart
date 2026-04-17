@@ -64,7 +64,6 @@ class SessionWebSocketService {
     _planController.add(null);
     _configController.add([]);
     _commandController.add([]);
-    _initializingController.add(true);
     _reconnectCount = 0;
     try {
       final uri = Uri.parse(
