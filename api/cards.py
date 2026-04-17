@@ -50,17 +50,19 @@ async def create_card(request: CardCreateRequest):
     """
     db = get_db()
 
-    validate_column_exists(request.column_id, db)
+    target_column = validate_column_exists(request.column_id, db)
 
     try:
+        # Phase 5.3 FIX: Respect column's provider setting
+        # Use request provider if explicitly provided, otherwise use column's provider
         provider_id = request.acp_provider_id
-        if not provider_id:
-            config = _load_config()
-            provider_id = config.get("default_provider", "gemini")
+        if provider_id is None:
+            provider_id = target_column.get("acp_provider_id")
 
-        providers = {p["id"]: p for p in _load_config().get("providers", [])}
-        if provider_id not in providers:
-            raise HTTPError(400, f"Unknown provider: {provider_id}")
+        if provider_id:
+            providers = {p["id"]: p for p in _load_config().get("providers", [])}
+            if provider_id not in providers:
+                raise HTTPError(400, f"Unknown provider: {provider_id}")
 
         card_id = db.create_card(
             column_id=request.column_id,
@@ -146,6 +148,10 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
             target_column_id=request.target_column_id,
             target_position=request.target_position,
         )
+
+        # Phase 5.3 FIX: Update card provider to match target column
+        target_provider_id = target_column.get("acp_provider_id")
+        db.update_card_provider(card_id, target_provider_id)
 
         # Phase 3: Trigger summary generation in background
         summary_service = SummaryService(db)
