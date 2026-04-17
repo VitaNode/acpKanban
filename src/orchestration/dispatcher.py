@@ -190,7 +190,7 @@ class MessageDispatcher:
         
         return {"error": {"code": -32601, "message": f"Method {method} not handled"}}
 
-    async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None, on_output: Optional[Callable] = None) -> (SessionEngine, bool):
+    async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None, on_output: Optional[Callable] = None, is_quiet: bool = False) -> (SessionEngine, bool):
         if card_id in self.engines and self.engines[card_id].is_alive:
             engine = self.engines[card_id]
             # Phase 6: Always update callback to current WebSocket context
@@ -212,7 +212,7 @@ class MessageDispatcher:
             if project and project.get("workspace_path"): workspace_path = project["workspace_path"]
             engine = SessionEngine(card_id, provider_id, workspace_path, card["column_id"], db=self.db)
             engine.acp_session_id = card.get("acp_session_id")
-            await engine.start(on_request=on_nested_request)
+            await engine.start(on_request=on_nested_request, is_quiet=is_quiet)
             self.engines[card_id] = engine
             if engine.acp_session_id and on_output:
                 await self._advertise_commands(engine.acp_session_id, on_output)
@@ -289,7 +289,7 @@ class MessageDispatcher:
                 await self._forward_notification(card_id, n, on_output)
 
             await engine.process_prompt(method, params, on_notification=forward_notif)
-            if engine.acp_session_id != params.get("acp_session_id"): await asyncio.to_thread(self.db.cards.update_card_session_id, card_id, engine.acp_session_id)
+            if engine.acp_session_id != params.get("acp_session_id"): await asyncio.to_thread(self.db.update_card_session_id, card_id, engine.acp_session_id)
             # Mark assistant response as complete so Flutter stops showing "AI is thinking..."
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
             bus.publish(card_id, {"type": "refresh"})
@@ -352,6 +352,20 @@ class MessageDispatcher:
             tcid = update.get("toolCallId")
             status = update.get("status", "pending")
             title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
+            
+            # Phase 5.3: Integrate tool call into thought trace for end-to-end transparency
+            trace_msg = ""
+            if status == "pending":
+                trace_msg = f"\n\n🛠️ **Calling tool:** `{title}`\n"
+            elif status == "completed":
+                trace_msg = f"\n✅ **Tool call finished:** `{title}`\n"
+            elif status == "failed":
+                trace_msg = f"\n❌ **Tool call failed:** `{title}`\n"
+                
+            if trace_msg:
+                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
+                bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
+
             if status == "pending":
                 await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"})
             else:
@@ -368,6 +382,13 @@ class MessageDispatcher:
             if content and isinstance(content, list):
                 output_text = "\n".join([c.get("content", {}).get("text", "") for c in content if c.get("type") == "content" and "text" in c.get("content", {})])
             
+            # Phase 5.3: Integrate summary of tool result into thought trace
+            if output_text and status in ["completed", "failed"]:
+                preview = output_text[:200] + ("..." if len(output_text) > 200 else "")
+                trace_msg = f"\n> **Output:** {preview}\n"
+                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
+                bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
+
             is_complete = status in ["completed", "failed"]
             await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, output_text, is_complete)
             bus.publish(card_id, {"type": "refresh"})
@@ -400,7 +421,7 @@ class MessageDispatcher:
     async def _handle_reset_cmd(self, p, rid):
         cid = p.get("card_id")
         if cid in self.engines: await self.engines[cid].stop(); del self.engines[cid]
-        await asyncio.to_thread(self.db.cards.update_card_session_id, cid, None)
+        await asyncio.to_thread(self.db.update_card_session_id, cid, None)
         return {"message": "Reset complete."}
     async def _handle_help_cmd(self, p, rid):
         return {"message": "Available:\n" + "\n".join([f"- `/{c['name']}`: {c['description']}" for c in self._get_available_commands()])}
