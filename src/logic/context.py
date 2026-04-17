@@ -85,10 +85,49 @@ class ContextBuilder:
         if column_prompt:
             sections.append(f"## Current Workflow Stage Instructions\n{column_prompt}")
 
+        # --- Level 3: Focus Context (Recent History) ---
+        # Phase 5.3: Include only the conversation history since the last milestone
+        history = self._get_truncated_history(card_id)
+        if history:
+            sections.append(f"## Recent Conversation History (Since last environment change)\n{history}")
+
         full_context = "\n\n".join(sections)
         log_context_stats(logger, "Initial", full_context)
         
         return full_context
+
+    def _get_truncated_history(self, card_id: str) -> Optional[str]:
+        """
+        Retrieves conversation history truncated at the most recent milestone.
+        Ensures the agent doesn't get overwhelmed by irrelevant previous context.
+        """
+        with self.db.get_connection() as conn:
+            # 1. Find the ID of the most recent milestone
+            cursor = conn.execute(
+                "SELECT id FROM card_sessions WHERE card_id = ? AND is_milestone = 1 ORDER BY created_at DESC LIMIT 1",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            milestone_id = row['id'] if row else 0
+            
+            # 2. Get all messages after that milestone
+            cursor = conn.execute(
+                "SELECT role, content FROM card_sessions WHERE card_id = ? AND id > ? ORDER BY created_at ASC",
+                (card_id, milestone_id)
+            )
+            rows = cursor.fetchall()
+            
+        if not rows:
+            return None
+            
+        history_lines = []
+        for r in rows:
+            role = r['role'].upper()
+            content = r['content']
+            if content.strip():
+                history_lines.append(f"{role}: {content}")
+        
+        return "\n".join(history_lines) if history_lines else None
 
     async def _get_related_summaries(self, card: Dict, project_id: str, limit: int = 2) -> Optional[str]:
         """Finds related cards using true semantic similarity."""
