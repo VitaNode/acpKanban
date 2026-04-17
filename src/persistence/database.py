@@ -10,6 +10,9 @@ from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
 import threading
 from queue import Queue, Empty
+from src.logger import setup_logger
+
+logger = setup_logger("KanbanDB")
 
 # Constants to avoid magic numbers
 DEFAULT_PAGE_SIZE = 100
@@ -549,7 +552,7 @@ class KanbanDB:
                 except Exception as e: 
                     # Column already exists is expected on repeated runs
                     if "duplicate column name" not in str(e).lower():
-                        print(f"[DB Migration] Note: Could not add {table}.{col}: {e}")
+                        logger.warning(f"DB Migration: Could not add {table}.{col}: {e}")
                     
                     if col == "is_milestone":
                         try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0")
