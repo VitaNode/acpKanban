@@ -163,7 +163,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 if bridge_instance:
                     try:
                         # 1. Start engine in Quiet mode (discovery only)
-                        engine, _ = await bridge_instance.dispatcher._get_or_create_engine(card_id)
+                        # Phase 5.3 FIX: Must pass is_quiet=True to the creation method as well
+                        engine, _ = await bridge_instance.dispatcher._get_or_create_engine(card_id, is_quiet=True)
                         res = await engine.start(is_quiet=True)
                         
                         # 2. Notify client (Milestone will be added on first prompt)
