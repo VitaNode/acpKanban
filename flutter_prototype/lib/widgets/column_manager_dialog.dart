@@ -4,6 +4,7 @@ import '../models/connection_config.dart';
 import '../services/project_service.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
+import '../models/acp_provider.dart';
 
 class ColorEditResult {
   final String name;

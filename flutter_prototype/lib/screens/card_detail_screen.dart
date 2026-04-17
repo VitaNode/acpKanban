@@ -103,6 +103,27 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     }
   }
 
+  Future<void> _saveSummary() async {
+    final s = _summaryController.text.trim();
+    if (s == _summary) {
+      setState(() => _isEditingSummary = false);
+      return;
+    }
+    setState(() => _isSavingSummary = true);
+    try {
+      final success = await _projectService.updateCardSummary(_card.id, s);
+      if (success && mounted) {
+        setState(() {
+          _summary = s;
+          _isEditingSummary = false;
+          _isSavingSummary = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isSavingSummary = false);
+    }
+  }
+
   void _setupWebSocket() {
     _wsService.connect(_card.id);
     _messageSub = _wsService.messages.listen((msgs) {
@@ -561,7 +582,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               style: TextStyle(fontSize: 10, color: AppConstants.textSecondary, fontStyle: FontStyle.italic)),
           const SizedBox(height: 12),
           if (_isEditingSummary)
-...            TextField(
+            TextField(
               controller: _summaryController,
               maxLines: null,
               style: const TextStyle(fontSize: 13),
