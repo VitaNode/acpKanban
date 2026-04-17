@@ -284,6 +284,12 @@ class SummaryRepository(BaseRepository):
     def upsert(self, card_id: str, summary: str, embedding: Optional[List[float]] = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
+            # Phase 5.3 FIX: Save current summary to history before overwriting
+            cursor = conn.execute("SELECT summary FROM summaries WHERE card_id = ?", (card_id,))
+            row = cursor.fetchone()
+            if row and row['summary'] != summary:
+                conn.execute("INSERT INTO summary_history (card_id, summary, created_at) VALUES (?, ?, ?)", (card_id, row['summary'], now))
+            
             conn.execute("INSERT INTO summaries (card_id, summary, embedding, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(card_id) DO UPDATE SET summary=excluded.summary, embedding=excluded.embedding, updated_at=excluded.updated_at", (card_id, summary, json.dumps(embedding) if embedding else None, now))
 
     def update_card_summary(self, card_id: str, summary: str):
@@ -522,6 +528,7 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS project_agent_status (project_id TEXT PRIMARY KEY, state TEXT, start_time DATETIME, last_message TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS summaries (card_id TEXT PRIMARY KEY, summary TEXT NOT NULL, embedding TEXT, updated_at DATETIME)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS summary_history (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, summary TEXT NOT NULL, created_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS code_symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL, symbol_type TEXT NOT NULL, signature TEXT, start_line INTEGER, end_line INTEGER, documentation TEXT, code_content TEXT, embedding TEXT, UNIQUE(project_id, file_path, symbol_name, symbol_type))")
             
             # Migration/Maintenance: Add columns if they were missing from older versions
