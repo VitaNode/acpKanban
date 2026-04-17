@@ -221,12 +221,25 @@ class SessionEngine:
                 params["value"] = value
             
             res = await self.adapter.handle_request(method, params)
-            
-            # Update our local state with the new config state returned by agent
-            if res:
-                self.current_config_options = self._normalize_session_config(res)
+
+            # Phase 5.3 FIX: Even if res is an empty dict (success with no data), 
+            # we should update our local state to reflect the value we just set.
+            # Some providers return {} on success.
+            if res is not None:
+                if isinstance(res, dict) and res:
+                    # Provider returned the full new state
+                    self.current_config_options = self._normalize_session_config(res)
+                else:
+                    # Success but no data returned, manually update our local state
+                    for opt in self.current_config_options:
+                        if opt.get("id") == config_id:
+                            opt["currentValue"] = value
+                            break
+
                 self._save_config_options_to_db()
+
             return self.current_config_options
+
         except Exception as e:
             self.logger.error(f"Failed to set config ({config_id}={value}): {e}")
             return None
