@@ -43,6 +43,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   bool _isEditingSummary = false;
   bool _isSavingSummary = false;
 
+  String? _targetProviderId;
   bool _isInitializing = false;
   bool _isAgentConnected = false;
   bool _isSavingCard = false;
@@ -66,9 +67,24 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _summaryController = TextEditingController();
     _setupWebSocket();
     _loadSummary();
+    _loadEnvironmentInfo();
     _chatController.addListener(_onChatChanged);
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
+  }
+
+  Future<void> _loadEnvironmentInfo() async {
+    try {
+      final columns = await _projectService.getColumns(widget.projectId);
+      final myColumn = columns.firstWhere((c) => c.id == _card.columnId);
+      if (mounted) {
+        setState(() {
+          _targetProviderId = myColumn.acpProviderId;
+        });
+      }
+    } catch (e) {
+      debugPrint('Load environment info error: $e');
+    }
   }
 
   Future<void> _loadSummary() async {
@@ -492,10 +508,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.summarize_rounded, size: 16, color: AppConstants.textSecondary),
+            const Icon(Icons.handshake_rounded, size: 16, color: AppConstants.primaryColor),
             const SizedBox(width: AppConstants.space8),
-            Text('PROGRESS SUMMARY',
-                style: Theme.of(context).textTheme.labelLarge),
+            Text('CONTEXT FOR NEXT AGENT',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppConstants.primaryColor, fontWeight: FontWeight.bold)),
             const Spacer(),
             if (!_isEditingSummary)
               TextButton.icon(
@@ -518,9 +534,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 ),
               ]),
           ]),
-          const SizedBox(height: AppConstants.space8),
+          const SizedBox(height: 4),
+          const Text('Confirm or edit the progress summary before initializing the agent.', 
+              style: TextStyle(fontSize: 10, color: AppConstants.textSecondary, fontStyle: FontStyle.italic)),
+          const SizedBox(height: 12),
           if (_isEditingSummary)
-            TextField(
+...            TextField(
               controller: _summaryController,
               maxLines: null,
               style: const TextStyle(fontSize: 13),
@@ -585,8 +604,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   children: [
                     const Icon(Icons.info_outline_rounded, size: 16, color: AppConstants.textSecondary),
                     const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text('Agent is not connected.', style: TextStyle(fontSize: 12, color: AppConstants.textSecondary)),
+                    Expanded(
+                      child: Text(
+                        _targetProviderId != null 
+                          ? 'Agent [${_targetProviderId!.toUpperCase()}] is ready in this column.'
+                          : 'No default agent for this column.', 
+                        style: const TextStyle(fontSize: 12, color: AppConstants.textSecondary)
+                      ),
                     ),
                     if (_isInitializing)
                       const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
@@ -594,11 +618,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       TextButton(
                         onPressed: _initializeAgent,
                         style: TextButton.styleFrom(
+                          backgroundColor: AppConstants.primaryColor.withOpacity(0.1),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        child: const Text('INITIALIZE'),
+                        child: Text('INITIALIZE ${_targetProviderId?.toUpperCase() ?? "AGENT"}'),
                       ),
                   ],
                 ),
