@@ -191,26 +191,34 @@ class MessageDispatcher:
         return {"error": {"code": -32601, "message": f"Method {method} not handled"}}
 
     async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None, on_output: Optional[Callable] = None, is_quiet: bool = False) -> (SessionEngine, bool):
-        if card_id in self.engines and self.engines[card_id].is_alive:
-            engine = self.engines[card_id]
-            # Phase 6: Always update callback to current WebSocket context
-            if on_nested_request:
-                engine.set_on_request(on_nested_request)
-            
-            # Re-push config options if engine already exists (e.g., after reconnect)
-            if engine.acp_session_id and engine.current_config_options and on_output:
-                bus.publish(card_id, {"type": "config_options", "options": engine.current_config_options})
-            return engine, False
+        card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
+        if not card: raise ValueError(f"Card {card_id} not found")
+        column = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
+        target_provider_id = column.get("acp_provider_id") or card.get("acp_provider_id") or config.default_provider
+
+        # Phase 5.3 FIX: Check if cached engine exists and matches the target provider
+        if card_id in self.engines:
+            existing_engine = self.engines[card_id]
+            if existing_engine.is_alive:
+                if existing_engine.provider_id == target_provider_id:
+                    # Provider matches, reuse engine
+                    if on_nested_request:
+                        existing_engine.set_on_request(on_nested_request)
+                    if existing_engine.acp_session_id and existing_engine.current_config_options and on_output:
+                        bus.publish(card_id, {"type": "config_options", "options": existing_engine.current_config_options})
+                    return existing_engine, False
+                else:
+                    # Provider mismatch! Stop the old engine to ensure isolation
+                    self.logger.info(f"[*] Provider changed ({existing_engine.provider_id} -> {target_provider_id}) for card {card_id}. Recreating engine...")
+                    await existing_engine.stop()
+                    self.engines.pop(card_id, None)
+
         if card_id not in self._engine_creation_locks: self._engine_creation_locks[card_id] = asyncio.Lock()
         async with self._engine_creation_locks[card_id]:
-            card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
-            if not card: raise ValueError(f"Card {card_id} not found")
-            column = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
-            provider_id = column.get("acp_provider_id") or card.get("acp_provider_id") or config.default_provider
             workspace_path = config.get("system.workspace_root")
             project = await asyncio.to_thread(self.db.projects.get_by_id, column["project_id"])
             if project and project.get("workspace_path"): workspace_path = project["workspace_path"]
-            engine = SessionEngine(card_id, provider_id, workspace_path, card["column_id"], db=self.db)
+            engine = SessionEngine(card_id, target_provider_id, workspace_path, card["column_id"], db=self.db)
             engine.acp_session_id = card.get("acp_session_id")
             await engine.start(on_request=on_nested_request, is_quiet=is_quiet)
             self.engines[card_id] = engine
