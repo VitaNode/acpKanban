@@ -234,6 +234,22 @@ class SessionEngine:
     async def process_prompt(self, method: str, params: Dict, on_notification: Optional[Callable] = None):
         if not self.is_alive: await self.start()
         self.last_active = time.time()
+        
+        # Phase 5.3: If this is the first prompt in a new session (no messages yet after start),
+        # insert a milestone message to mark the new stage boundary.
+        if self.acp_session_id and not hasattr(self, "_milestone_inserted"):
+            mode_name = "Default"
+            for opt in self.current_config_options:
+                if opt.get("id") == "mode":
+                    mode_name = opt.get("currentValue", "Default")
+            
+            milestone_text = f"🚀 **Session Started: {self.provider_id}**\nMode: `{mode_name}`\nSession: `{self.acp_session_id[:8]}`"
+            if self.db:
+                await asyncio.to_thread(self.db.sessions.add_message, self.card_id, "system", milestone_text, is_milestone=True)
+                from src.transport.bus import bus
+                bus.publish(self.card_id, {"type": "refresh"})
+            self._milestone_inserted = True
+
         self.state = SessionState.THINKING
         try:
             if self.acp_session_id: params["sessionId"] = self.acp_session_id

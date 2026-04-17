@@ -163,30 +163,16 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 if bridge_instance:
                     try:
                         # 1. Start engine in Quiet mode (discovery only)
-                        # We use the dispatcher to get or create the engine and then start it
                         engine, _ = await bridge_instance.dispatcher._get_or_create_engine(card_id)
                         res = await engine.start(is_quiet=True)
                         
-                        # 2. Add milestone message to DB
-                        provider_name = engine.provider_id
-                        mode_name = "Default"
-                        for opt in engine.current_config_options:
-                            if opt.get("id") == "mode":
-                                mode_name = opt.get("currentValue", "Default")
-                        
-                        milestone_text = f"🚀 **Connected to {provider_name}**\nMode: `{mode_name}`\nSession: `{engine.acp_session_id[:8]}`"
-                        db.sessions.add_message(card_id, "system", milestone_text, is_milestone=True)
-                        
-                        # 3. Notify client
+                        # 2. Notify client (Milestone will be added on first prompt)
                         await websocket.send_text(json.dumps({
                             "type": "session_info",
                             "sessionId": engine.acp_session_id,
                             "config_options": engine.current_config_options,
                             "is_alive": True
                         }))
-                        
-                        # Trigger a history refresh to show the milestone message
-                        bus.publish(card_id, {"type": "refresh"})
                     except Exception as e:
                         print(f"ERROR in session_init: {e}")
                         await websocket.send_text(json.dumps({
