@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../constants/app_constants.dart';
+import 'project_indexing_widget.dart';
 
 class ProjectManagementDialog extends StatefulWidget {
   final List<Project> projects;
@@ -367,6 +368,8 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                 prefixIcon: Icon(Icons.folder_open_rounded),
               ),
             ),
+            const SizedBox(height: AppConstants.space16),
+            ProjectIndexingWidget(project: widget.project),
           ],
         ),
       ),

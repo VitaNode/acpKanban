@@ -6,6 +6,10 @@ class Project {
   final String createdAt;
   final String updatedAt;
   final int cardCount;
+  final String indexStatus;
+  final String? lastIndexedAt;
+  final int totalFiles;
+  final int totalSymbols;
 
   Project({
     required this.id,
@@ -15,6 +19,10 @@ class Project {
     required this.createdAt,
     required this.updatedAt,
     this.cardCount = 0,
+    this.indexStatus = 'idle',
+    this.lastIndexedAt,
+    this.totalFiles = 0,
+    this.totalSymbols = 0,
   });
 
   factory Project.fromJson(Map<String, dynamic> json) {
@@ -26,6 +34,10 @@ class Project {
       createdAt: json['created_at'] ?? DateTime.now().toIso8601String(),
       updatedAt: json['updated_at'] ?? DateTime.now().toIso8601String(),
       cardCount: json['card_count'] ?? 0,
+      indexStatus: json['index_status'] ?? 'idle',
+      lastIndexedAt: json['last_indexed_at'],
+      totalFiles: json['total_files'] ?? 0,
+      totalSymbols: json['total_symbols'] ?? 0,
     );
   }
 
@@ -37,6 +49,10 @@ class Project {
       'description': description,
       'created_at': createdAt,
       'updated_at': updatedAt,
+      'index_status': indexStatus,
+      'last_indexed_at': lastIndexedAt,
+      'total_files': totalFiles,
+      'total_symbols': totalSymbols,
     };
   }
 
@@ -46,6 +62,10 @@ class Project {
     String? description,
     String? updatedAt,
     int? cardCount,
+    String? indexStatus,
+    String? lastIndexedAt,
+    int? totalFiles,
+    int? totalSymbols,
   }) {
     return Project(
       id: id,
@@ -55,6 +75,10 @@ class Project {
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now().toIso8601String(),
       cardCount: cardCount ?? this.cardCount,
+      indexStatus: indexStatus ?? this.indexStatus,
+      lastIndexedAt: lastIndexedAt ?? this.lastIndexedAt,
+      totalFiles: totalFiles ?? this.totalFiles,
+      totalSymbols: totalSymbols ?? this.totalSymbols,
     );
   }
 

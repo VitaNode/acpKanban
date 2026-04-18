@@ -309,6 +309,19 @@ class ACPClient {
     }
   }
 
+  Future<Map<String, dynamic>?> getSystemConfig() async {
+    try {
+      final response = await sendRequest('system/config/get', {});
+      if (response.containsKey('result')) {
+        return response['result'] as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('[ACP] Failed to get system config: $e');
+      return null;
+    }
+  }
+
   Future<String> sendMessage(String message) async {
     try {
       final response =

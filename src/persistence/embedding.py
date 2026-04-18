@@ -192,28 +192,64 @@ Provide a concise summary (max 300 words).
             print(f"[!] Summary generation error with model {model}: {e}")
             return None
 
-    async def index_codebase(self, project_id: str, workspace_path: str):
-        """Indexes the entire codebase and generates embeddings for symbols."""
+    async def batch_generate_embeddings(self, texts: List[str], batch_size: int = 20) -> List[Optional[List[float]]]:
+        """Batch embedding with error isolation."""
+        results = []
+        client = self._get_client()
+        if not client:
+            return [None] * len(texts)
+
+        model = os.getenv("EMBEDDING_MODEL", self.default_model)
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            try:
+                # Use thread pool for synchronous OpenAI call
+                def call_batch():
+                    response = client.embeddings.create(
+                        model=model, input=batch, dimensions=self.dimensions
+                    )
+                    return [item.embedding for item in response.data]
+                
+                embeddings = await asyncio.to_thread(call_batch)
+                results.extend(embeddings)
+            except Exception as e:
+                print(f"[!] Batch embedding {i//batch_size} failed: {e}")
+                # Fill with None to maintain indexing, allowing for retry later
+                results.extend([None] * len(batch))
+
+        return results
+
+    async def index_codebase(self, project_id: str, workspace_path: str, force_full: bool = False, on_progress: Optional[Callable] = None):
+        """Indexes the entire codebase and generates embeddings for symbols (Incremental)."""
         from src.persistence.database import KanbanDB
         from src.persistence.indexer import CodeIndexer
         
         db = KanbanDB()
         indexer = CodeIndexer(db)
         
-        # 1. Structural indexing
-        await indexer.index_project(project_id, workspace_path)
+        # 1. Structural indexing (Incremental)
+        await indexer.index_project(project_id, workspace_path, force_full=force_full, on_progress=on_progress)
         
-        # 2. Vectorization (Phase 1)
-        symbols = db.code_symbols.get_by_project(project_id)
+        # 2. Vectorization (Phase 2 - Supplemental & Batch)
+        symbols = db.code_symbols.get_by_project(project_id, limit=1000) # Process in reasonable chunks if huge
+        
+        to_embed = []
         for sym in symbols:
-            # Check if embedding already exists (stored as JSON string in DB)
-            if not sym.get("embedding") or sym["embedding"] == "null":
+            # Check if embedding already exists
+            if not sym.get("embedding") or sym["embedding"] == "null" or sym["embedding"] == "[]":
                 text_to_embed = f"{sym['symbol_type']} {sym['symbol_name']}\nSignature: {sym['signature']}"
                 if sym.get("documentation"):
                     text_to_embed += f"\nDocumentation: {sym['documentation']}"
-                
-                embedding = self.get_embedding(text_to_embed)
-                if embedding:
+                to_embed.append((sym, text_to_embed))
+        
+        if to_embed:
+            print(f"[EmbeddingService] Vectorizing {len(to_embed)} symbols for project {project_id}")
+            texts = [item[1] for item in to_embed]
+            embeddings = await self.batch_generate_embeddings(texts)
+            
+            for (sym, _), emb in zip(to_embed, embeddings):
+                if emb:
                     db.code_symbols.upsert(
                         project_id=project_id,
                         file_path=sym['file_path'],
@@ -224,8 +260,9 @@ Provide a concise summary (max 300 words).
                         end_line=sym['end_line'],
                         documentation=sym['documentation'],
                         code_content=sym['code_content'],
-                        embedding=embedding
+                        embedding=emb
                     )
+        
         print(f"[EmbeddingService] Completed indexing and vectorization for project {project_id}")
 
 

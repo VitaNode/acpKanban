@@ -291,6 +291,18 @@ class UnifiedBridge:
             except Exception as e:
                 self.logger.error(f"Failed to send output: {e}")
 
+        method = data.get("method")
+        params = data.get("params", {})
+
+        # Handle system-level RPCs before dispatching to engines
+        if method == "system/config/get":
+            config_str = self.db.get_setting("system_config", "{}")
+            try:
+                config = json.loads(config_str)
+            except:
+                config = {}
+            return config
+
         async def on_ui_request(method, params):
             rid = str(uuid.uuid4())
             fut = asyncio.get_event_loop().create_future()

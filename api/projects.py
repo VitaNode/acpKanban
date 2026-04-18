@@ -1,7 +1,10 @@
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+import asyncio
+from datetime import datetime
 from src.persistence.embedding import embedding_service
+from src.transport.bus import bus
 from api.dependencies import (
     get_db,
     validate_project_exists,
@@ -56,6 +59,114 @@ class ProjectResponse(BaseModel):
     created_at: str
     updated_at: str
     card_count: int = 0
+    index_status: str = "idle"
+    last_indexed_at: Optional[str] = None
+    total_files: int = 0
+    total_symbols: int = 0
+
+
+class IndexStartRequest(BaseModel):
+    force_full: bool = False
+    mode: str = "full" # "structural" | "full"
+
+
+class IndexStatusResponse(BaseModel):
+    project_id: str
+    index_status: str
+    progress: Optional[Dict[str, Any]] = None
+    stats: Dict[str, int]
+    last_indexed_at: Optional[str] = None
+
+
+class IndexTaskManager:
+    """Manages background indexing tasks to prevent concurrency issues and provide status."""
+    def __init__(self):
+        self._tasks: Dict[str, asyncio.Task] = {}
+        self._progress: Dict[str, Dict[str, Any]] = {}
+        self._lock = asyncio.Lock()
+
+    async def start_task(self, project_id: str, workspace_path: str, force_full: bool = False):
+        async with self._lock:
+            if project_id in self._tasks and not self._tasks[project_id].done():
+                return False
+            
+            # Start new task
+            task = asyncio.create_task(self._run_indexing(project_id, workspace_path, force_full))
+            self._tasks[project_id] = task
+            return True
+
+    async def cancel_task(self, project_id: str):
+        async with self._lock:
+            task = self._tasks.get(project_id)
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=3.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                
+                db = get_db()
+                db.update_project_stats(project_id, index_status="idle")
+                self._progress.pop(project_id, None)
+                return True
+            return False
+
+    def get_progress(self, project_id: str) -> Optional[Dict[str, Any]]:
+        return self._progress.get(project_id)
+
+    async def _run_indexing(self, project_id: str, workspace_path: str, force_full: bool):
+        db = get_db()
+        db.update_project_stats(project_id, index_status="running")
+        
+        try:
+            async def on_progress(p):
+                self._progress[project_id] = p
+                # Push to WebSocket
+                bus.publish(f"project:{project_id}", {
+                    "type": "index_progress",
+                    "project_id": project_id,
+                    "data": {
+                        "status": "running",
+                        **p
+                    }
+                })
+
+            await embedding_service.index_codebase(
+                project_id, 
+                workspace_path, 
+                force_full=force_full, 
+                on_progress=on_progress
+            )
+            
+            db.update_project_stats(
+                project_id, 
+                index_status="idle", 
+                last_indexed_at=datetime.now().isoformat()
+            )
+            
+            bus.publish(f"project:{project_id}", {
+                "type": "index_completed",
+                "project_id": project_id,
+                "data": {"status": "completed"}
+            })
+
+        except asyncio.CancelledError:
+            db.update_project_stats(project_id, index_status="idle")
+            raise
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            db.update_project_stats(project_id, index_status="error")
+            bus.publish(f"project:{project_id}", {
+                "type": "index_error",
+                "project_id": project_id,
+                "data": {"status": "error", "message": str(e)}
+            })
+        finally:
+            self._progress.pop(project_id, None)
+
+# Global manager instance
+index_task_manager = IndexTaskManager()
 
 
 @router.get("/projects", response_model=list[ProjectResponse])
@@ -75,6 +186,10 @@ async def get_projects():
                 created_at=p["created_at"],
                 updated_at=p["updated_at"],
                 card_count=p.get("card_count", 0),
+                index_status=p.get("index_status", "idle"),
+                last_indexed_at=p.get("last_indexed_at"),
+                total_files=p.get("total_files", 0),
+                total_symbols=p.get("total_symbols", 0),
             )
             for p in projects
         ]
@@ -99,9 +214,9 @@ async def create_project(request: ProjectCreateRequest, background_tasks: Backgr
         if not project:
             raise HTTPError(500, "Failed to create project")
 
-        # Trigger indexing in background
+        # Trigger indexing in background using manager
         if request.workspace_path:
-            background_tasks.add_task(embedding_service.index_codebase, project_id, request.workspace_path)
+            await index_task_manager.start_task(project_id, request.workspace_path)
 
         return ProjectResponse(
             id=project["id"],
@@ -111,36 +226,13 @@ async def create_project(request: ProjectCreateRequest, background_tasks: Backgr
             created_at=project["created_at"],
             updated_at=project["updated_at"],
             card_count=0,
+            index_status=project.get("index_status", "idle"),
+            last_indexed_at=project.get("last_indexed_at"),
+            total_files=project.get("total_files", 0),
+            total_symbols=project.get("total_symbols", 0),
         )
     except HTTPException:
-        print(f"❌ HTTPException raised")
         raise
-    except Exception as e:
-        import traceback
-        print(f"\n❌ EXCEPTION in create_project:")
-        traceback.print_exc()
-        raise HTTPError(400, str(e))
-
-
-@router.get("/projects/status", response_model=list)
-async def get_all_project_statuses():
-    """
-    Get agent statuses for all active projects.
-    """
-    db = get_db()
-    try:
-        statuses = db.get_all_agent_statuses()
-        return [
-            {
-                "project_id": s["project_id"],
-                "project_name": s["project_name"],
-                "state": s["state"],
-                "start_time": s.get("start_time"),
-                "last_message": s.get("last_message"),
-                "updated_at": s.get("updated_at"),
-            }
-            for s in statuses
-        ]
     except Exception as e:
         raise HTTPError(400, str(e))
 
@@ -169,7 +261,59 @@ async def get_project(project_id: str):
         created_at=project["created_at"],
         updated_at=project["updated_at"],
         card_count=card_count,
+        index_status=project.get("index_status", "idle"),
+        last_indexed_at=project.get("last_indexed_at"),
+        total_files=project.get("total_files", 0),
+        total_symbols=project.get("total_symbols", 0),
     )
+
+
+@router.post("/projects/{project_id}/index/start")
+async def start_indexing(project_id: str, request: IndexStartRequest):
+    db = get_db()
+    project = validate_project_exists(project_id, db)
+    
+    if not project.get("workspace_path"):
+        raise HTTPError(400, "Project has no workspace path configured")
+    
+    started = await index_task_manager.start_task(
+        project_id, 
+        project["workspace_path"], 
+        force_full=request.force_full
+    )
+    
+    if not started:
+        return {"success": False, "error_code": "ALREADY_RUNNING", "message": "Index task is already running"}
+    
+    return {"success": true, "message": "Indexing started"}
+
+
+@router.get("/projects/{project_id}/index/status", response_model=IndexStatusResponse)
+async def get_indexing_status(project_id: str):
+    db = get_db()
+    project = validate_project_exists(project_id, db)
+    
+    progress = index_task_manager.get_progress(project_id)
+    
+    return IndexStatusResponse(
+        project_id=project_id,
+        index_status=project.get("index_status", "idle"),
+        progress=progress,
+        stats={
+            "total_files": project.get("total_files", 0),
+            "total_symbols": project.get("total_symbols", 0)
+        },
+        last_indexed_at=project.get("last_indexed_at")
+    )
+
+
+@router.post("/projects/{project_id}/index/cancel")
+async def cancel_indexing(project_id: str):
+    db = get_db()
+    validate_project_exists(project_id, db)
+    
+    cancelled = await index_task_manager.cancel_task(project_id)
+    return {"success": cancelled}
 
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
@@ -191,9 +335,10 @@ async def update_project(project_id: str, request: ProjectUpdateRequest, backgro
         if not project:
             raise HTTPError(404, "Project not found")
 
-        # Trigger indexing if workspace changed or just to refresh
-        if project.get("workspace_path"):
-            background_tasks.add_task(embedding_service.index_codebase, project_id, project["workspace_path"])
+        # Optional: trigger re-indexing if workspace path changed
+        # For now, let user trigger it manually or stay with background default
+        # if request.workspace_path:
+        #    await index_task_manager.start_task(project_id, project["workspace_path"])
 
         with db.get_connection() as conn:
             cursor = conn.execute(
@@ -211,6 +356,10 @@ async def update_project(project_id: str, request: ProjectUpdateRequest, backgro
             created_at=project["created_at"],
             updated_at=project["updated_at"],
             card_count=card_count,
+            index_status=project.get("index_status", "idle"),
+            last_indexed_at=project.get("last_indexed_at"),
+            total_files=project.get("total_files", 0),
+            total_symbols=project.get("total_symbols", 0),
         )
     except HTTPException:
         raise
@@ -454,6 +603,10 @@ async def switch_project(project_id: str):
             "name": project["name"],
             "workspace_path": project.get("workspace_path"),
             "card_count": card_count,
+            "index_status": project.get("index_status", "idle"),
+            "last_indexed_at": project.get("last_indexed_at"),
+            "total_files": project.get("total_files", 0),
+            "total_symbols": project.get("total_symbols", 0),
             "created_at": project["created_at"],
             "updated_at": project["updated_at"],
         },

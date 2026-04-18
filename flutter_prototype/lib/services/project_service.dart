@@ -464,6 +464,49 @@ class ProjectService {
     }
   }
 
+  Future<bool> startIndexing(String projectId, {bool forceFull = false}) async {
+    try {
+      final response = await _post('/api/projects/$projectId/index/start', {
+        'force_full': forceFull,
+      });
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['success'] ?? false;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('startIndexing error: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getIndexingStatus(String projectId) async {
+    try {
+      final response = await _get('/api/projects/$projectId/index/status');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getIndexingStatus error: $e');
+      return null;
+    }
+  }
+
+  Future<bool> cancelIndexing(String projectId) async {
+    try {
+      final response = await _post('/api/projects/$projectId/index/cancel', {});
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['success'] ?? false;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('cancelIndexing error: $e');
+      return false;
+    }
+  }
+
   Future<dynamic> _get(String path) async {
     final client = HttpClient();
     try {
