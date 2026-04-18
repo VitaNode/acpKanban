@@ -106,20 +106,6 @@ class SessionEngine:
 
                 self.state = SessionState.IDLE
                 
-                # Robust Indexing Trigger: Ensure codebase is indexed when session starts
-                if self.workspace_path:
-                    async def ensure_indexed():
-                        from src.persistence.embedding import embedding_service
-                        project_id = self.db.cards.get_by_id(self.card_id).get("project_id")
-                        if project_id:
-                            # We check if index exists. If not, trigger full index.
-                            symbols = self.db.code_symbols.get_by_project(project_id, limit=1)
-                            if not symbols:
-                                self.logger.info(f"[*] Project {project_id} index missing. Triggering full index...")
-                                await embedding_service.index_codebase(project_id, self.workspace_path)
-                    
-                    asyncio.create_task(ensure_indexed())
-
                 return {
                     "sessionId": self.acp_session_id,
                     "configOptions": self.current_config_options
