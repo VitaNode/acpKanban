@@ -475,6 +475,32 @@ class AgentStatusRepository(BaseRepository):
             """)
             return [dict(row) for row in cursor.fetchall()]
 
+class FileIndexRepository(BaseRepository):
+    def upsert(self, project_id: str, file_path: str, file_hash: str, file_size: int):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO file_index (project_id, file_path, file_hash, file_size, indexed_at) 
+                VALUES (?, ?, ?, ?, ?) 
+                ON CONFLICT(project_id, file_path) DO UPDATE SET 
+                file_hash=excluded.file_hash, file_size=excluded.file_size, indexed_at=excluded.indexed_at
+            """, (project_id, file_path, file_hash, file_size, now))
+
+    def get(self, project_id: str, file_path: str) -> Optional[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM file_index WHERE project_id = ? AND file_path = ?", (project_id, file_path))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_by_project(self, project_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM file_index WHERE project_id = ?", (project_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete(self, project_id: str, file_path: str):
+        with self.db.get_connection() as conn:
+            conn.execute("DELETE FROM file_index WHERE project_id = ? AND file_path = ?", (project_id, file_path))
+
 class KanbanDB:
     _instance = None
     _lock = threading.Lock()
@@ -499,6 +525,7 @@ class KanbanDB:
         self.code_symbols = CodeSymbolRepository(self)
         self.timeline = TimelineRepository(self)
         self.agent_status = AgentStatusRepository(self)
+        self.file_index = FileIndexRepository(self)
         self._initialized = True
 
     def _create_new_connection(self):
@@ -523,7 +550,7 @@ class KanbanDB:
     def init_db(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME, index_status TEXT DEFAULT 'idle', last_indexed_at DATETIME, total_files INTEGER DEFAULT 0, total_symbols INTEGER DEFAULT 0, index_checkpoint TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0)")
@@ -533,30 +560,32 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS summaries (card_id TEXT PRIMARY KEY, summary TEXT NOT NULL, embedding TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS summary_history (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, summary TEXT NOT NULL, created_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS code_symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL, symbol_type TEXT NOT NULL, signature TEXT, start_line INTEGER, end_line INTEGER, documentation TEXT, code_content TEXT, embedding TEXT, UNIQUE(project_id, file_path, symbol_name, symbol_type))")
+            cursor.execute("CREATE TABLE IF NOT EXISTS file_index (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, file_hash TEXT NOT NULL, file_size INTEGER, indexed_at DATETIME, UNIQUE(project_id, file_path))")
             
             # Migration/Maintenance: Add columns if they were missing from older versions
-            # Note: columns.acp_provider_id is already in CREATE TABLE above. 
-            # We keep migrations here for fields added over the project lifecycle.
-            for table, col in [
-                ("projects", "description"), 
-                ("columns", "prompt_template"), 
-                ("columns", "approval_mode"), 
-                ("cards", "last_summary"), 
-                ("cards", "config_options"), 
-                ("cards", "embedding"), 
-                ("summaries", "embedding"), 
-                ("card_sessions", "is_milestone")
-            ]:
+            migrations = [
+                ("projects", "description", "TEXT"), 
+                ("projects", "index_status", "TEXT DEFAULT 'idle'"),
+                ("projects", "last_indexed_at", "DATETIME"),
+                ("projects", "total_files", "INTEGER DEFAULT 0"),
+                ("projects", "total_symbols", "INTEGER DEFAULT 0"),
+                ("projects", "index_checkpoint", "TEXT"),
+                ("columns", "prompt_template", "TEXT"), 
+                ("columns", "approval_mode", "TEXT"), 
+                ("cards", "last_summary", "TEXT"), 
+                ("cards", "config_options", "TEXT"), 
+                ("cards", "embedding", "TEXT"), 
+                ("summaries", "embedding", "TEXT"), 
+                ("card_sessions", "is_milestone", "INTEGER DEFAULT 0")
+            ]
+            
+            for table, col, col_type in migrations:
                 try: 
-                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
                 except Exception as e: 
                     # Column already exists is expected on repeated runs
                     if "duplicate column name" not in str(e).lower():
                         logger.warning(f"DB Migration: Could not add {table}.{col}: {e}")
-                    
-                    if col == "is_milestone":
-                        try: cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0")
-                        except: pass
                     pass
 
     # --- API Bridge Methods (Flattened for backward compatibility) ---
@@ -608,6 +637,42 @@ class KanbanDB:
             row = cursor.fetchone()
             return row[0] if row else default
             
+    def update_project_stats(self, project_id: str, total_files: int = None, total_symbols: int = None, index_status: str = None, last_indexed_at: str = None, index_checkpoint: str = None):
+        updates = []
+        params = []
+        if total_files is not None:
+            updates.append("total_files = ?")
+            params.append(total_files)
+        if total_symbols is not None:
+            updates.append("total_symbols = ?")
+            params.append(total_symbols)
+        if index_status is not None:
+            updates.append("index_status = ?")
+            params.append(index_status)
+        if last_indexed_at is not None:
+            updates.append("last_indexed_at = ?")
+            params.append(last_indexed_at)
+        if index_checkpoint is not None:
+            updates.append("index_checkpoint = ?")
+            params.append(index_checkpoint)
+        
+        if not updates:
+            return
+
+        params.append(project_id)
+        with self.get_connection() as conn:
+            conn.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
+
+    def get_project_file_count(self, project_id: str) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM file_index WHERE project_id = ?", (project_id,))
+            return cursor.fetchone()[0]
+
+    def get_project_symbol_count(self, project_id: str) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM code_symbols WHERE project_id = ?", (project_id,))
+            return cursor.fetchone()[0]
+
     def set_setting(self, key: str, value: Any):
         now = datetime.now().isoformat()
         with self.get_connection() as conn:

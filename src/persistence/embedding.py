@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from typing import List, Optional, Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -41,7 +42,7 @@ class EmbeddingService:
 
         if not api_key or not base_url:
             try:
-                from database import KanbanDB
+                from src.persistence.database import KanbanDB
                 db = KanbanDB()
                 raw_config = db.get_setting("system_config")
                 if raw_config:
