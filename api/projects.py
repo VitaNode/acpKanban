@@ -63,6 +63,7 @@ class ProjectResponse(BaseModel):
     last_indexed_at: Optional[str] = None
     total_files: int = 0
     total_symbols: int = 0
+    total_vectorized_symbols: int = 0
 
 
 class IndexStartRequest(BaseModel):
@@ -79,18 +80,24 @@ class IndexStatusResponse(BaseModel):
 
 
 class IndexTaskManager:
-    """Manages background indexing tasks to prevent concurrency issues and provide status."""
+    """Manages background indexing tasks with robust locking and progress tracking."""
     def __init__(self):
         self._tasks: Dict[str, asyncio.Task] = {}
         self._progress: Dict[str, Dict[str, Any]] = {}
+        self._start_times: Dict[str, float] = {}
         self._lock = asyncio.Lock()
 
     async def start_task(self, project_id: str, workspace_path: str, force_full: bool = False):
         async with self._lock:
-            if project_id in self._tasks and not self._tasks[project_id].done():
+            existing = self._tasks.get(project_id)
+            if existing and not existing.done():
                 return False
             
-            # Start new task
+            # Cleanup finished task and its progress
+            self._tasks.pop(project_id, None)
+            self._progress.pop(project_id, None)
+            self._start_times[project_id] = asyncio.get_event_loop().time()
+            
             task = asyncio.create_task(self._run_indexing(project_id, workspace_path, force_full))
             self._tasks[project_id] = task
             return True
@@ -108,27 +115,38 @@ class IndexTaskManager:
                 db = get_db()
                 db.update_project_stats(project_id, index_status="idle")
                 self._progress.pop(project_id, None)
+                self._start_times.pop(project_id, None)
                 return True
             return False
 
     def get_progress(self, project_id: str) -> Optional[Dict[str, Any]]:
+        # This can be called frequently, we return a snapshot
         return self._progress.get(project_id)
 
     async def _run_indexing(self, project_id: str, workspace_path: str, force_full: bool):
         db = get_db()
         db.update_project_stats(project_id, index_status="running")
+        start_time = self._start_times.get(project_id, asyncio.get_event_loop().time())
+        mode = "full" if force_full else "incremental"
         
         try:
             async def on_progress(p):
-                self._progress[project_id] = p
-                # Push to WebSocket
+                elapsed = round(asyncio.get_event_loop().time() - start_time, 1)
+                full_p = {
+                    "status": "running",
+                    "mode": mode,
+                    "elapsed_seconds": elapsed,
+                    **p
+                }
+                async with self._lock:
+                    self._progress[project_id] = full_p
+
+                # Push to WebSocket (card_id format check: we use project:id but bus expect card_id)
+                # NotificationBus should be generic but currently it mentions card_id
                 bus.publish(f"project:{project_id}", {
                     "type": "index_progress",
                     "project_id": project_id,
-                    "data": {
-                        "status": "running",
-                        **p
-                    }
+                    "data": full_p
                 })
 
             await embedding_service.index_codebase(
@@ -144,10 +162,14 @@ class IndexTaskManager:
                 last_indexed_at=datetime.now().isoformat()
             )
             
+            total_elapsed = round(asyncio.get_event_loop().time() - start_time, 1)
             bus.publish(f"project:{project_id}", {
                 "type": "index_completed",
                 "project_id": project_id,
-                "data": {"status": "completed"}
+                "data": {
+                    "status": "completed",
+                    "total_time_seconds": total_elapsed
+                }
             })
 
         except asyncio.CancelledError:
@@ -160,10 +182,17 @@ class IndexTaskManager:
             bus.publish(f"project:{project_id}", {
                 "type": "index_error",
                 "project_id": project_id,
-                "data": {"status": "error", "message": str(e)}
+                "data": {
+                    "status": "error", 
+                    "error_code": "indexing_failed",
+                    "message": str(e),
+                    "recoverable": True
+                }
             })
         finally:
-            self._progress.pop(project_id, None)
+            async with self._lock:
+                self._progress.pop(project_id, None)
+                self._start_times.pop(project_id, None)
 
 # Global manager instance
 index_task_manager = IndexTaskManager()
@@ -190,6 +219,7 @@ async def get_projects():
                 last_indexed_at=p.get("last_indexed_at"),
                 total_files=p.get("total_files", 0),
                 total_symbols=p.get("total_symbols", 0),
+                total_vectorized_symbols=p.get("total_vectorized_symbols", 0),
             )
             for p in projects
         ]
@@ -230,6 +260,7 @@ async def create_project(request: ProjectCreateRequest, background_tasks: Backgr
             last_indexed_at=project.get("last_indexed_at"),
             total_files=project.get("total_files", 0),
             total_symbols=project.get("total_symbols", 0),
+            total_vectorized_symbols=project.get("total_vectorized_symbols", 0),
         )
     except HTTPException:
         raise
@@ -265,6 +296,7 @@ async def get_project(project_id: str):
         last_indexed_at=project.get("last_indexed_at"),
         total_files=project.get("total_files", 0),
         total_symbols=project.get("total_symbols", 0),
+        total_vectorized_symbols=project.get("total_vectorized_symbols", 0),
     )
 
 
@@ -285,7 +317,7 @@ async def start_indexing(project_id: str, request: IndexStartRequest):
     if not started:
         return {"success": False, "error_code": "ALREADY_RUNNING", "message": "Index task is already running"}
     
-    return {"success": true, "message": "Indexing started"}
+    return {"success": True, "message": "Indexing started"}
 
 
 @router.get("/projects/{project_id}/index/status", response_model=IndexStatusResponse)
@@ -301,7 +333,8 @@ async def get_indexing_status(project_id: str):
         progress=progress,
         stats={
             "total_files": project.get("total_files", 0),
-            "total_symbols": project.get("total_symbols", 0)
+            "total_symbols": project.get("total_symbols", 0),
+            "total_vectorized_symbols": project.get("total_vectorized_symbols", 0)
         },
         last_indexed_at=project.get("last_indexed_at")
     )
@@ -360,6 +393,7 @@ async def update_project(project_id: str, request: ProjectUpdateRequest, backgro
             last_indexed_at=project.get("last_indexed_at"),
             total_files=project.get("total_files", 0),
             total_symbols=project.get("total_symbols", 0),
+            total_vectorized_symbols=project.get("total_vectorized_symbols", 0),
         )
     except HTTPException:
         raise
@@ -607,6 +641,7 @@ async def switch_project(project_id: str):
             "last_indexed_at": project.get("last_indexed_at"),
             "total_files": project.get("total_files", 0),
             "total_symbols": project.get("total_symbols", 0),
+            "total_vectorized_symbols": project.get("total_vectorized_symbols", 0),
             "created_at": project["created_at"],
             "updated_at": project["updated_at"],
         },

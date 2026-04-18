@@ -15,13 +15,26 @@ EXCLUDED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.ico', '.woff', '.ttf', '.jar',
 EXCLUDED_DIRS = {'.git', 'node_modules', '__pycache__', 'build', 'dist', '.dart_tool', 'venv', '.venv', 'ios', 'android'}
 
 class TreeSitterParser:
-    """Robust multi-language symbol extractor using Node Walking."""
+    """Robust multi-language symbol extractor using explicit type matching."""
     
+    # Language-specific symbol types
+    SYMBOL_TYPES = {
+        "python": {
+            "class": {"class_definition"},
+            "function": {"function_definition", "async_function_definition"}
+        },
+        "dart": {
+            "class": {"class_definition", "enum_declaration", "mixin_declaration", "extension_declaration"},
+            "function": {"function_signature", "method_declaration", "getter_declaration", "setter_declaration"}
+        }
+    }
+
     def __init__(self, lang_name: str):
         self.lang_name = lang_name
         try:
             self.language = get_language(lang_name)
             self.parser = get_parser(lang_name)
+            self.rules = self.SYMBOL_TYPES.get(lang_name, {})
         except Exception as e:
             logger.error(f"Failed to initialize Tree-sitter for {lang_name}: {e}")
             self.parser = None
@@ -41,27 +54,19 @@ class TreeSitterParser:
 
     def _walk_node(self, node: tree_sitter.Node, symbols: List[Dict], lines: List[str]):
         """Recursively walk the tree to find symbol-like nodes."""
-        node_type = node.type.lower()
-        
-        # Determine if this node is a symbol we care about
-        is_symbol = False
+        node_type = node.type
         sym_type = ""
         
-        if "class" in node_type and "definition" in node_type:
-            is_symbol = True
+        if node_type in self.rules.get("class", set()):
             sym_type = "class"
-        elif "function" in node_type or "method" in node_type:
-            # Avoid matching too many small nodes, ensure it looks like a declaration
-            if "definition" in node_type or "declaration" in node_type or "signature" in node_type:
-                is_symbol = True
-                sym_type = "function"
+        elif node_type in self.rules.get("function", set()):
+            sym_type = "function"
 
-        if is_symbol:
+        if sym_type:
             # Robust name extraction
             name = "unknown"
             name_node = node.child_by_field_name("name")
             if not name_node:
-                # Search children for first identifier
                 for child in node.children:
                     if "identifier" in child.type:
                         name_node = child
@@ -83,7 +88,6 @@ class TreeSitterParser:
                     "code_content": node.text.decode("utf8") if hasattr(node, 'text') else ""
                 })
 
-        # Recurse into children
         for child in node.children:
             self._walk_node(child, symbols, lines)
 
@@ -103,6 +107,10 @@ class CodeIndexer:
         if not workspace_path or not os.path.exists(workspace_path):
             logger.error(f"Invalid workspace path: {workspace_path}")
             return
+
+        if not os.access(workspace_path, os.R_OK):
+            logger.error(f"Permission denied: {workspace_path}")
+            return
         
         # 1. Gather all files to process
         all_files = []
@@ -120,12 +128,17 @@ class CodeIndexer:
         # 2. Incremental detection
         to_index = []
         if force_full:
-            to_index = all_files
+            # Recompute all hashes
+            for abs_p, rel_p in all_files:
+                h = compute_file_hash(abs_p)
+                if h: to_index.append((abs_p, rel_p, h))
         else:
             for abs_p, rel_p in all_files:
                 current_hash = compute_file_hash(abs_p)
+                if current_hash is None:
+                    continue
+                    
                 db_entry = self.db.file_index.get(project_id, rel_p)
-                
                 if not db_entry or db_entry['file_hash'] != current_hash:
                     to_index.append((abs_p, rel_p, current_hash))
 

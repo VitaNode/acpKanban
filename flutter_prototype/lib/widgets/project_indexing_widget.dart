@@ -181,6 +181,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
             ] else ...[
               _buildStatRow('Files Indexed', '${stats['total_files'] ?? 0}'),
               _buildStatRow('Symbols Found', '${stats['total_symbols'] ?? 0}'),
+              _buildStatRow('Symbols Vectorized', '${stats['total_vectorized_symbols'] ?? 0}'),
               if (lastIndexed != null)
                 _buildStatRow('Last Updated', _formatDate(lastIndexed)),
               const SizedBox(height: 16),

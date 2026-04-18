@@ -1,12 +1,13 @@
 import os
 import json
 import asyncio
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable
 from openai import OpenAI
 from dotenv import load_dotenv
+from src.logger import setup_logger
 
 load_dotenv()
-
+logger = setup_logger("EmbeddingService")
 
 class EmbeddingService:
     _instance = None
@@ -20,13 +21,12 @@ class EmbeddingService:
     def __init__(self, model: str = None, dimensions: int = 1536):
         target_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
         
-        # If already initialized with different params, force re-initialization of client
         if self._initialized:
             if target_model != self.default_model or dimensions != self.dimensions:
-                print(f"[EmbeddingService] Reconfiguring: {self.default_model} -> {target_model}")
+                logger.info(f"Reconfiguring: {self.default_model} -> {target_model}")
                 self.default_model = target_model
                 self.dimensions = dimensions
-                self.client = None # Will be recreated on next _get_client()
+                self.client = None
             return
 
         self.default_model = target_model
@@ -63,10 +63,8 @@ class EmbeddingService:
                         if not os.getenv("EMBEDDING_MODEL"):
                             embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
                             os.environ["EMBEDDING_MODEL"] = embedding_model
-                else:
-                    pass
             except Exception as e:
-                print(f"[EmbeddingService] Database settings fallback failed: {e}")
+                logger.error(f"Database settings fallback failed: {e}")
 
         base_url = base_url or "https://api.openai.com/v1"
 
@@ -75,7 +73,7 @@ class EmbeddingService:
 
         if self.client is None or api_key != self._last_api_key or base_url != self._last_base_url:
             masked_key = api_key[:8] + "..." if api_key else "None"
-            print(f"[EmbeddingService] Initializing OpenAI client with base_url: {base_url}, api_key: {masked_key}")
+            logger.info(f"Initializing OpenAI client with base_url: {base_url}, api_key: {masked_key}")
             self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
             self._last_api_key = api_key
             self._last_base_url = base_url
@@ -87,137 +85,34 @@ class EmbeddingService:
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
         client = self._get_client()
-        if not client:
-            return None
-
+        if not client: return None
         model = os.getenv("EMBEDDING_MODEL", self.default_model)
         try:
-            response = client.embeddings.create(
-                model=model, input=text, dimensions=self.dimensions
-            )
+            response = client.embeddings.create(model=model, input=text, dimensions=self.dimensions)
             return response.data[0].embedding
         except Exception as e:
-            print(f"[!] Embedding error with model {model}: {e}")
-            return None
-
-    def get_embeddings(self, texts: List[str]) -> List[Optional[List[float]]]:
-        client = self._get_client()
-        if not client:
-            return [None] * len(texts)
-
-        model = os.getenv("EMBEDDING_MODEL", self.default_model)
-        try:
-            response = client.embeddings.create(
-                model=model, input=texts, dimensions=self.dimensions
-            )
-            return [item.embedding for item in response.data]
-        except Exception as e:
-            print(f"[!] Embedding batch error with model {model}: {e}")
-            return [None] * len(texts)
-
-    def get_text_embedding(self, text: str) -> str:
-        embedding = self.get_embedding(text)
-        if embedding is None:
-            return "[]"
-        return json.dumps(embedding)
-
-    def compute_card_embedding(
-        self, title: str, description: str = ""
-    ) -> Optional[List[float]]:
-        combined = f"{title}. {description}" if description else title
-        return self.get_embedding(combined)
-
-    def compute_session_embedding(self, messages: List[dict]) -> Optional[List[float]]:
-        if not messages:
-            return None
-
-        combined_text = " ".join(
-            [
-                msg.get("content", "")
-                for msg in messages
-                if msg.get("content") and msg.get("role") != "system"
-            ]
-        )
-        return self.get_embedding(combined_text)
-
-    def generate_summary(self, title: str, messages: List[dict], model: str = None) -> Optional[str]:
-        client = self._get_client()
-        if not client:
-            print("[EmbeddingService] Client not available for summary generation")
-            return None
-
-        model = model or os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
-        
-        logs = "\n".join(
-            [
-                f"[{msg.get('role', 'unknown')}] {msg.get('content', '')}"
-                for msg in messages
-                if msg.get("content")
-            ]
-        )
-        
-        if len(logs) > 3000:
-            logs = logs[:1500] + "\n... [truncated] ...\n" + logs[-1500:]
-
-        prompt = f"""
-You are an expert at summarizing technical discussions and task execution. 
-Summarize the following card development process for card titled "{title}". 
-
-Include:
-1. What was the core problem solved?
-2. What key technical changes were made?
-3. Any important context or technical debt left for the future?
-
-Discussion and execution logs:
-{logs}
-
-Provide a concise summary (max 300 words).
-"""
-
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that summarizes technical tasks."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=500
-            )
-            content = response.choices[0].message.content
-            if not content or not content.strip():
-                print(f"[!] LLM returned empty summary for model {model}")
-                return None
-            return content
-        except Exception as e:
-            print(f"[!] Summary generation error with model {model}: {e}")
+            logger.error(f"Embedding error with model {model}: {e}")
             return None
 
     async def batch_generate_embeddings(self, texts: List[str], batch_size: int = 20) -> List[Optional[List[float]]]:
-        """Batch embedding with error isolation."""
+        """Batch embedding with error isolation. Returns list of embeddings (can contain None)."""
         results = []
         client = self._get_client()
-        if not client:
-            return [None] * len(texts)
-
+        if not client: return [None] * len(texts)
         model = os.getenv("EMBEDDING_MODEL", self.default_model)
         
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i+batch_size]
             try:
-                # Use thread pool for synchronous OpenAI call
                 def call_batch():
-                    response = client.embeddings.create(
-                        model=model, input=batch, dimensions=self.dimensions
-                    )
+                    response = client.embeddings.create(model=model, input=batch, dimensions=self.dimensions)
                     return [item.embedding for item in response.data]
                 
                 embeddings = await asyncio.to_thread(call_batch)
                 results.extend(embeddings)
             except Exception as e:
-                print(f"[!] Batch embedding {i//batch_size} failed: {e}")
-                # Fill with None to maintain indexing, allowing for retry later
+                logger.error(f"Batch embedding {i//batch_size} failed: {e}")
                 results.extend([None] * len(batch))
-
         return results
 
     async def index_codebase(self, project_id: str, workspace_path: str, force_full: bool = False, on_progress: Optional[Callable] = None):
@@ -231,39 +126,44 @@ Provide a concise summary (max 300 words).
         # 1. Structural indexing (Incremental)
         await indexer.index_project(project_id, workspace_path, force_full=force_full, on_progress=on_progress)
         
-        # 2. Vectorization (Phase 2 - Supplemental & Batch)
-        symbols = db.code_symbols.get_by_project(project_id, limit=1000) # Process in reasonable chunks if huge
-        
+        # 2. Vectorization
+        symbols = db.code_symbols.get_by_project(project_id)
         to_embed = []
         for sym in symbols:
-            # Check if embedding already exists
-            if not sym.get("embedding") or sym["embedding"] == "null" or sym["embedding"] == "[]":
-                text_to_embed = f"{sym['symbol_type']} {sym['symbol_name']}\nSignature: {sym['signature']}"
-                if sym.get("documentation"):
-                    text_to_embed += f"\nDocumentation: {sym['documentation']}"
-                to_embed.append((sym, text_to_embed))
+            if not sym.get("embedding") or sym["embedding"] in ("null", "[]"):
+                text = f"{sym['symbol_type']} {sym['symbol_name']}\nSignature: {sym['signature']}"
+                if sym.get("documentation"): text += f"\nDoc: {sym['documentation']}"
+                to_embed.append((sym, text))
         
         if to_embed:
-            print(f"[EmbeddingService] Vectorizing {len(to_embed)} symbols for project {project_id}")
+            logger.info(f"Vectorizing {len(to_embed)} symbols for project {project_id}")
             texts = [item[1] for item in to_embed]
             embeddings = await self.batch_generate_embeddings(texts)
             
+            failed_count = 0
             for (sym, _), emb in zip(to_embed, embeddings):
                 if emb:
                     db.code_symbols.upsert(
-                        project_id=project_id,
-                        file_path=sym['file_path'],
-                        symbol_name=sym['symbol_name'],
-                        symbol_type=sym['symbol_type'],
-                        signature=sym['signature'],
-                        start_line=sym['start_line'],
-                        end_line=sym['end_line'],
-                        documentation=sym['documentation'],
-                        code_content=sym['code_content'],
-                        embedding=emb
+                        project_id=project_id, file_path=sym['file_path'],
+                        symbol_name=sym['symbol_name'], symbol_type=sym['symbol_type'],
+                        signature=sym['signature'], start_line=sym['start_line'],
+                        end_line=sym['end_line'], documentation=sym['documentation'],
+                        code_content=sym['code_content'], embedding=emb
                     )
-        
-        print(f"[EmbeddingService] Completed indexing and vectorization for project {project_id}")
+                else:
+                    failed_count += 1
+            
+            if failed_count > 0:
+                logger.warning(f"{failed_count} symbols failed to vectorize, will retry next time")
 
+        # Update stats
+        final_files = db.get_project_file_count(project_id)
+        final_symbols = db.get_project_symbol_count(project_id)
+        final_vec = db.get_project_vectorized_symbol_count(project_id)
+        db.update_project_stats(
+            project_id, total_files=final_files, total_symbols=final_symbols,
+            total_vectorized_symbols=final_vec
+        )
+        logger.info(f"Completed indexing for project {project_id}")
 
 embedding_service = EmbeddingService()

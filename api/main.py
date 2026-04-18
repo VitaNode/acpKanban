@@ -57,6 +57,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown logic
     import run_bridge
+    from api.projects import index_task_manager
+    
+    # 1. Cancel all background indexing tasks
+    print("[*] Cleaning up background indexing tasks...")
+    for pid in list(index_task_manager._tasks.keys()):
+        await index_task_manager.cancel_task(pid)
+
     if run_bridge.bridge_instance:
         print("[*] Stopping Integrated Bridge...")
         await run_bridge.bridge_instance.shutdown()

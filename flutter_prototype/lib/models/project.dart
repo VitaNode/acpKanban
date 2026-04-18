@@ -10,6 +10,7 @@ class Project {
   final String? lastIndexedAt;
   final int totalFiles;
   final int totalSymbols;
+  final int totalVectorizedSymbols;
 
   Project({
     required this.id,
@@ -23,6 +24,7 @@ class Project {
     this.lastIndexedAt,
     this.totalFiles = 0,
     this.totalSymbols = 0,
+    this.totalVectorizedSymbols = 0,
   });
 
   factory Project.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,7 @@ class Project {
       lastIndexedAt: json['last_indexed_at'],
       totalFiles: json['total_files'] ?? 0,
       totalSymbols: json['total_symbols'] ?? 0,
+      totalVectorizedSymbols: json['total_vectorized_symbols'] ?? 0,
     );
   }
 
@@ -53,6 +56,7 @@ class Project {
       'last_indexed_at': lastIndexedAt,
       'total_files': totalFiles,
       'total_symbols': totalSymbols,
+      'total_vectorized_symbols': totalVectorizedSymbols,
     };
   }
 
@@ -66,6 +70,7 @@ class Project {
     String? lastIndexedAt,
     int? totalFiles,
     int? totalSymbols,
+    int? totalVectorizedSymbols,
   }) {
     return Project(
       id: id,
@@ -79,6 +84,7 @@ class Project {
       lastIndexedAt: lastIndexedAt ?? this.lastIndexedAt,
       totalFiles: totalFiles ?? this.totalFiles,
       totalSymbols: totalSymbols ?? this.totalSymbols,
+      totalVectorizedSymbols: totalVectorizedSymbols ?? this.totalVectorizedSymbols,
     );
   }
 

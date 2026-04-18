@@ -45,17 +45,28 @@ class ConnectionPool:
 
     def get(self):
         try:
-            return self._pool.get(timeout=2)
+            # Try to get from pool first with small timeout
+            return self._pool.get(timeout=0.5)
         except Empty:
             with self._lock:
                 if self._current_size < self._max_size:
                     conn = self._create_fn()
                     self._current_size += 1
                     return conn
+            # Pool is full and empty, wait until one is free
             return self._pool.get()
 
     def put(self, conn):
-        self._pool.put(conn)
+        try:
+            self._pool.put(conn, block=False)
+        except:
+            # If pool somehow got extra connections, close this one
+            try:
+                conn.close()
+            except:
+                pass
+            with self._lock:
+                self._current_size -= 1
 
 class BaseRepository:
     def __init__(self, db):
@@ -550,7 +561,7 @@ class KanbanDB:
     def init_db(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME, index_status TEXT DEFAULT 'idle', last_indexed_at DATETIME, total_files INTEGER DEFAULT 0, total_symbols INTEGER DEFAULT 0, index_checkpoint TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME, index_status TEXT DEFAULT 'idle', last_indexed_at DATETIME, total_files INTEGER DEFAULT 0, total_symbols INTEGER DEFAULT 0, total_vectorized_symbols INTEGER DEFAULT 0, index_checkpoint TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT)")
             cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0)")
@@ -569,6 +580,7 @@ class KanbanDB:
                 ("projects", "last_indexed_at", "DATETIME"),
                 ("projects", "total_files", "INTEGER DEFAULT 0"),
                 ("projects", "total_symbols", "INTEGER DEFAULT 0"),
+                ("projects", "total_vectorized_symbols", "INTEGER DEFAULT 0"),
                 ("projects", "index_checkpoint", "TEXT"),
                 ("columns", "prompt_template", "TEXT"), 
                 ("columns", "approval_mode", "TEXT"), 
@@ -637,7 +649,7 @@ class KanbanDB:
             row = cursor.fetchone()
             return row[0] if row else default
             
-    def update_project_stats(self, project_id: str, total_files: int = None, total_symbols: int = None, index_status: str = None, last_indexed_at: str = None, index_checkpoint: str = None):
+    def update_project_stats(self, project_id: str, total_files: int = None, total_symbols: int = None, total_vectorized_symbols: int = None, index_status: str = None, last_indexed_at: str = None, index_checkpoint: str = None):
         updates = []
         params = []
         if total_files is not None:
@@ -646,6 +658,9 @@ class KanbanDB:
         if total_symbols is not None:
             updates.append("total_symbols = ?")
             params.append(total_symbols)
+        if total_vectorized_symbols is not None:
+            updates.append("total_vectorized_symbols = ?")
+            params.append(total_vectorized_symbols)
         if index_status is not None:
             updates.append("index_status = ?")
             params.append(index_status)
@@ -671,6 +686,11 @@ class KanbanDB:
     def get_project_symbol_count(self, project_id: str) -> int:
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM code_symbols WHERE project_id = ?", (project_id,))
+            return cursor.fetchone()[0]
+
+    def get_project_vectorized_symbol_count(self, project_id: str) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM code_symbols WHERE project_id = ? AND embedding IS NOT NULL AND embedding != '[]'", (project_id,))
             return cursor.fetchone()[0]
 
     def set_setting(self, key: str, value: Any):
