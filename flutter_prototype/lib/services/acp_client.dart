@@ -71,8 +71,6 @@ class ACPClient {
   Map<String, dynamic> _agentCapabilities = {};
   Map<String, dynamic> get agentCapabilities => _agentCapabilities;
 
-  ACPClient();
-
   Future<void> smartConnect(ACPConfig config) async {
     if (config.sessionKeyHex != null) {
       _e2ee = E2EEManager(config.sessionKeyHex!);
