@@ -81,6 +81,12 @@ async def handle_relay_logic(websocket, role, user_id):
         if relays.get(user_id) and relays[user_id].get(role) == websocket:
             relays[user_id][role] = None
 
+async def process_request(path, request_headers):
+    """Log incoming handshake for debugging."""
+    logger.debug(f"Handshake path: {path}")
+    logger.debug(f"Headers: {dict(request_headers)}")
+    return None # Proceed with default upgrade
+
 async def handler(websocket):
     """Main handler (websockets 14.0+ API)."""
     path = websocket.request.path

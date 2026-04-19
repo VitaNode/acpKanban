@@ -268,6 +268,18 @@ async def create_project(request: ProjectCreateRequest, background_tasks: Backgr
         raise HTTPError(400, str(e))
 
 
+@router.get("/projects/status", response_model=list)
+async def get_all_project_statuses():
+    """
+    Get agent statuses for all active projects.
+    """
+    db = get_db()
+    try:
+        return db.get_all_agent_statuses()
+    except Exception as e:
+        raise HTTPError(400, str(e))
+
+
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(project_id: str):
     """
@@ -677,28 +689,5 @@ async def get_project_status(project_id: str):
                 "last_message": None,
                 "updated_at": None,
             }
-    except Exception as e:
-        raise HTTPError(400, str(e))
-
-
-@router.get("/projects/status", response_model=list)
-async def get_all_project_statuses():
-    """
-    Get agent statuses for all active projects.
-    """
-    db = get_db()
-    try:
-        statuses = db.get_all_agent_statuses()
-        return [
-            {
-                "project_id": s["project_id"],
-                "project_name": s["project_name"],
-                "state": s["state"],
-                "start_time": s.get("start_time"),
-                "last_message": s.get("last_message"),
-                "updated_at": s.get("updated_at"),
-            }
-            for s in statuses
-        ]
     except Exception as e:
         raise HTTPError(400, str(e))

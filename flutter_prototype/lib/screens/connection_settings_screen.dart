@@ -163,10 +163,12 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
 
     await configManager.saveConfig(config);
 
-    setState(() {
-      _isConnecting = true;
-      _connectionStatus = 'Connecting...';
-    });
+    if (mounted) {
+      setState(() {
+        _isConnecting = true;
+        _connectionStatus = 'Connecting...';
+      });
+    }
 
     try {
       widget.acpClient.disconnect();
@@ -175,9 +177,11 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       await widget.acpClient.smartConnect(acpConfig);
       await widget.acpClient.initialize(acpConfig.systemConfig);
 
-      setState(() {
-        _connectionStatus = 'Connected';
-      });
+      if (mounted) {
+        setState(() {
+          _connectionStatus = 'Connected';
+        });
+      }
       widget.onConnectionChanged?.call(
         widget.acpClient.activeMode,
         widget.acpClient.activeUrl,
@@ -190,18 +194,22 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
         Navigator.of(context).pop();
       }
     } catch (e) {
-      setState(() {
-        _connectionStatus = 'Failed: ${e.toString()}';
-      });
+      if (mounted) {
+        setState(() {
+          _connectionStatus = 'Failed: ${e.toString()}';
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Connection failed: $e')),
         );
       }
     } finally {
-      setState(() {
-        _isConnecting = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isConnecting = false;
+        });
+      }
     }
   }
 
