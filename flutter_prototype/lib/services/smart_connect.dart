@@ -121,10 +121,18 @@ class SmartConnect {
       
       final String? ip = await (() async {
         try {
-          // Wrap the entire lookup in a secondary try-catch to be absolutely safe
-          // In some cases, lookup() itself or the first listen can throw SocketException
-          final lookupStream = client.lookup<PtrResourceRecord>(
-              ResourceRecordQuery.serverPointer(_serviceType));
+          // Phase 5.3 FIX: In some environments, even calling lookup() can throw 
+          // a synchronous SocketException before the stream is returned.
+          Stream<PtrResourceRecord>? lookupStream;
+          try {
+            lookupStream = client.lookup<PtrResourceRecord>(
+                ResourceRecordQuery.serverPointer(_serviceType));
+          } catch (e) {
+            print('[SmartConnect] mDNS lookup sync error: $e');
+            return null;
+          }
+
+          if (lookupStream == null) return null;
 
           await for (final PtrResourceRecord ptr in lookupStream.handleError((e) => print('mDNS Stream Error: $e'))) {
             try {
@@ -144,16 +152,11 @@ class SmartConnect {
             } catch (srvE) { print('SRV Outer Error: $srvE'); }
           }
         } catch (lookupError) {
-          print('[SmartConnect] mDNS lookup outer error: $lookupError');
-        } catch (e) {
-          // Catch potential sync SocketException during stream setup
-          print('[SmartConnect] mDNS lookup immediate error: $e');
+          print('[SmartConnect] mDNS lookup major error: $lookupError');
         }
         return null;
       })()
-          .timeout(const Duration(seconds: 2), onTimeout: () {
-            return null;
-          });
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
 
       return ip;
     } catch (e) {
