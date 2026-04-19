@@ -278,9 +278,29 @@ class UnifiedBridge:
     async def _handle_relay_connection(self, ws):
         """Handle an established relay connection."""
         self.logger.info("Connected to Relay Server")
+        
+        async def relay_send(msg_dict):
+            # If we have an established secret, wrap in E2EE envelope
+            secret = getattr(self, "_relay_e2ee_secret", None)
+            if secret and msg_dict.get("method") != "pairing/exchange":
+                from src.transport.e2ee import encrypt_message
+                payload = encrypt_message(json.dumps(msg_dict), secret)
+                wrapped = {
+                    "jsonrpc": "2.0",
+                    "method": "e2ee/envelope",
+                    "params": {"payload": payload}
+                }
+                await ws.send(json.dumps(wrapped))
+            else:
+                await ws.send(json.dumps(msg_dict))
+
         async for message in ws:
-            data = json.loads(message)
-            asyncio.create_task(self.handle_rpc(data, lambda n: ws.send(json.dumps(n))))
+            try:
+                data = json.loads(message)
+                # handle_rpc will now handle decryption and dispatching
+                await self.handle_rpc(data, relay_send)
+            except Exception as e:
+                self.logger.error(f"Error handling relay message: {e}")
 
     async def on_ui_response(self, request_id: str, result: Any):
         """Phase 3.2: Standardized UI Response Resolver."""
@@ -297,8 +317,62 @@ class UnifiedBridge:
 
         method = data.get("method")
         params = data.get("params", {})
+        request_id = data.get("id")
 
-        # Handle system-level RPCs before dispatching to engines
+        # 1. Handle Response (Result/Error) from UI
+        if request_id and ("result" in data or "error" in data):
+            future = self._pending_ui_requests.pop(str(request_id), None)
+            if future and not future.done():
+                future.set_result(data.get("result") if "result" in data else data.get("error"))
+            return
+
+        # 2. Handle E2EE Envelope
+        if method == "e2ee/envelope":
+            payload = params.get("payload")
+            # We need to know which client sent this to find the right secret.
+            # For Relay, there's only one "client" (the App). 
+            # We'll use a special marker or store the last secret.
+            secret = getattr(self, "_relay_e2ee_secret", None)
+            if not secret:
+                self.logger.error("Received E2EE envelope but no relay secret established")
+                return
+
+            from src.transport.e2ee import decrypt_message
+            try:
+                decrypted_str = decrypt_message(payload, secret)
+                decrypted_data = json.loads(decrypted_str)
+                # Re-route decrypted content
+                await self.handle_rpc(decrypted_data, send_output)
+                return
+            except Exception as e:
+                self.logger.error(f"Failed to decrypt relay message: {e}")
+                return
+
+        # 2. Handle Pairing (ECDH)
+        if method == "pairing/exchange":
+            client_pub_hex = params.get("publicKey")
+            if not client_pub_hex:
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing publicKey"}})
+                return
+
+            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+            
+            client_pub = X25519PublicKey.from_public_bytes(bytes.fromhex(client_pub_hex))
+            shared_secret = self._bridge_private_key.exchange(client_pub)
+            
+            # Store secret for this connection (Relay mode uses a single secret for now)
+            self._relay_e2ee_secret = shared_secret
+            
+            await safe_send({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {"publicKey": self._bridge_public_key_hex}
+            })
+            self.logger.info(f"Relay E2EE Pairing established with client")
+            return
+
+        # 3. Handle system-level RPCs
         if method == "system/config/get":
             config_str = self.db.get_setting("system_config", "{}")
             try:
