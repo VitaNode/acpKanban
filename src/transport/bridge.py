@@ -254,18 +254,22 @@ class UnifiedBridge:
         headers = {"X-User-ID": self.user_id}
         if self.token: headers["Authorization"] = f"Bearer {self.token}"
 
+        # Build full relay URL: ws://host:port/relay/mac/user_id
+        base_url = self.relay_url.rstrip("/")
+        full_url = f"{base_url}/relay/mac/{self.user_id}"
+
         while True:
             try:
                 # websockets >= 13.0 uses additional_headers instead of extra_headers
                 connect_kwargs = {"additional_headers": headers}
                 # Fallback for older versions
                 try:
-                    async with websockets.connect(self.relay_url, **connect_kwargs) as ws:
+                    async with websockets.connect(full_url, **connect_kwargs) as ws:
                         await self._handle_relay_connection(ws)
                 except TypeError:
                     # Old version fallback
                     connect_kwargs = {"extra_headers": headers}
-                    async with websockets.connect(self.relay_url, **connect_kwargs) as ws:
+                    async with websockets.connect(full_url, **connect_kwargs) as ws:
                         await self._handle_relay_connection(ws)
             except Exception as e:
                 self.logger.error(f"Relay error: {e}. Retrying in 5s...")
