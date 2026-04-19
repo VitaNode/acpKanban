@@ -42,8 +42,11 @@ post_install do |installer|
     target.build_configurations.each do |config|
       # Force 13.0 to prevent low versions from leaking to frameworks
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-      # Force dSYM generation to fix objective_c missing symbols error
+      # Force dSYM generation
       config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+      # Prevent stripping symbols during build
+      config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
+      config.build_settings['COPY_PHASE_STRIP'] = 'NO'
     end
   end
 end
