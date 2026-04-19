@@ -16,7 +16,7 @@ class ProjectService {
   String _baseUrl = 'http://localhost:8000';
   final ACPClient _acpClient = ACPClient();
 
-  bool get _isRelayMode => _acpClient.activeMode == ConnectionPath.relay;
+  bool get _useProxy => _acpClient.activeMode != ConnectionPath.none;
 
   void updateBaseUrl(String newUrl) {
     // If it's a relay URL, we don't want to use it for REST (Relay only handles WebSocket)
@@ -38,7 +38,7 @@ class ProjectService {
 
   Future<List<Project>> getProjects() async {
     // In Relay mode, ALWAYS use WebSocket and wait for it to be ready
-    if (_isRelayMode) {
+    if (_useProxy) {
       try {
         await _acpClient.waitForReady;
         final response = await _acpClient.sendRequest('projects/list', {});
@@ -143,7 +143,7 @@ class ProjectService {
 
   Future<List<KanbanColumn>> getColumns(String projectId) async {
     // Try HTTP proxy first in Relay mode to get latest data from API
-    if (_isRelayMode) {
+    if (_useProxy) {
       try {
         final response = await _get('/api/projects/$projectId/columns');
         if (response.statusCode == 200) {
@@ -223,7 +223,7 @@ class ProjectService {
 
   Future<ProjectSwitchData?> switchToProject(String projectId) async {
     // In Relay mode, prefer proxying the actual API call to get full ProjectSwitchData
-    if (_isRelayMode) {
+    if (_useProxy) {
       try {
         final response = await _post('/api/projects/$projectId/switch', {});
         if (response.statusCode == 200) {
@@ -317,7 +317,7 @@ class ProjectService {
   Future<List<KanbanCard>> getCardsByColumn(String columnId,
       {bool includeCompleted = false}) async {
     // Try HTTP proxy first in Relay mode
-    if (_isRelayMode) {
+    if (_useProxy) {
       try {
         final response = await _get('/api/columns/$columnId/cards?include_completed=$includeCompleted');
         if (response.statusCode == 200) {
@@ -370,7 +370,7 @@ class ProjectService {
   Future<KanbanCard?> createCard(String columnId, String title,
       {String? description, String? acpProviderId}) async {
     // Try HTTP proxy first in Relay mode
-    if (_isRelayMode) {
+    if (_useProxy) {
       try {
         final response = await _post('/api/cards', {
           'column_id': columnId,
@@ -608,7 +608,7 @@ class ProjectService {
   Future<bool> moveCard(
       String cardId, String targetColumnId, int position) async {
     // Try HTTP proxy first in Relay mode
-    if (_isRelayMode) {
+    if (_useProxy) {
       try {
         final response = await _patch('/api/cards/$cardId/move', {
           'target_column_id': targetColumnId,
@@ -709,7 +709,7 @@ class ProjectService {
   }
 
   Future<dynamic> _get(String path) async {
-    if (_isRelayMode) {
+    if (_useProxy) {
       return _proxyRequest('GET', path);
     }
     final client = HttpClient();
@@ -725,7 +725,7 @@ class ProjectService {
   }
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
-    if (_isRelayMode) {
+    if (_useProxy) {
       return _proxyRequest('POST', path, body: body);
     }
     final client = HttpClient();
@@ -743,7 +743,7 @@ class ProjectService {
   }
 
   Future<dynamic> _put(String path, Map<String, dynamic> body) async {
-    if (_isRelayMode) {
+    if (_useProxy) {
       return _proxyRequest('PUT', path, body: body);
     }
     final client = HttpClient();
@@ -764,7 +764,7 @@ class ProjectService {
   }
 
   Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
-    if (_isRelayMode) {
+    if (_useProxy) {
       return _proxyRequest('PATCH', path, body: body);
     }
     final client = HttpClient();
@@ -785,7 +785,7 @@ class ProjectService {
   }
 
   Future<dynamic> _delete(String path) async {
-    if (_isRelayMode) {
+    if (_useProxy) {
       return _proxyRequest('DELETE', path);
     }
     final client = HttpClient();
