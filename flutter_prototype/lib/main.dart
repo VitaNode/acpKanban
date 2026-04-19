@@ -710,8 +710,17 @@ class _MainScreenState extends State<MainScreen> {
           acpClient: _acpClient,
           currentMode: _getCurrentConnectionMode(),
           userId: _userId ?? 'test_user',
-          onConnectionChanged: (newMode, url) {
-            setState(() {});
+          onConnectionChanged: (newMode, url) async {
+            // Reload config to get the updated userId
+            final configManager = await ConnectionConfigManager.getInstance();
+            final savedConfig = await configManager.loadConfig();
+            if (mounted) {
+              setState(() {
+                _userId = savedConfig.userId;
+              });
+              // Reload projects if connection changed
+              _loadProjects();
+            }
           },
         ),
       ),

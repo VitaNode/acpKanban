@@ -178,7 +178,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     try {
       widget.acpClient.disconnect();
 
-      final acpConfig = ACPConfig.fromConnectionConfig(config, widget.userId);
+      final acpConfig = ACPConfig.fromConnectionConfig(config, config.userId ?? widget.userId);
       await widget.acpClient.smartConnect(acpConfig);
       await widget.acpClient.initialize(acpConfig.systemConfig);
 
