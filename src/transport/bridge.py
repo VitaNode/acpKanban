@@ -7,6 +7,7 @@ import sys
 import os
 import base64
 import websockets
+import httpx
 from typing import Dict, Any, Optional, Callable, Set
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -37,6 +38,12 @@ class UnifiedBridge:
             encoding=Encoding.Raw,
             format=PublicFormat.Raw
         ).hex()
+        
+        # HTTP client for proxying requests to local API
+        self._proxy_client = httpx.AsyncClient(
+            base_url="http://localhost:8000",
+            timeout=30.0
+        )
 
     async def start(self, run_forever=True):
         """Starts both local and relay servers."""
@@ -69,6 +76,10 @@ class UnifiedBridge:
             self._server.close()
             await self._server.wait_closed()
             self.logger.info("Local tool bridge stopped")
+        
+        # Close proxy client
+        await self._proxy_client.aclose()
+        self.logger.info("Proxy client closed")
 
     async def _handle_local_client(self, websocket):
         """Handle incoming WebSocket connections from Flutter or local tools."""
@@ -392,14 +403,142 @@ class UnifiedBridge:
             })
             return
 
-        # 4. Handle system-level RPCs
+        # 4. Handle API Proxying
+        if method == "http/proxy":
+            path = params.get("path")
+            http_method = params.get("method", "GET").upper()
+            body = params.get("body")
+            headers = params.get("headers", {})
+
+            self.logger.info(f"Proxying {http_method} {path}")
+            try:
+                response = await self._proxy_client.request(
+                    method=http_method,
+                    url=path,
+                    json=body,
+                    headers=headers
+                )
+                
+                # Check if it's JSON
+                try:
+                    resp_data = response.json()
+                except:
+                    resp_data = response.text
+
+                await safe_send({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {
+                        "statusCode": response.status_code,
+                        "body": resp_data if isinstance(resp_data, str) else json.dumps(resp_data)
+                    }
+                })
+            except Exception as e:
+                self.logger.error(f"Proxy error: {e}")
+                await safe_send({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": 500, "message": f"Proxy error: {str(e)}"}
+                })
+            return
+
+        # 5. Handle system-level RPCs
         if method == "system/config/get":
             config_str = self.db.get_setting("system_config", "{}")
             try:
                 config = json.loads(config_str)
             except:
                 config = {}
-            return config
+            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": config})
+            return
+
+        if method == "projects/list":
+            projects = self.db.get_projects()
+            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": projects})
+            return
+
+        if method == "projects/status":
+            # This handles getAllProjectStatuses for iPhone UI
+            try:
+                projects = self.db.get_projects()
+                status = []
+                for p in projects:
+                    status.append({
+                        "id": p["id"],
+                        "name": p["name"],
+                        "status": "ready" # Simple status for now
+                    })
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": status})
+            except Exception as e:
+                self.logger.error(f"Error getting project status: {e}")
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+            return
+
+        if method == "projects/switch":
+            pid = params.get("project_id")
+            # Logic from api/projects.py: just mark as current
+            self.db.set_setting("current_project_id", pid)
+            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True, "project_id": pid}})
+            return
+
+        if method == "cards/create":
+            # Direct DB creation
+            card = self.db.create_card(
+                column_id=params.get("column_id"),
+                title=params.get("title"),
+                description=params.get("description", ""),
+                position=params.get("position", 0)
+            )
+            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": card})
+            return
+
+        if method == "cards/move":
+            card_id = params.get("card_id")
+            column_id = params.get("column_id")
+            position = params.get("position")
+            success = self.db.move_card(card_id, column_id, position)
+            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": success}})
+            return
+
+        if method == "projects/get":
+            pid = params.get("project_id")
+            project = self.db.get_project(pid)
+            if project:
+                # 1. Fetch Columns
+                raw_cols = self.db.get_columns(pid)
+                full_columns = []
+                for c in raw_cols:
+                    # Normalize ID
+                    if 'column_id' in c and 'id' not in c:
+                        c['id'] = c['column_id']
+                    
+                    # 2. Fetch Cards for each column (Flutter expects this in project/get)
+                    cards = self.db.get_cards_by_column(c['id'])
+                    # Normalize Card IDs too
+                    for card in cards:
+                        if 'card_id' in card and 'id' not in card:
+                            card['id'] = card['card_id']
+                    
+                    c['cards'] = cards
+                    full_columns.append(c)
+                
+                project["columns"] = full_columns
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": project})
+            else:
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Project not found"}})
+            return
+
+        if method == "cards/list":
+            cid = params.get("column_id")
+            # Corrected method name: get_cards -> get_cards_by_column
+            raw_cards = self.db.get_cards_by_column(cid)
+            normalized_cards = []
+            for c in raw_cards:
+                if 'card_id' in c and 'id' not in c:
+                    c['id'] = c['card_id']
+                normalized_cards.append(c)
+            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": normalized_cards})
+            return
 
         async def on_ui_request(method, params):
             rid = str(uuid.uuid4())

@@ -71,7 +71,19 @@ class ACPClient {
   Map<String, dynamic> _agentCapabilities = {};
   Map<String, dynamic> get agentCapabilities => _agentCapabilities;
 
+  bool get isReady => _channel != null && (_e2ee?.isReady ?? false);
+  Completer<void>? _readyCompleter;
+
+  Future<void> get waitForReady async {
+    if (isReady) return;
+    if (_readyCompleter == null || _readyCompleter!.isCompleted) {
+      _readyCompleter = Completer<void>();
+    }
+    return _readyCompleter!.future;
+  }
+
   Future<void> smartConnect(ACPConfig config) async {
+    _readyCompleter = Completer<void>();
     if (config.sessionKeyHex != null) {
       _e2ee = E2EEManager(config.sessionKeyHex!);
       debugPrint('[ACP] E2EE initialized with pre-shared key');
@@ -306,8 +318,15 @@ class ACPClient {
 
       _agentCapabilities = response['result']?['agentCapabilities'] ?? {};
       debugPrint('[ACP] Agent capabilities: $_agentCapabilities');
+      
+      if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+        _readyCompleter!.complete();
+      }
     } catch (e) {
       debugPrint('[ACP] Initialize warning (proceeding anyway): $e');
+      if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
+        _readyCompleter!.complete();
+      }
     }
   }
 

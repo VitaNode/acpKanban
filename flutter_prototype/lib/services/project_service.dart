@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import '../models/project.dart';
 import '../models/kanban_column.dart';
 import '../models/kanban_card.dart';
 import '../models/timeline_event.dart';
+import 'acp_client.dart';
+import 'smart_connect.dart';
 
 class ProjectService {
   static final ProjectService _instance = ProjectService._internal();
@@ -11,6 +14,9 @@ class ProjectService {
   ProjectService._internal();
 
   String _baseUrl = 'http://localhost:8000';
+  final ACPClient _acpClient = ACPClient();
+
+  bool get _isRelayMode => _acpClient.activeMode == ConnectionPath.relay;
 
   void updateBaseUrl(String newUrl) {
     // If it's a relay URL, we don't want to use it for REST (Relay only handles WebSocket)
@@ -31,6 +37,24 @@ class ProjectService {
   }
 
   Future<List<Project>> getProjects() async {
+    // In Relay mode, ALWAYS use WebSocket and wait for it to be ready
+    if (_isRelayMode) {
+      try {
+        await _acpClient.waitForReady;
+        final response = await _acpClient.sendRequest('projects/list', {});
+        if (response.containsKey('result')) {
+          final dynamic resultData = response['result'];
+          if (resultData is List) {
+            return resultData.map((p) => Project.fromJson(p)).toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('[ProjectService] ACP projects/list failed: $e');
+      }
+      // If relay failed, we don't fall back to HTTP localhost because it will definitely fail
+      return [];
+    }
+
     try {
       final response = await _get('/api/projects');
       if (response.statusCode == 200) {
@@ -45,6 +69,17 @@ class ProjectService {
   }
 
   Future<Project?> getProject(String projectId) async {
+    if (_isRelayMode && _acpClient.isReady) {
+      try {
+        final response = await _acpClient.sendRequest('projects/get', {'project_id': projectId});
+        if (response.containsKey('result')) {
+          return Project.fromJson(response['result']);
+        }
+      } catch (e) {
+        debugPrint('[ProjectService] ACP projects/get failed: $e');
+      }
+    }
+
     try {
       final response = await _get('/api/projects/$projectId');
       if (response.statusCode == 200) {
@@ -107,6 +142,32 @@ class ProjectService {
   }
 
   Future<List<KanbanColumn>> getColumns(String projectId) async {
+    // Try HTTP proxy first in Relay mode to get latest data from API
+    if (_isRelayMode) {
+      try {
+        final response = await _get('/api/projects/$projectId/columns');
+        if (response.statusCode == 200) {
+          final List<dynamic> data = jsonDecode(response.body);
+          return data.map((c) => KanbanColumn.fromJson(c)).toList();
+        }
+      } catch (e) {
+        debugPrint('[ProjectService] Proxy getColumns failed, trying RPC fallback: $e');
+        
+        // Fallback to RPC projects/get which might have embedded columns
+        try {
+          await _acpClient.waitForReady;
+          final response = await _acpClient.sendRequest('projects/get', {'project_id': projectId});
+          if (response.containsKey('result') && response['result'] != null && response['result']['columns'] != null) {
+            final List<dynamic> cols = response['result']['columns'];
+            return cols.map((c) => KanbanColumn.fromJson(c)).toList();
+          }
+        } catch (re) {
+          debugPrint('[ProjectService] RPC getColumns fallback failed: $re');
+        }
+      }
+      return [];
+    }
+
     try {
       final response = await _get('/api/projects/$projectId/columns');
       if (response.statusCode == 200) {
@@ -147,6 +208,7 @@ class ProjectService {
   }
 
   Future<List<Map<String, dynamic>>> getAllProjectStatuses() async {
+    // In Relay mode, _get will handle proxying automatically
     try {
       final response = await _get('/api/projects/status');
       if (response.statusCode == 200) {
@@ -160,11 +222,41 @@ class ProjectService {
   }
 
   Future<ProjectSwitchData?> switchToProject(String projectId) async {
+    // In Relay mode, prefer proxying the actual API call to get full ProjectSwitchData
+    if (_isRelayMode) {
+      try {
+        final response = await _post('/api/projects/$projectId/switch', {});
+        if (response.statusCode == 200) {
+          return ProjectSwitchData.fromJson(jsonDecode(response.body));
+        }
+      } catch (e) {
+        debugPrint('[ProjectService] Proxy switchToProject failed, trying RPC fallback: $e');
+        
+        // Fallback to minimal RPC switch
+        try {
+          final response = await _acpClient.sendRequest('projects/switch', {'project_id': projectId});
+          if (response.containsKey('result')) {
+            final p = await getProject(projectId);
+            if (p != null) {
+              return ProjectSwitchData(
+                project: p,
+                columns: [], 
+                timeline: [],
+                message: "Switched via Relay RPC",
+              );
+            }
+          }
+        } catch (re) {
+          debugPrint('[ProjectService] RPC switchToProject fallback failed: $re');
+        }
+      }
+      return null;
+    }
+
     try {
       final response = await _post('/api/projects/$projectId/switch', {});
       if (response.statusCode == 200) {
-        return ProjectSwitchData.fromJsonWithColumnId(
-            jsonDecode(response.body));
+        return ProjectSwitchData.fromJson(jsonDecode(response.body));
       }
       return null;
     } catch (e) {
@@ -224,6 +316,24 @@ class ProjectService {
 
   Future<List<KanbanCard>> getCardsByColumn(String columnId,
       {bool includeCompleted = false}) async {
+    if (_isRelayMode) {
+      try {
+        await _acpClient.waitForReady;
+        final response = await _acpClient.sendRequest('cards/list', {'column_id': columnId});
+        if (response.containsKey('result') && response['result'] is List) {
+          final List<dynamic> resultData = response['result'];
+          return resultData.map((c) {
+            final cardMap = Map<String, dynamic>.from(c);
+            cardMap['column_id'] = columnId;
+            return KanbanCard.fromJson(cardMap);
+          }).toList();
+        }
+      } catch (e) {
+        debugPrint('[ProjectService] ACP cards/list failed: $e');
+      }
+      return [];
+    }
+
     try {
       final response = await _get(
           '/api/columns/$columnId/cards?include_completed=$includeCompleted');
@@ -244,6 +354,24 @@ class ProjectService {
 
   Future<KanbanCard?> createCard(String columnId, String title,
       {String? description, String? acpProviderId}) async {
+    if (_isRelayMode && _acpClient.isReady) {
+      try {
+        final response = await _acpClient.sendRequest('cards/create', {
+          'column_id': columnId,
+          'title': title,
+          'description': description ?? "",
+          'acp_provider_id': acpProviderId
+        });
+        if (response.containsKey('result')) {
+          final cardMap = Map<String, dynamic>.from(response['result']);
+          cardMap['column_id'] = columnId;
+          return KanbanCard.fromJson(cardMap);
+        }
+      } catch (e) {
+        debugPrint('[ProjectService] ACP cards/create failed: $e');
+      }
+    }
+
     try {
       final response = await _post('/api/cards', {
         'column_id': columnId,
@@ -448,6 +576,19 @@ class ProjectService {
 
   Future<bool> moveCard(
       String cardId, String targetColumnId, int position) async {
+    if (_isRelayMode && _acpClient.isReady) {
+      try {
+        final response = await _acpClient.sendRequest('cards/move', {
+          'card_id': cardId,
+          'column_id': targetColumnId,
+          'position': position
+        });
+        return response.containsKey('result');
+      } catch (e) {
+        debugPrint('[ProjectService] ACP cards/move failed: $e');
+      }
+    }
+
     try {
       final response = await _patch('/api/cards/$cardId/move', {
         'target_column_id': targetColumnId,
@@ -526,6 +667,9 @@ class ProjectService {
   }
 
   Future<dynamic> _get(String path) async {
+    if (_isRelayMode) {
+      return _proxyRequest('GET', path);
+    }
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
@@ -539,6 +683,9 @@ class ProjectService {
   }
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+    if (_isRelayMode) {
+      return _proxyRequest('POST', path, body: body);
+    }
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
@@ -554,6 +701,9 @@ class ProjectService {
   }
 
   Future<dynamic> _put(String path, Map<String, dynamic> body) async {
+    if (_isRelayMode) {
+      return _proxyRequest('PUT', path, body: body);
+    }
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
@@ -572,6 +722,9 @@ class ProjectService {
   }
 
   Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
+    if (_isRelayMode) {
+      return _proxyRequest('PATCH', path, body: body);
+    }
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
@@ -590,6 +743,9 @@ class ProjectService {
   }
 
   Future<dynamic> _delete(String path) async {
+    if (_isRelayMode) {
+      return _proxyRequest('DELETE', path);
+    }
     final client = HttpClient();
     try {
       final uri = Uri.parse('$_baseUrl$path');
@@ -599,6 +755,31 @@ class ProjectService {
       return _HttpResponse(response.statusCode, body);
     } finally {
       client.close();
+    }
+  }
+
+  Future<_HttpResponse> _proxyRequest(String method, String path, {Map<String, dynamic>? body}) async {
+    try {
+      await _acpClient.waitForReady;
+      final response = await _acpClient.sendRequest('http/proxy', {
+        'method': method,
+        'path': path,
+        'body': body,
+      });
+      
+      if (response.containsKey('result')) {
+        final result = response['result'];
+        return _HttpResponse(
+          result['statusCode'] ?? 500,
+          result['body'] ?? '',
+        );
+      } else if (response.containsKey('error')) {
+        return _HttpResponse(500, jsonEncode(response['error']));
+      }
+      return _HttpResponse(500, 'Unknown proxy error');
+    } catch (e) {
+      debugPrint('[ProjectService] Proxy request failed: $e');
+      return _HttpResponse(500, 'Proxy exception: $e');
     }
   }
 
