@@ -30,6 +30,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   late TextEditingController _relayHostController;
   late TextEditingController _relayTokenController;
   late TextEditingController _cloudUrlController;
+  late TextEditingController _userIdController;
   late TextEditingController _localPortController;
   late TextEditingController _relayPortController;
   late TextEditingController _apiPortController;
@@ -54,6 +55,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     _localIpController = TextEditingController();
     _relayHostController = TextEditingController(text: '35.211.219.123');
     _relayTokenController = TextEditingController();
+    _userIdController = TextEditingController(text: widget.userId);
     _cloudUrlController =
         TextEditingController(text: 'ws://35.211.219.123:8766/direct');
     _localPortController = TextEditingController(text: '8766');
@@ -78,6 +80,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       _localIpController.text = config.localIp ?? '';
       _relayHostController.text = config.relayHost ?? '35.211.219.123';
       _relayTokenController.text = config.relayToken ?? '';
+      _userIdController.text = config.userId ?? widget.userId;
       _cloudUrlController.text =
           config.cloudUrl ?? 'ws://35.211.219.123:8766/direct';
       _localPortController.text = (config.localPort ?? 8766).toString();
@@ -99,6 +102,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   void dispose() {
     _localIpController.dispose();
     _relayHostController.dispose();
+    _userIdController.dispose();
     _relayTokenController.dispose();
     _cloudUrlController.dispose();
     _localPortController.dispose();
@@ -152,6 +156,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
           : _relayTokenController.text,
       cloudUrl:
           _cloudUrlController.text.isEmpty ? null : _cloudUrlController.text,
+      userId: _userIdController.text.isEmpty ? null : _userIdController.text,
       autoFallback: false,
       systemConfig: SystemAgentConfig(
         baseUrl: _systemBaseUrlController.text.isEmpty ? null : _systemBaseUrlController.text,
@@ -451,6 +456,16 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        TextField(
+          controller: _userIdController,
+          decoration: const InputDecoration(
+            labelText: 'User ID (Must match Mac)',
+            prefixIcon: Icon(Icons.person_outline_rounded, size: 18),
+            hintText: 'user_123456',
+          ),
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: AppConstants.space12),
         TextField(
           controller: _relayHostController,
           decoration: const InputDecoration(
