@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
         from src.transport.bridge import UnifiedBridge
         
         # In a real app, these would come from config or env
-        user_id = os.getenv("MYBOT_USER_ID", "test_user")
+        user_id = os.getenv("MYBOT_USER_ID", "user_683652")
         relay_url = os.getenv("MYBOT_RELAY_URL", "ws://35.211.219.123:8766")
         token = os.getenv("MYBOT_TOKEN", "8c939a7d-e31b-4e1d-b26c-57b4589519e1")
         workspace_cwd = os.getenv("MYBOT_WORKSPACE_CWD")
