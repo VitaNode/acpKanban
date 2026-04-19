@@ -131,7 +131,7 @@ class SmartConnect {
               final srvStream = client.lookup<SrvResourceRecord>(
                   ResourceRecordQuery.service(ptr.domainName));
 
-              await for (final SrvResourceRecord srv in srvStream.handleError((e) => print('SRV Stream Error: $srvE'))) {
+              await for (final SrvResourceRecord srv in srvStream.handleError((e) => print('SRV Stream Error: $e'))) {
                 try {
                   final ipStream = client.lookup<IPAddressResourceRecord>(
                       ResourceRecordQuery.addressIPv4(srv.target));
