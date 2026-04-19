@@ -377,7 +377,22 @@ class UnifiedBridge:
             self.logger.info(f"Relay E2EE Pairing established with client")
             return
 
-        # 3. Handle system-level RPCs
+        # 3. Handle Initialize
+        if method == "initialize":
+            await safe_send({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": 1,
+                    "agentCapabilities": {
+                        "tools": {"supported": True},
+                        "resources": {"supported": True}
+                    }
+                }
+            })
+            return
+
+        # 4. Handle system-level RPCs
         if method == "system/config/get":
             config_str = self.db.get_setting("system_config", "{}")
             try:

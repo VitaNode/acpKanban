@@ -13,6 +13,11 @@ class ProjectService {
   String _baseUrl = 'http://localhost:8000';
 
   void updateBaseUrl(String newUrl) {
+    // If it's a relay URL, we don't want to use it for REST (Relay only handles WebSocket)
+    if (newUrl.contains('/relay/')) {
+      return;
+    }
+
     if (newUrl.startsWith('ws')) {
       _baseUrl = newUrl.replaceFirst('ws', 'http');
     } else {
