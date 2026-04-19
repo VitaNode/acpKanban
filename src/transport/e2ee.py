@@ -12,6 +12,31 @@ from cryptography.hazmat.backends import default_backend
 
 KEY_STORAGE_PATH = Path.home() / ".mybot" / "e2ee_keys.json"
 
+def _derive_key(raw_secret: bytes) -> bytes:
+    """Helper to derive a 32-byte key from shared secret using HKDF."""
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"mybot-e2ee-x25519-context",
+    ).derive(raw_secret)
+
+def encrypt_message(plaintext: str, secret: bytes) -> str:
+    """Standalone encryption using a raw shared secret (X25519 exchange result)."""
+    key = _derive_key(secret)
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), None)
+    return base64.b64encode(nonce + ciphertext).decode("utf-8")
+
+def decrypt_message(b64_payload: str, secret: bytes) -> str:
+    """Standalone decryption using a raw shared secret (X25519 exchange result)."""
+    key = _derive_key(secret)
+    aesgcm = AESGCM(key)
+    payload = base64.b64decode(b64_payload)
+    nonce = payload[:12]
+    ciphertext = payload[12:]
+    return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
 
 class E2EEManager:
     def __init__(self, session_key_hex=None):
@@ -21,7 +46,6 @@ class E2EEManager:
             self.setup_session(session_key_hex)
         else:
             import warnings
-
             warnings.warn(
                 "E2EE initialized without a session key. Encryption will fail until setup_session is called."
             )
@@ -64,19 +88,13 @@ class E2EEManager:
             bytes.fromhex(peer_public_hex)
         )
         shared_key = private_key_obj.exchange(peer_public_key)
-        derived_key = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=None,
-            info=b"mybot-e2ee-x25519-context",
-        ).derive(shared_key)
+        derived_key = _derive_key(shared_key)
         return derived_key.hex()
 
     def encrypt(self, plaintext_str):
         if not self.is_ready:
             raise RuntimeError("E2EE engine not initialized with session key")
         nonce = os.urandom(12)
-        # Returns ciphertext + 16 bytes tag
         ciphertext = self.aesgcm.encrypt(nonce, plaintext_str.encode(), None)
         payload = nonce + ciphertext
         return base64.b64encode(payload).decode("utf-8")
@@ -87,20 +105,10 @@ class E2EEManager:
         payload = base64.b64decode(b64_payload)
         nonce = payload[:12]
         ciphertext = payload[12:]
-        # Decrypts and verifies the 16 bytes tag at the end of ciphertext
         plaintext = self.aesgcm.decrypt(nonce, ciphertext, None)
         return plaintext.decode("utf-8")
 
     def wrap_json_rpc(self, data):
-        """
-        Wrap data in E2EE envelope.
-
-        Args:
-            data: Dictionary to encrypt
-
-        Returns:
-            Dictionary (not JSON string) for consistent API
-        """
         plaintext = json.dumps(data)
         encrypted_payload = self.encrypt(plaintext)
         return {
@@ -125,7 +133,6 @@ class E2EEManager:
                 with open(KEY_STORAGE_PATH, "r") as f:
                     keys = json.load(f)
             except (json.JSONDecodeError, ValueError):
-                # If corrupted, start fresh
                 keys = {}
 
         keys[user_id] = {
@@ -168,4 +175,3 @@ class E2EEManager:
             del keys[user_id]
             with open(KEY_STORAGE_PATH, "w") as f:
                 json.dump(keys, f)
-
