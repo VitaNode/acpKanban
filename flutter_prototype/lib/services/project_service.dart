@@ -69,7 +69,7 @@ class ProjectService {
   }
 
   Future<Project?> getProject(String projectId) async {
-    if (_isRelayMode && _acpClient.isReady) {
+    if (_useProxy && _acpClient.isReady) {
       try {
         final response = await _acpClient.sendRequest('projects/get', {'project_id': projectId});
         if (response.containsKey('result')) {
