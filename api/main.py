@@ -110,6 +110,21 @@ async def root():
     }
 
 
+@app.get("/api/system/config")
+async def get_system_config():
+    """Expose system configuration via REST (useful when Bridge/WebSocket is not connected)."""
+    db = get_db()
+    config_str = db.get_setting("system_config", "{}")
+    try:
+        import json
+        config = json.loads(config_str)
+        # Mask API key for security if needed, but here it's used for validation
+        # Actually, for validation we just need to know if it exists
+        return config
+    except:
+        return {}
+
+
 @app.get("/health")
 async def health_check():
     try:

@@ -576,6 +576,13 @@ class KanbanDB:
             
             # Migration/Maintenance: Add columns if they were missing from older versions
             migrations = [
+                ("projects", "description", "TEXT"), 
+                ("projects", "index_status", "TEXT DEFAULT 'idle'"),
+                ("projects", "last_indexed_at", "DATETIME"),
+                ("projects", "total_files", "INTEGER DEFAULT 0"),
+                ("projects", "total_symbols", "INTEGER DEFAULT 0"),
+                ("projects", "total_vectorized_symbols", "INTEGER DEFAULT 0"),
+                ("projects", "index_checkpoint", "TEXT"),
                 ("columns", "prompt_template", "TEXT"), 
                 ("columns", "approval_mode", "TEXT"), 
                 ("cards", "last_summary", "TEXT"), 

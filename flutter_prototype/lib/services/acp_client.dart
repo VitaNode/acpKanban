@@ -51,6 +51,10 @@ class ACPConfig {
 }
 
 class ACPClient {
+  static final ACPClient _instance = ACPClient._internal();
+  factory ACPClient() => _instance;
+  ACPClient._internal();
+
   WebSocketChannel? _channel;
   final _uuid = const Uuid();
   final Map<String, Completer<Map<String, dynamic>>> _pendingRequests = {};

@@ -68,8 +68,23 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
 
   Future<void> _startIndexing({bool forceFull = false}) async {
     // Validate config first
-    final config = await _acpClient.getSystemConfig();
-    if (config == null || config['openai_api_key'] == null || config['openai_api_key'].isEmpty) {
+    Map<String, dynamic>? config;
+    
+    // Try ACP client first (WebSocket/Bridge)
+    try {
+      config = await _acpClient.getSystemConfig();
+    } catch (e) {
+      debugPrint('ACP Config check failed: $e');
+    }
+
+    // Fallback to REST API (Backend DB)
+    if (config == null || config.isEmpty) {
+      config = await _projectService.getSystemConfig();
+    }
+
+    final apiKey = config?['openai_api_key'] ?? config?['api_key'] ?? config?['apiKey'];
+
+    if (apiKey == null || apiKey.toString().isEmpty) {
       if (mounted) {
         showDialog(
           context: context,
@@ -245,7 +260,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
-        border: BorderSide(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withOpacity(0.5)),
       ),
       child: Text(
         label,

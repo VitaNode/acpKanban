@@ -115,6 +115,19 @@ class ProjectService {
     }
   }
 
+  Future<Map<String, dynamic>?> getSystemConfig() async {
+    try {
+      final response = await _get('/api/system/config');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getSystemConfig error: $e');
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>?> getProjectStatus(String projectId) async {
     try {
       final response = await _get('/api/projects/$projectId/status');
