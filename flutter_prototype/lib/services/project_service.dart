@@ -227,7 +227,7 @@ class ProjectService {
       try {
         final response = await _post('/api/projects/$projectId/switch', {});
         if (response.statusCode == 200) {
-          return ProjectSwitchData.fromJson(jsonDecode(response.body));
+          return ProjectSwitchData.fromJsonWithColumnId(jsonDecode(response.body));
         }
       } catch (e) {
         debugPrint('[ProjectService] Proxy switchToProject failed, trying RPC fallback: $e');
@@ -256,7 +256,7 @@ class ProjectService {
     try {
       final response = await _post('/api/projects/$projectId/switch', {});
       if (response.statusCode == 200) {
-        return ProjectSwitchData.fromJson(jsonDecode(response.body));
+        return ProjectSwitchData.fromJsonWithColumnId(jsonDecode(response.body));
       }
       return null;
     } catch (e) {
