@@ -316,20 +316,35 @@ class ProjectService {
 
   Future<List<KanbanCard>> getCardsByColumn(String columnId,
       {bool includeCompleted = false}) async {
+    // Try HTTP proxy first in Relay mode
     if (_isRelayMode) {
       try {
-        await _acpClient.waitForReady;
-        final response = await _acpClient.sendRequest('cards/list', {'column_id': columnId});
-        if (response.containsKey('result') && response['result'] is List) {
-          final List<dynamic> resultData = response['result'];
-          return resultData.map((c) {
+        final response = await _get('/api/columns/$columnId/cards?include_completed=$includeCompleted');
+        if (response.statusCode == 200) {
+          final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
+          return data.map((c) {
             final cardMap = Map<String, dynamic>.from(c);
             cardMap['column_id'] = columnId;
             return KanbanCard.fromJson(cardMap);
           }).toList();
         }
       } catch (e) {
-        debugPrint('[ProjectService] ACP cards/list failed: $e');
+        debugPrint('[ProjectService] Proxy getCardsByColumn failed, trying RPC fallback: $e');
+        
+        try {
+          await _acpClient.waitForReady;
+          final response = await _acpClient.sendRequest('cards/list', {'column_id': columnId});
+          if (response.containsKey('result') && response['result'] is List) {
+            final List<dynamic> resultData = response['result'];
+            return resultData.map((c) {
+              final cardMap = Map<String, dynamic>.from(c);
+              cardMap['column_id'] = columnId;
+              return KanbanCard.fromJson(cardMap);
+            }).toList();
+          }
+        } catch (re) {
+          debugPrint('[ProjectService] RPC getCardsByColumn fallback failed: $re');
+        }
       }
       return [];
     }
@@ -354,22 +369,38 @@ class ProjectService {
 
   Future<KanbanCard?> createCard(String columnId, String title,
       {String? description, String? acpProviderId}) async {
-    if (_isRelayMode && _acpClient.isReady) {
+    // Try HTTP proxy first in Relay mode
+    if (_isRelayMode) {
       try {
-        final response = await _acpClient.sendRequest('cards/create', {
+        final response = await _post('/api/cards', {
           'column_id': columnId,
           'title': title,
-          'description': description ?? "",
-          'acp_provider_id': acpProviderId
+          if (description != null) 'description': description,
+          if (acpProviderId != null) 'acp_provider_id': acpProviderId,
         });
-        if (response.containsKey('result')) {
-          final cardMap = Map<String, dynamic>.from(response['result']);
-          cardMap['column_id'] = columnId;
-          return KanbanCard.fromJson(cardMap);
+        if (response.statusCode == 201) {
+          return KanbanCard.fromJson(jsonDecode(response.body));
         }
       } catch (e) {
-        debugPrint('[ProjectService] ACP cards/create failed: $e');
+        debugPrint('[ProjectService] Proxy createCard failed, trying RPC fallback: $e');
+        
+        try {
+          final response = await _acpClient.sendRequest('cards/create', {
+            'column_id': columnId,
+            'title': title,
+            'description': description ?? "",
+            'acp_provider_id': acpProviderId
+          });
+          if (response.containsKey('result')) {
+            final cardMap = Map<String, dynamic>.from(response['result']);
+            cardMap['column_id'] = columnId;
+            return KanbanCard.fromJson(cardMap);
+          }
+        } catch (re) {
+          debugPrint('[ProjectService] RPC createCard fallback failed: $re');
+        }
       }
+      return null;
     }
 
     try {
@@ -576,16 +607,27 @@ class ProjectService {
 
   Future<bool> moveCard(
       String cardId, String targetColumnId, int position) async {
-    if (_isRelayMode && _acpClient.isReady) {
+    // Try HTTP proxy first in Relay mode
+    if (_isRelayMode) {
       try {
-        final response = await _acpClient.sendRequest('cards/move', {
-          'card_id': cardId,
-          'column_id': targetColumnId,
-          'position': position
+        final response = await _patch('/api/cards/$cardId/move', {
+          'target_column_id': targetColumnId,
+          'target_position': position,
         });
-        return response.containsKey('result');
+        return response.statusCode == 200;
       } catch (e) {
-        debugPrint('[ProjectService] ACP cards/move failed: $e');
+        debugPrint('[ProjectService] Proxy moveCard failed, trying RPC fallback: $e');
+        
+        try {
+          final response = await _acpClient.sendRequest('cards/move', {
+            'card_id': cardId,
+            'column_id': targetColumnId,
+            'position': position
+          });
+          return response.containsKey('result');
+        } catch (re) {
+          debugPrint('[ProjectService] RPC moveCard fallback failed: $re');
+        }
       }
     }
 
