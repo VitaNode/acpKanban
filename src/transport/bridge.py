@@ -282,7 +282,12 @@ class UnifiedBridge:
         async def relay_send(msg_dict):
             # If we have an established secret, wrap in E2EE envelope
             secret = getattr(self, "_relay_e2ee_secret", None)
-            if secret and msg_dict.get("method") != "pairing/exchange":
+            
+            # Check if this is a pairing response (should always be plaintext)
+            is_pairing_res = "result" in msg_dict and isinstance(msg_dict["result"], dict) and "publicKey" in msg_dict["result"]
+            is_pairing_req = msg_dict.get("method") == "pairing/exchange"
+            
+            if secret and not is_pairing_req and not is_pairing_res:
                 from src.transport.e2ee import encrypt_message
                 payload = encrypt_message(json.dumps(msg_dict), secret)
                 wrapped = {
