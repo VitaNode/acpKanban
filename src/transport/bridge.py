@@ -44,6 +44,8 @@ class UnifiedBridge:
             base_url="http://localhost:8000",
             timeout=30.0
         )
+        # Card Session WebSocket Map: card_id -> WebSocketConnection
+        self._card_sessions: Dict[str, websockets.WebSocketClientProtocol] = {}
 
     async def start(self, run_forever=True):
         """Starts both local and relay servers."""
@@ -441,6 +443,71 @@ class UnifiedBridge:
                     "error": {"code": 500, "message": f"Proxy error: {str(e)}"}
                 })
             return
+
+        if method == "session/ws_proxy":
+            action = params.get("action")
+            card_id = params.get("card_id")
+            if not card_id:
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing card_id"}})
+                return
+
+            if action == "connect":
+                ws_url = f"ws://127.0.0.1:8000/api/ws/session/{card_id}"
+                self.logger.info(f"Connecting proxy WS to {ws_url}")
+                try:
+                    # Clean up old session if exists
+                    if card_id in self._card_sessions:
+                        await self._card_sessions[card_id].close()
+                    
+                    ws = await websockets.connect(ws_url)
+                    self._card_sessions[card_id] = ws
+                    
+                    # Spawn listener for this card session
+                    async def ws_listener():
+                        try:
+                            async for message in ws:
+                                # Relay back to mobile via ACP Notification
+                                notification = {
+                                    "jsonrpc": "2.0",
+                                    "method": "session/ws_event",
+                                    "params": {
+                                        "card_id": card_id,
+                                        "payload": message
+                                    }
+                                }
+                                await safe_send(notification)
+                        except Exception as e:
+                            self.logger.warning(f"WS Proxy Listener error for {card_id}: {e}")
+                        finally:
+                            self._card_sessions.pop(card_id, None)
+                            self.logger.info(f"WS Proxy session closed for {card_id}")
+                    
+                    asyncio.create_task(ws_listener())
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                except Exception as e:
+                    self.logger.error(f"WS Proxy Connect error: {e}")
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+                return
+
+            if action == "send":
+                data = params.get("data")
+                ws = self._card_sessions.get(card_id)
+                if ws:
+                    try:
+                        await ws.send(json.dumps(data) if isinstance(data, dict) else data)
+                        await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                    except Exception as e:
+                        await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+                else:
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected"}})
+                return
+
+            if action == "disconnect":
+                ws = self._card_sessions.pop(card_id, None)
+                if ws:
+                    await ws.close()
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                return
 
         # 5. Handle system-level RPCs
         if method == "system/config/get":

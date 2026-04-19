@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/card_message.dart';
 import '../models/agent_plan.dart';
 import '../models/config_option.dart';
 import '../models/kanban_card.dart';
+import 'acp_client.dart';
+import 'smart_connect.dart';
 
 class SessionWebSocketService {
   static final SessionWebSocketService _instance =
@@ -13,7 +16,13 @@ class SessionWebSocketService {
   SessionWebSocketService._internal();
 
   static const String _baseUrl = 'http://localhost:8000';
+  final ACPClient _acpClient = ACPClient();
+  
+  bool get _useProxy => _acpClient.activeMode != ConnectionPath.none;
+
   WebSocketChannel? _channel;
+  StreamSubscription? _acpSub;
+
   final _messageController = StreamController<List<CardMessage>>.broadcast();
   final _statusController = StreamController<String>.broadcast();
   final _planController = StreamController<AgentPlan?>.broadcast();
@@ -53,7 +62,7 @@ class SessionWebSocketService {
     }
 
     // 同一张卡片且连接正常 → 重新请求历史（支持重入）
-    if (_channel != null && _currentCardId == cardId && _isConnected) {
+    if ((_channel != null || (_useProxy && _isConnected)) && _currentCardId == cardId && _isConnected) {
       await _requestHistory();
       return true;
     }
@@ -65,6 +74,45 @@ class SessionWebSocketService {
     _configController.add([]);
     _commandController.add([]);
     _reconnectCount = 0;
+
+    if (_useProxy) {
+      debugPrint('[SessionWS] Using ACP Proxy for card $cardId');
+      try {
+        await _acpClient.waitForReady;
+        final response = await _acpClient.sendRequest('session/ws_proxy', {
+          'action': 'connect',
+          'card_id': cardId,
+        });
+        
+        if (response.containsKey('result')) {
+          _isConnected = true;
+          _reconnectCount = 0;
+          
+          // Listen to ACP notifications
+          _acpSub?.cancel();
+          _acpSub = _acpClient.messages.listen((msgStr) {
+            try {
+              final msg = jsonDecode(msgStr);
+              if (msg['method'] == 'session/ws_event' && msg['params']?['card_id'] == _currentCardId) {
+                _handleMessage(msg['params']['payload']);
+              }
+            } catch (e) {
+              debugPrint('[SessionWS] ACP Msg Error: $e');
+            }
+          });
+          
+          await _requestHistory();
+          return true;
+        } else {
+          debugPrint('[SessionWS] Proxy connect failed: ${response['error']}');
+          return false;
+        }
+      } catch (e) {
+        debugPrint('[SessionWS] Proxy connect error: $e');
+        return false;
+      }
+    }
+
     try {
       final uri = Uri.parse(
           '${_baseUrl.replaceFirst('http', 'ws')}/api/ws/session/$cardId');
@@ -94,6 +142,7 @@ class SessionWebSocketService {
   }
 
   void _reconnectIfNecessary() {
+    if (_useProxy) return; // ACP Proxy handles reconnection via SmartConnect
     _reconnectTimer?.cancel();
     if (_currentCardId != null && _reconnectCount < 5) {
       _reconnectCount++;
@@ -104,6 +153,7 @@ class SessionWebSocketService {
   }
 
   void _startHeartbeat() {
+    if (_useProxy) return;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (t) {
       if (_isConnected && _channel != null) {
@@ -117,8 +167,25 @@ class SessionWebSocketService {
   }
 
   Future<void> _requestHistory() async {
-    if (_channel != null && _isConnected)
-      _channel?.sink.add(jsonEncode({'type': 'get_history'}));
+    await _send({'type': 'get_history'});
+  }
+
+  Future<void> _send(dynamic data) async {
+    if (!_isConnected) return;
+    
+    if (_useProxy) {
+      try {
+        await _acpClient.sendRequest('session/ws_proxy', {
+          'action': 'send',
+          'card_id': _currentCardId,
+          'data': data,
+        });
+      } catch (e) {
+        debugPrint('[SessionWS] Proxy send error: $e');
+      }
+    } else if (_channel != null) {
+      _channel!.sink.add(data is String ? data : jsonEncode(data));
+    }
   }
 
   void _handleMessage(dynamic data) {
@@ -254,34 +321,48 @@ class SessionWebSocketService {
   }
 
   Future<void> sendInit() async {
-    if (_channel != null && _isConnected) {
+    if (_isConnected) {
       _initializingController.add(true);
-      _channel!.sink.add(jsonEncode({'type': 'session_init'}));
+      await _send({'type': 'session_init'});
     }
   }
 
   Future<void> setConfigOption(String configId, String value) async {
-    if (_channel != null && _isConnected)
-      _channel!.sink.add(jsonEncode(
-          {'type': 'set_config_option', 'name': configId, 'value': value}));
+    if (_isConnected)
+      await _send(
+          {'type': 'set_config_option', 'name': configId, 'value': value});
   }
 
   Future<void> sendMessage(String role, String content) async {
-    if (_channel == null || !_isConnected) throw Exception('Not connected');
-    _channel!.sink.add(
-        jsonEncode({'type': 'send_message', 'role': role, 'content': content}));
+    if (!_isConnected) throw Exception('Not connected');
+    await _send(
+        {'type': 'send_message', 'role': role, 'content': content});
   }
 
   Future<void> sendResponse(String id, Map<String, dynamic> result) async {
-    if (_channel != null && _isConnected) {
-      _channel!.sink.add(
-          jsonEncode({'type': 'rpc_response', 'id': id, 'result': result}));
+    if (_isConnected) {
+      await _send(
+          {'type': 'rpc_response', 'id': id, 'result': result});
     }
   }
 
   Future<void> disconnect() async {
     _heartbeatTimer?.cancel();
     _reconnectTimer?.cancel();
+    _acpSub?.cancel();
+    _acpSub = null;
+    
+    if (_useProxy && _currentCardId != null && _isConnected) {
+      try {
+        await _acpClient.sendRequest('session/ws_proxy', {
+          'action': 'disconnect',
+          'card_id': _currentCardId,
+        });
+      } catch (e) {
+        debugPrint('[SessionWS] Proxy disconnect error: $e');
+      }
+    }
+
     // Immediately reset state to avoid race conditions when reconnecting
     final channel = _channel;
     _channel = null;
