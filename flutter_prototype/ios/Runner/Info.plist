@@ -6,6 +6,8 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>MinimumOSVersion</key>
+	<string>13.0</string>	
 	<key>CFBundleDisplayName</key>
 	<string>Kanban App</string>
 	<key>CFBundleExecutable</key>
@@ -54,6 +56,8 @@
 			</array>
 		</dict>
 	</dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
