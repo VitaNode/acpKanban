@@ -147,6 +147,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 else
                   DropdownButtonFormField<String>(
                     value: _selectedProviderId,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Default AI Provider',
                       hintText: 'Select an agent for this column',
@@ -154,7 +155,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text('None (Manual selection)'),
+                        child: Text('None (Manual selection)', overflow: TextOverflow.ellipsis),
                       ),
                       ..._providers.map((p) => DropdownMenuItem(
                             value: p.id,
@@ -162,14 +163,13 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                               children: [
                                 Icon(IconUtil.getProviderIcon(p.icon), size: 18),
                                 const SizedBox(width: 8),
-                                Text(p.name),
+                                Expanded(child: Text(p.name, overflow: TextOverflow.ellipsis)),
                               ],
                             ),
                           )),
                     ],
                     onChanged: (v) => setState(() => _selectedProviderId = v),
-                  ),
-                const SizedBox(height: AppConstants.space24),
+                  ),                const SizedBox(height: AppConstants.space24),
                 TextField(
                   controller: _promptTemplateController,
                   decoration: const InputDecoration(
@@ -328,13 +328,14 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                 else
                   DropdownButtonFormField<String>(
                     value: _selectedProviderId,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Default AI Provider',
                     ),
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text('None (Manual selection)'),
+                        child: Text('None (Manual selection)', overflow: TextOverflow.ellipsis),
                       ),
                       ..._providers.map((p) => DropdownMenuItem(
                             value: p.id,
@@ -342,7 +343,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                               children: [
                                 Icon(IconUtil.getProviderIcon(p.icon), size: 18),
                                 const SizedBox(width: 8),
-                                Text(p.name),
+                                Expanded(child: Text(p.name, overflow: TextOverflow.ellipsis)),
                               ],
                             ),
                           )),
@@ -492,15 +493,16 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
             Text('Move cards in "${column.name}" to:', style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: AppConstants.space16),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               items: otherColumns
                   .map((c) => DropdownMenuItem(
                         value: c.id,
-                        child: Text(c.name),
+                        child: Text(c.name, overflow: TextOverflow.ellipsis),
                       ))
                   .toList(),
               onChanged: (v) => moveToId = v,
               decoration: const InputDecoration(labelText: 'Target Column'),
-              hint: const Text('Select target column'),
+              hint: const Text('Select target column', overflow: TextOverflow.ellipsis),
             ),
           ],
         ),
