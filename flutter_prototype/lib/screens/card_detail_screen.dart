@@ -214,6 +214,139 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _wsService.getContext();
   }
 
+  Future<void> _onComplete() async {
+    if (_card.status == 'completed') {
+      final updated = await _projectService.uncompleteCard(_card.id);
+      if (updated != null && mounted) {
+        setState(() => _card = updated);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Card "${_card.title}" reactivated')),
+        );
+      }
+    } else {
+      final updated = await _projectService.completeCard(_card.id);
+      if (updated != null && mounted) {
+        setState(() => _card = updated);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Card "${_card.title}" completed')),
+        );
+      }
+    }
+  }
+
+  Future<void> _onDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Card'),
+        content: Text('Are you sure you want to delete "${_card.title}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final success = await _projectService.deleteCard(_card.id);
+      if (success && mounted) {
+        Navigator.pop(context); // Go back to board
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Card "${_card.title}" deleted')),
+        );
+      }
+    }
+  }
+
+  Future<void> _onMove() async {
+    setState(() => _isSavingCard = true);
+    try {
+      final columns = await _projectService.getColumns(widget.projectId);
+      if (!mounted) return;
+      setState(() => _isSavingCard = false);
+
+      final targetColumn = await showDialog<KanbanColumn>(
+        context: context,
+        builder: (context) {
+          final size = MediaQuery.of(context).size;
+          return AlertDialog(
+            title: const Text('Move to Column'),
+            content: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 400,
+                maxHeight: size.height * 0.6,
+              ),
+              child: SizedBox(
+                width: size.width * 0.8,
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: columns.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final col = columns[index];
+                    final isCurrent = col.id == _card.columnId;
+                    return ListTile(
+                      title: Text(col.name,
+                          style: TextStyle(
+                            fontWeight:
+                                isCurrent ? FontWeight.bold : FontWeight.normal,
+                            color: isCurrent
+                                ? AppConstants.primaryColor
+                                : AppConstants.textPrimary,
+                          )),
+                      trailing: isCurrent
+                          ? const Icon(Icons.check_rounded,
+                              color: AppConstants.primaryColor)
+                          : null,
+                      onTap: isCurrent ? null : () => Navigator.pop(context, col),
+                    );
+                  },
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (targetColumn != null && mounted) {
+        setState(() => _isSavingCard = true);
+        final success = await _projectService.moveCard(_card.id, targetColumn.id, 0);
+        if (success && mounted) {
+          setState(() {
+            _card = _card.copyWith(columnId: targetColumn.id);
+            _isSavingCard = false;
+          });
+          _loadEnvironmentInfo(); // Reload provider info for new column
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Moved to ${targetColumn.name}')),
+          );
+        } else if (mounted) {
+          setState(() => _isSavingCard = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to move card')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSavingCard = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
   void _onCardUpdate(KanbanCard updatedCard) {
     if (!mounted) return;
     setState(() {
@@ -371,6 +504,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
     _debounceTimer =
         Timer(AppConstants.autoSaveDebounce, () => _autoSaveCard());
+    // Ensure AppBar title updates immediately
+    if (mounted) setState(() {});
   }
 
   Future<void> _autoSaveCard() async {
@@ -447,8 +582,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     return Scaffold(
       backgroundColor: AppConstants.backgroundColor,
       appBar: AppBar(
-          title: Text(_card.shortId,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 14)),
+          title: Text(_titleController.text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           actions: [
             if (_isSavingCard || _isSavingSummary)
               const Center(
@@ -458,10 +595,58 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2)))),
-            IconButton(
-              icon: const Icon(Icons.more_vert), 
-              onPressed: () {},
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
               tooltip: 'Card Actions',
+              onSelected: (value) {
+                if (value == 'complete') {
+                  _onComplete();
+                } else if (value == 'delete') {
+                  _onDelete();
+                } else if (value == 'move') {
+                  _onMove();
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'complete',
+                  child: Row(
+                    children: [
+                      Icon(
+                          _card.status == 'completed'
+                              ? Icons.undo_rounded
+                              : Icons.check_circle_outline_rounded,
+                          size: 20),
+                      const SizedBox(width: 12),
+                      Text(_card.status == 'completed'
+                          ? 'Reactivate Card'
+                          : 'Complete Card'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'move',
+                  child: Row(
+                    children: [
+                      Icon(Icons.drive_file_move_outline, size: 20),
+                      const SizedBox(width: 12),
+                      Text('Move to Column'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline_rounded,
+                          size: 20, color: Colors.red),
+                      const SizedBox(width: 12),
+                      Text('Delete Card', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ]),
       body: SelectionArea(
@@ -693,7 +878,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                           style: const TextStyle(
                               fontSize: 12, color: AppConstants.textSecondary)),
                     ),
-                    if (_isInitializing)
+                    if (_targetProviderId == null)
+                      const SizedBox.shrink()
+                    else if (_isInitializing)
                       const SizedBox(
                           width: 16,
                           height: 16,
