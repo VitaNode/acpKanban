@@ -127,6 +127,7 @@ class MessageBubble extends StatelessWidget {
     if (blocks.length == 1 && blocks[0] is TextContent) {
       return MarkdownBody(
         data: (blocks[0] as TextContent).text,
+        selectable: true,
         styleSheet: MarkdownStyleSheet(
           p: TextStyle(
             color: isUser ? Colors.white : AppConstants.textPrimary,
@@ -266,7 +267,7 @@ class MessageBubble extends StatelessWidget {
         color: const Color(0xFF1E1E1E),
         borderRadius: BorderRadius.circular(AppConstants.space4),
       ),
-      child: Text(
+      child: SelectableText(
         text,
         style: const TextStyle(
           color: Color(0xFFCE9178),

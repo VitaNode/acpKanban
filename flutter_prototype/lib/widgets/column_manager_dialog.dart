@@ -92,90 +92,100 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: const Text('Edit Column'),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Column Name'),
-            ),
-            const SizedBox(height: AppConstants.space24),
-            Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: AppConstants.space8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _colors.map((color) {
-                final isSelected =
-                    color.toUpperCase() == _selectedColor.toUpperCase();
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedColor = color),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: _parseColor(color),
-                      shape: BoxShape.circle,
-                      border: isSelected
-                          ? Border.all(color: AppConstants.textPrimary, width: 2)
-                          : Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: isSelected
-                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
-                        : null,
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: AppConstants.space24),
-            if (_isLoadingProviders)
-              const Center(child: CircularProgressIndicator())
-            else
-              DropdownButtonFormField<String>(
-                value: _selectedProviderId,
-                decoration: const InputDecoration(
-                  labelText: 'Default AI Provider',
-                  hintText: 'Select an agent for this column',
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 450,
+          maxHeight: size.height * 0.7,
+        ),
+        child: SizedBox(
+          width: size.width * 0.9,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _nameController,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'Column Name'),
                 ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: null,
-                    child: Text('None (Manual selection)'),
-                  ),
-                  ..._providers.map((p) => DropdownMenuItem(
-                    value: p.id,
-                    child: Row(
-                      children: [
-                        Icon(IconUtil.getProviderIcon(p.icon), size: 18),
-                        const SizedBox(width: 8),
-                        Text(p.name),
-                      ],
+                const SizedBox(height: AppConstants.space24),
+                Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: AppConstants.space8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _colors.map((color) {
+                    final isSelected =
+                        color.toUpperCase() == _selectedColor.toUpperCase();
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedColor = color),
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: _parseColor(color),
+                          shape: BoxShape.circle,
+                          border: isSelected
+                              ? Border.all(color: AppConstants.textPrimary, width: 2)
+                              : Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: AppConstants.space24),
+                if (_isLoadingProviders)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  DropdownButtonFormField<String>(
+                    value: _selectedProviderId,
+                    decoration: const InputDecoration(
+                      labelText: 'Default AI Provider',
+                      hintText: 'Select an agent for this column',
                     ),
-                  )),
-                ],
-                onChanged: (v) => setState(() => _selectedProviderId = v),
-              ),
-            const SizedBox(height: AppConstants.space24),
-            TextField(
-              controller: _promptTemplateController,
-              decoration: const InputDecoration(
-                labelText: 'Prompt Template',
-                hintText: 'Instructions for AI in this column...',
-              ),
-              maxLines: 4,
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('None (Manual selection)'),
+                      ),
+                      ..._providers.map((p) => DropdownMenuItem(
+                            value: p.id,
+                            child: Row(
+                              children: [
+                                Icon(IconUtil.getProviderIcon(p.icon), size: 18),
+                                const SizedBox(width: 8),
+                                Text(p.name),
+                              ],
+                            ),
+                          )),
+                    ],
+                    onChanged: (v) => setState(() => _selectedProviderId = v),
+                  ),
+                const SizedBox(height: AppConstants.space24),
+                TextField(
+                  controller: _promptTemplateController,
+                  decoration: const InputDecoration(
+                    labelText: 'Prompt Template',
+                    hintText: 'Instructions for AI in this column...',
+                  ),
+                  maxLines: 4,
+                ),
+                const SizedBox(height: AppConstants.space8),
+                Text(
+                  '💡 Custom prompt for cards in this column.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
+                ),
+              ],
             ),
-            const SizedBox(height: AppConstants.space8),
-            Text(
-              '💡 Custom prompt for cards in this column.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
-            ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -189,7 +199,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
             if (name.isNotEmpty) {
               final promptTemplate = _promptTemplateController.text.trim();
               Navigator.pop(
-                  context, ColorEditResult(
+                  context,
+                  ColorEditResult(
                       name: name,
                       color: _selectedColor,
                       promptTemplate: promptTemplate.isEmpty ? null : promptTemplate,
@@ -262,84 +273,94 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: const Text('Add Column'),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Column Name'),
-            ),
-            const SizedBox(height: AppConstants.space24),
-            Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: AppConstants.space8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _colors.map((color) {
-                final isSelected =
-                    color.toUpperCase() == _selectedColor.toUpperCase();
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedColor = color),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: _parseColor(color),
-                      shape: BoxShape.circle,
-                      border: isSelected
-                          ? Border.all(color: AppConstants.textPrimary, width: 2)
-                          : Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: isSelected
-                        ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
-                        : null,
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: AppConstants.space24),
-            if (_isLoadingProviders)
-              const Center(child: CircularProgressIndicator())
-            else
-              DropdownButtonFormField<String>(
-                value: _selectedProviderId,
-                decoration: const InputDecoration(
-                  labelText: 'Default AI Provider',
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 450,
+          maxHeight: size.height * 0.7,
+        ),
+        child: SizedBox(
+          width: size.width * 0.9,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _nameController,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'Column Name'),
                 ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: null,
-                    child: Text('None (Manual selection)'),
-                  ),
-                  ..._providers.map((p) => DropdownMenuItem(
-                    value: p.id,
-                    child: Row(
-                      children: [
-                        Icon(IconUtil.getProviderIcon(p.icon), size: 18),
-                        const SizedBox(width: 8),
-                        Text(p.name),
-                      ],
+                const SizedBox(height: AppConstants.space24),
+                Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: AppConstants.space8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _colors.map((color) {
+                    final isSelected =
+                        color.toUpperCase() == _selectedColor.toUpperCase();
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedColor = color),
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: _parseColor(color),
+                          shape: BoxShape.circle,
+                          border: isSelected
+                              ? Border.all(color: AppConstants.textPrimary, width: 2)
+                              : Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: AppConstants.space24),
+                if (_isLoadingProviders)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  DropdownButtonFormField<String>(
+                    value: _selectedProviderId,
+                    decoration: const InputDecoration(
+                      labelText: 'Default AI Provider',
                     ),
-                  )),
-                ],
-                onChanged: (v) => setState(() => _selectedProviderId = v),
-              ),
-            const SizedBox(height: AppConstants.space24),
-            TextField(
-              controller: _promptTemplateController,
-              decoration: const InputDecoration(
-                labelText: 'Prompt Template',
-                hintText: 'Instructions for AI...',
-              ),
-              maxLines: 3,
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('None (Manual selection)'),
+                      ),
+                      ..._providers.map((p) => DropdownMenuItem(
+                            value: p.id,
+                            child: Row(
+                              children: [
+                                Icon(IconUtil.getProviderIcon(p.icon), size: 18),
+                                const SizedBox(width: 8),
+                                Text(p.name),
+                              ],
+                            ),
+                          )),
+                    ],
+                    onChanged: (v) => setState(() => _selectedProviderId = v),
+                  ),
+                const SizedBox(height: AppConstants.space24),
+                TextField(
+                  controller: _promptTemplateController,
+                  decoration: const InputDecoration(
+                    labelText: 'Prompt Template',
+                    hintText: 'Instructions for AI...',
+                  ),
+                  maxLines: 3,
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -516,6 +537,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: Row(
         children: [
@@ -525,52 +547,59 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SizedBox(
-        width: 400,
-        height: 500,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('DRAG TO REORDER', style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: AppConstants.space8),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade200),
-                        borderRadius: BorderRadius.circular(AppConstants.space8),
-                      ),
-                      child: ReorderableListView.builder(
-                        itemCount: _columns.length,
-                        onReorder: _onReorder,
-                        itemBuilder: (context, index) {
-                          final col = _columns[index];
-                          return ListTile(
-                            key: ValueKey(col.id),
-                            leading: const Icon(Icons.drag_indicator_rounded, color: AppConstants.textHint),
-                            title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit_outlined, size: 20),
-                                  onPressed: () => _editColumn(col),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded,
-                                      size: 20, color: AppConstants.errorColor),
-                                  onPressed: () => _deleteColumn(col),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 450,
+          maxHeight: size.height * 0.7,
+        ),
+        child: SizedBox(
+          width: size.width * 0.9,
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('DRAG TO REORDER', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: AppConstants.space8),
+                    Flexible(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade200),
+                          borderRadius: BorderRadius.circular(AppConstants.space8),
+                        ),
+                        child: ReorderableListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _columns.length,
+                          onReorder: _onReorder,
+                          itemBuilder: (context, index) {
+                            final col = _columns[index];
+                            return ListTile(
+                              key: ValueKey(col.id),
+                              leading: const Icon(Icons.drag_indicator_rounded, color: AppConstants.textHint),
+                              title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, size: 20),
+                                    onPressed: () => _editColumn(col),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded,
+                                        size: 20, color: AppConstants.errorColor),
+                                    onPressed: () => _deleteColumn(col),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
       actions: [
         TextButton.icon(

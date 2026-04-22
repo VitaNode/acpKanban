@@ -189,6 +189,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: Row(
         children: [
@@ -198,45 +199,53 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Project Name',
-                hintText: 'e.g., My App Development',
-                prefixIcon: Icon(Icons.folder_rounded),
-              ),
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 450,
+          maxHeight: size.height * 0.7,
+        ),
+        child: SizedBox(
+          width: size.width * 0.9,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Project Name',
+                    hintText: 'e.g., My App Development',
+                    prefixIcon: Icon(Icons.folder_rounded),
+                  ),
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                ),
+                const SizedBox(height: AppConstants.space16),
+                TextField(
+                  controller: _descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Project Description',
+                    hintText: 'Brief description...',
+                    prefixIcon: Icon(Icons.description_rounded),
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: AppConstants.space8),
+                Text(
+                  '💡 Description is included in the AI context.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
+                ),
+                const SizedBox(height: AppConstants.space16),
+                TextField(
+                  controller: _workspaceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Workspace Path',
+                    prefixIcon: Icon(Icons.folder_open_rounded),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: AppConstants.space16),
-            TextField(
-              controller: _descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'Project Description',
-                hintText: 'Brief description...',
-                prefixIcon: Icon(Icons.description_rounded),
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: AppConstants.space8),
-            Text(
-              '💡 Description is included in the AI context.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
-            ),
-            const SizedBox(height: AppConstants.space16),
-            TextField(
-              controller: _workspaceController,
-              decoration: const InputDecoration(
-                labelText: 'Workspace Path',
-                prefixIcon: Icon(Icons.folder_open_rounded),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
       actions: [

@@ -286,10 +286,10 @@ class MessageDispatcher:
                 return await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
             engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)
-            if is_new or not engine.acp_session_id:
-                # Serial: wait for context injection to complete before processing user prompt.
-                # This prevents concurrent prompt collision on the same ACP session.
-                await self._inject_context_async(card_id, engine, on_output)
+            # if is_new or not engine.acp_session_id:
+            #     # Serial: wait for context injection to complete before processing user prompt.
+            #     # This prevents concurrent prompt collision on the same ACP session.
+            #     await self._inject_context_async(card_id, engine, on_output)
 
             async def forward_notif(n):
                 if "params" in n: n["params"]["card_id"] = card_id

@@ -181,6 +181,31 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "message": f"Initialization failed: {str(e)}"
                         }))
 
+            elif msg_type == "get_context":
+                import run_bridge
+                bridge_instance = run_bridge.bridge_instance
+                if bridge_instance:
+                    try:
+                        engine = bridge_instance.dispatcher.engines.get(card_id)
+                        column_prompt = None
+                        if engine and engine.column_id:
+                            column = await asyncio.to_thread(db.columns.get_by_id, engine.column_id)
+                            if column:
+                                column_prompt = column.get("prompt_template")
+                        
+                        context = await bridge_instance.dispatcher.context_builder.build_initial_context(card_id, column_prompt=column_prompt)
+                        await websocket.send_text(json.dumps({
+                            "type": "context_data",
+                            "card_id": card_id,
+                            "context": context
+                        }))
+                    except Exception as e:
+                        print(f"ERROR in get_context: {e}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": f"Failed to get context: {str(e)}"
+                        }))
+
             elif msg_type == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
 

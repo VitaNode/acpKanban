@@ -30,11 +30,19 @@ class KanbanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'AI Kanban',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      home: const MainScreen(),
+    return GestureDetector(
+      onTap: () {
+        FocusScopeNode currentFocus = FocusScope.of(context);
+        if (!currentFocus.hasPrimaryFocus && currentFocus.focusedChild != null) {
+          FocusManager.instance.primaryFocus?.unfocus();
+        }
+      },
+      child: MaterialApp(
+        title: 'AI Kanban',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        home: const MainScreen(),
+      ),
     );
   }
 }
@@ -143,56 +151,68 @@ class _MainScreenState extends State<MainScreen> {
 
     final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Add Card to ${column.name}'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: titleController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Title *',
-                  hintText: 'Enter card title',
+      builder: (context) {
+        final size = MediaQuery.of(context).size;
+        return AlertDialog(
+          title: Text('Add Card to ${column.name}'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 450,
+              maxHeight: size.height * 0.7,
+            ),
+            child: SizedBox(
+              width: size.width * 0.9,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Title *',
+                        hintText: 'Enter card title',
+                      ),
+                      maxLines: 1,
+                    ),
+                    const SizedBox(height: AppConstants.space16),
+                    TextField(
+                      controller: descriptionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        hintText: 'Enter card description',
+                      ),
+                      maxLines: 4,
+                      minLines: 2,
+                    ),
+                  ],
                 ),
-                maxLines: 1,
               ),
-              const SizedBox(height: AppConstants.space16),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  hintText: 'Enter card description',
-                ),
-                maxLines: 4,
-                minLines: 2,
-              ),
-            ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: () {
-                if (titleController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Title is required')),
-                  );
-                  return;
-                }
-                Navigator.pop(context, {
-                  'title': titleController.text.trim(),
-                  'description': descriptionController.text.trim(),
-                });
-              },
-              child: const Text('Add')),
-        ],
-      ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            ElevatedButton(
+                onPressed: () {
+                  if (titleController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Title is required')),
+                    );
+                    return;
+                  }
+                  Navigator.pop(context, {
+                    'title': titleController.text.trim(),
+                    'description': descriptionController.text.trim(),
+                  });
+                },
+                child: const Text('Add')),
+          ],
+        );
+      },
     );
 
     if (result != null && result['title']!.isNotEmpty) {

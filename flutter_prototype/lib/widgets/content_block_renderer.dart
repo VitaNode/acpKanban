@@ -245,11 +245,10 @@ class _ResourceRenderer extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: Text(
+              child: SelectableText(
                 content.text!,
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 maxLines: 10,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -372,7 +371,7 @@ class _TerminalRendererState extends State<_TerminalRenderer> {
               controller: _scrollController,
               padding: const EdgeInsets.all(8),
               children: [
-                Text(
+                SelectableText(
                   _output,
                   style: const TextStyle(
                     color: Colors.green,

@@ -33,6 +33,7 @@ class SessionWebSocketService {
   final _cardUpdateController = StreamController<KanbanCard>.broadcast();
   final _errorController = StreamController<String>.broadcast();
   final _initializingController = StreamController<bool>.broadcast();
+  final _contextController = StreamController<String>.broadcast();
 
   String? _currentCardId;
   bool _isConnected = false;
@@ -53,6 +54,7 @@ class SessionWebSocketService {
   Stream<KanbanCard> get cardUpdates => _cardUpdateController.stream;
   Stream<String> get errors => _errorController.stream;
   Stream<bool> get isInitializing => _initializingController.stream;
+  Stream<String> get contextData => _contextController.stream;
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
@@ -308,6 +310,11 @@ class SessionWebSocketService {
                 []);
           }
           break;
+        case 'context_data':
+          if (m['context'] != null) {
+            _contextController.add(m['context']);
+          }
+          break;
         case 'error':
           _initializingController.add(false);
           _errorController.add(m['message'] ?? 'Unknown agent error');
@@ -324,6 +331,12 @@ class SessionWebSocketService {
     if (_isConnected) {
       _initializingController.add(true);
       await _send({'type': 'session_init'});
+    }
+  }
+
+  Future<void> getContext() async {
+    if (_isConnected) {
+      await _send({'type': 'get_context'});
     }
   }
 

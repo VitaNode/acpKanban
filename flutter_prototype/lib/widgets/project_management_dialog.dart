@@ -42,6 +42,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: Row(
         children: [
@@ -51,91 +52,97 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SizedBox(
-        width: 500,
-        height: 400,
-        child: _localProjects.isEmpty
-            ? const Center(child: Text('No projects available.'))
-            : ListView.separated(
-                itemCount: _localProjects.length,
-                separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5),
-                itemBuilder: (context, index) {
-                  final project = _localProjects[index];
-                  final isCurrent = project.id == widget.currentProject?.id;
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(vertical: AppConstants.space4),
-                    leading: Icon(
-                      isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
-                      color: isCurrent ? AppConstants.primaryColor : AppConstants.textHint,
-                    ),
-                    title: Text(
-                      project.name,
-                      style: TextStyle(
-                        fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                        color: isCurrent ? AppConstants.primaryColor : AppConstants.textPrimary,
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 500,
+          maxHeight: size.height * 0.7,
+        ),
+        child: SizedBox(
+          width: size.width * 0.9,
+          child: _localProjects.isEmpty
+              ? const Center(child: Text('No projects available.'))
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _localProjects.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5),
+                  itemBuilder: (context, index) {
+                    final project = _localProjects[index];
+                    final isCurrent = project.id == widget.currentProject?.id;
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(vertical: AppConstants.space4),
+                      leading: Icon(
+                        isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
+                        color: isCurrent ? AppConstants.primaryColor : AppConstants.textHint,
                       ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 2),
-                        Text(
-                          project.workspacePath ?? "No workspace path set",
-                          style: Theme.of(context).textTheme.bodySmall,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      title: Text(
+                        project.name,
+                        style: TextStyle(
+                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
+                          color: isCurrent ? AppConstants.primaryColor : AppConstants.textPrimary,
                         ),
-                        Text(
-                          'Last active: ${project.lastActive}',
-                          style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
-                        ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          tooltip: 'Edit Project',
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (context) => ProjectEditDialog(
-                                project: project,
-                                onUpdate: (name, path, desc) async {
-                                  await widget.onUpdate(project, name, path, description: desc);
-                                  setState(() {
-                                    final idx = _localProjects.indexWhere((p) => p.id == project.id);
-                                    if (idx != -1) {
-                                      _localProjects[idx] = project.copyWith(
-                                        name: name,
-                                        workspacePath: path,
-                                        description: desc,
-                                      );
-                                    }
-                                  });
-                                },
-                              ),
-                            );
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded,
-                              size: 20, color: AppConstants.errorColor),
-                          tooltip: isCurrent
-                              ? 'Cannot delete active project'
-                              : 'Delete Project',
-                          onPressed: isCurrent
-                              ? null
-                              : () {
-                                  _showDeleteConfirmation(context, project);
-                                },
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 2),
+                          Text(
+                            project.workspacePath ?? "No workspace path set",
+                            style: Theme.of(context).textTheme.bodySmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'Last active: ${project.lastActive}',
+                            style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                          ),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 20),
+                            tooltip: 'Edit Project',
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (context) => ProjectEditDialog(
+                                  project: project,
+                                  onUpdate: (name, path, desc) async {
+                                    await widget.onUpdate(project, name, path, description: desc);
+                                    setState(() {
+                                      final idx = _localProjects.indexWhere((p) => p.id == project.id);
+                                      if (idx != -1) {
+                                        _localProjects[idx] = project.copyWith(
+                                          name: name,
+                                          workspacePath: path,
+                                          description: desc,
+                                        );
+                                      }
+                                    });
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded,
+                                size: 20, color: AppConstants.errorColor),
+                            tooltip: isCurrent
+                                ? 'Cannot delete active project'
+                                : 'Delete Project',
+                            onPressed: isCurrent
+                                ? null
+                                : () {
+                                    _showDeleteConfirmation(context, project);
+                                  },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
       ),
       actions: [
         TextButton(
@@ -189,43 +196,49 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: const Text('Delete Project?'),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Are you sure you want to delete "${widget.project.name}"?',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: AppConstants.space16),
-            _buildInfoRow('Created', widget.project.createdAt),
-            _buildInfoRow('Cards', widget.project.cardCount.toString()),
-            if (widget.project.workspacePath != null)
-              _buildInfoRow('Workspace', widget.project.workspacePath!),
-            const SizedBox(height: AppConstants.space16),
-            const Text(
-              'This action cannot be undone and will delete all cards, columns, and history associated with this project.',
-              style: TextStyle(color: AppConstants.errorColor, fontSize: 12),
-            ),
-            const SizedBox(height: AppConstants.space16),
-            TextField(
-              controller: _confirmController,
-              decoration: InputDecoration(
-                labelText: 'Type project name to confirm',
-                hintText: widget.project.name,
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 400,
+          maxHeight: size.height * 0.7,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you sure you want to delete "${widget.project.name}"?',
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              onChanged: (value) {
-                setState(() {
-                  _isNameMatched = value == widget.project.name;
-                });
-              },
-            ),
-          ],
+              const SizedBox(height: AppConstants.space16),
+              _buildInfoRow('Created', widget.project.createdAt),
+              _buildInfoRow('Cards', widget.project.cardCount.toString()),
+              if (widget.project.workspacePath != null)
+                _buildInfoRow('Workspace', widget.project.workspacePath!),
+              const SizedBox(height: AppConstants.space16),
+              const Text(
+                'This action cannot be undone and will delete all cards, columns, and history associated with this project.',
+                style: TextStyle(color: AppConstants.errorColor, fontSize: 12),
+              ),
+              const SizedBox(height: AppConstants.space16),
+              TextField(
+                controller: _confirmController,
+                decoration: InputDecoration(
+                  labelText: 'Type project name to confirm',
+                  hintText: widget.project.name,
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _isNameMatched = value == widget.project.name;
+                  });
+                },
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -322,6 +335,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return AlertDialog(
       title: Row(
         children: [
@@ -331,46 +345,54 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Project Name',
-                prefixIcon: Icon(Icons.folder_rounded),
-              ),
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 450,
+          maxHeight: size.height * 0.75,
+        ),
+        child: SizedBox(
+          width: size.width * 0.9,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Project Name',
+                    prefixIcon: Icon(Icons.folder_rounded),
+                  ),
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                ),
+                const SizedBox(height: AppConstants.space16),
+                TextField(
+                  controller: _descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Project Description',
+                    hintText: 'Brief description...',
+                    prefixIcon: Icon(Icons.description_rounded),
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: AppConstants.space8),
+                Text(
+                  '💡 Description is included in the AI context.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
+                ),
+                const SizedBox(height: AppConstants.space16),
+                TextField(
+                  controller: _workspaceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Workspace Path',
+                    prefixIcon: Icon(Icons.folder_open_rounded),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.space16),
+                ProjectIndexingWidget(project: widget.project),
+              ],
             ),
-            const SizedBox(height: AppConstants.space16),
-            TextField(
-              controller: _descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'Project Description',
-                hintText: 'Brief description...',
-                prefixIcon: Icon(Icons.description_rounded),
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: AppConstants.space8),
-            Text(
-              '💡 Description is included in the AI context.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
-            ),
-            const SizedBox(height: AppConstants.space16),
-            TextField(
-              controller: _workspaceController,
-              decoration: const InputDecoration(
-                labelText: 'Workspace Path',
-                prefixIcon: Icon(Icons.folder_open_rounded),
-              ),
-            ),
-            const SizedBox(height: AppConstants.space16),
-            ProjectIndexingWidget(project: widget.project),
-          ],
+          ),
         ),
       ),
       actions: [
