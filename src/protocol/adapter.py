@@ -32,8 +32,13 @@ class ACPProtocolAdapter:
     def _build_prompt_item(self, content: str) -> Dict[str, Any]:
         """
         Build prompt item.
+        Include both 'text' and 'content' for broad compatibility.
         """
-        return {"type": "text", "text": content}
+        return {
+            "type": "text", 
+            "text": content,
+            "content": content
+        }
 
     async def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -168,11 +173,27 @@ class ACPProtocolAdapter:
             # Use raw_prompt if provided, otherwise build from message
             prompt_payload = raw_prompt if raw_prompt else [self._build_prompt_item(message)]
             
+            # Ensure every block has both 'text' and 'content' for broad compatibility
+            # Skip empty content to prevent AI engine errors
+            filtered_payload = []
+            for block in prompt_payload:
+                if block.get("type") == "text":
+                    txt = block.get("text") or block.get("content") or ""
+                    if txt.strip():
+                        block["text"] = txt
+                        block["content"] = txt
+                        filtered_payload.append(block)
+                else:
+                    filtered_payload.append(block)
+
+            if not filtered_payload:
+                return {"error": {"code": -32602, "message": "Empty prompt content"}}
+
             response = await self.acp.request(
                 "session/prompt",
                 {
                     "sessionId": session_id,
-                    "prompt": prompt_payload,
+                    "prompt": filtered_payload,
                 },
             )
             

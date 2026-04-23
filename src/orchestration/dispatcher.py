@@ -149,13 +149,17 @@ class MessageDispatcher:
                     return await wrapped_notification(output_data)
 
         if method in ("chat/message", "session/prompt"):
-            prompt_text = params.get("message") or params.get("prompt")
-            if isinstance(prompt_text, list):
-                prompt_text = " ".join([p.get("text", "") for p in prompt_text if p.get("type") == "text"])
+            prompt_data = params.get("message") or params.get("prompt")
+            prompt_text = ""
+            if isinstance(prompt_data, list):
+                prompt_text = " ".join([p.get("text", "") for p in prompt_data if p.get("type") == "text"])
+            elif isinstance(prompt_data, str):
+                prompt_text = prompt_data
             
             file_refs = re.findall(r"@([\w\.\-/]+)", prompt_text)
             if file_refs:
-                if "prompt" not in params: params["prompt"] = [{"type": "text", "text": prompt_text}]
+                if "prompt" not in params: 
+                    params["prompt"] = [{"type": "text", "text": prompt_text, "content": prompt_text}]
                 workspace_root = Path(config.get("system.workspace_root")).resolve()
                 for ref in file_refs:
                     try:

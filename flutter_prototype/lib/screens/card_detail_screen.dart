@@ -547,6 +547,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   void _sendContextPrompt() {
     final contextText = _contextController.text.trim();
+    if (contextText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Context is empty. Please add context or summary before sending.')),
+      );
+      return;
+    }
     final fullPrompt = "[SYSTEM CONTEXT]\n$contextText\n\nPlease acknowledge.";
     _wsService.sendMessage('user', fullPrompt);
     setState(() {
