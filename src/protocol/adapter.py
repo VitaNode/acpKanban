@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
 from .tool_registry import tool_registry
 
-class Adapter:
+class ACPProtocolAdapter:
     """
     Protocol adapter that converts custom chat/message format to standard ACP session/prompt.
     """
