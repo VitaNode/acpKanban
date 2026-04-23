@@ -1,32 +1,31 @@
 import json
 import uuid
 import asyncio
-import sys
+import time
+from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable, List
-from src.config.manager import config
-from src.protocol.tool_registry import tool_registry
+from .tool_registry import tool_registry
 
-
-class ACPProtocolAdapter:
+class Adapter:
     """
     Protocol adapter that converts custom chat/message format to standard ACP session/prompt.
     """
 
-    def __init__(self, acp_client, workspace_cwd: Optional[str] = None, provider_id: Optional[str] = None, on_request: Optional[Callable[[str, Dict[str, Any]], Any]] = None):
-        """
-        Initialize the adapter.
-        """
+    def __init__(
+        self,
+        acp_client,
+        provider_id: str = None,
+        workspace_cwd: str = None,
+        on_request: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
+    ):
         self.acp = acp_client
         self.provider_id = provider_id
-        self._workspace_cwd = workspace_cwd or str(Path.home())
+        self._workspace_cwd = workspace_cwd
         self._card_sessions = {}
-        self._history = {}
-        self._current_card_id: Optional[str] = None
         self.on_request = on_request
 
     def log(self, message: str):
-        """Log a message."""
+        # Using print for visibility in bridge logs
         print(f"[Adapter] {message}", flush=True)
 
     def _build_prompt_item(self, content: str) -> Dict[str, Any]:
@@ -49,18 +48,8 @@ class ACPProtocolAdapter:
         elif "cwd" in params:
             self._workspace_cwd = params["cwd"]
 
-        self.log(f"Initializing with workspace: {self._workspace_cwd}")
-
-        # Official ACP initialize format
         acp_params = {
-            "protocolVersion": 1,
-            "clientCapabilities": {
-                "fs": {
-                    "readTextFile": True,
-                    "writeTextFile": True
-                },
-                "terminal": True
-            },
+            "capabilities": params.get("capabilities", {}),
             "clientInfo": {
                 "name": "Kanban-Bridge",
                 "title": "Agent Kanban Bridge",
@@ -205,47 +194,31 @@ class ACPProtocolAdapter:
             await collector_task
             return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
         finally:
-            # Signal collector to finish and cleanup
             stop_event.set()
             await collector_task
-            self.acp.stop_listening(listener_id)
 
-        if "error" in response:
-            return {"error": response["error"]}
-
-        result = response.get("result", {})
-        final_message = "".join(collected_text).strip()
-        if isinstance(result, dict) and "text" in result and result["text"]:
-            final_message = result["text"]
-
-        return {"message": final_message, "session_id": session_id}
+        # Return collected text as result if successful
+        return {"result": {"text": "".join(collected_text), "session_id": session_id}}
 
     async def _create_session(
-        self,
-        workspace_path: str = None,
-        card_id: str = None,
+        self, workspace_path: str = None, card_id: str = None
     ) -> str:
         project_cwd = workspace_path or self._workspace_cwd
-
         params = {
             "cwd": project_cwd,
         }
-
-        # Special Case: OpenClaw Bridge Mode
+        
+        # Add mcpServers to session/new params
         if self.provider_id and "openclaw" in self.provider_id.lower():
             self.log("OpenClaw detected: Skipping per-session mcpServers")
         else:
             params["mcpServers"] = tool_registry.get_mcp_servers()
 
-        if card_id:
-            params["_meta"] = {"sessionKey": f"agent:main:kanban:{card_id}"}
-
         response = await self.acp.request("session/new", params)
         if "error" in response:
             raise Exception(f"Session creation failed: {response['error']}")
-
+        
         session_id = response.get("result", {}).get("sessionId")
-        self._workspace_cwd = project_cwd
         return session_id
 
     async def _load_session(
@@ -314,9 +287,18 @@ class ACPProtocolAdapter:
             if self.on_request:
                 result = await self.on_request(method, params)
                 if result is not None:
+                    # Note: acp.respond handles JSON-RPC wrapping
                     await self.acp.respond(params.get("_request_id"), result=result)
             return {"status": "delegated"}
         else:
+            # For session/load or other direct methods, we also want to inject mcpServers if it is an initialization-like call
+            if method == "session/load":
+                 if self.provider_id and "openclaw" in self.provider_id.lower():
+                    pass
+                 else:
+                    params["mcpServers"] = tool_registry.get_mcp_servers()
+
             response = await self.acp.request(method, params)
-            if "error" in response: return {"error": response["error"]}
-            return response.get("result", {})
+            if "result" in response:
+                return response["result"]
+            return response

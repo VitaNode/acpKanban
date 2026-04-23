@@ -50,7 +50,7 @@ class MCPCodeServer:
                     "type": "object",
                     "properties": {
                         "project_id": {"type": "string"},
-                        "query": {"type": "string", "description": "Natural language query, e.g., 'user authentication logic'"}
+                        "query": {"type": "string", "description": "The search query."}
                     },
                     "required": ["project_id", "query"]
                 }
@@ -120,12 +120,10 @@ class MCPCodeServer:
 
 async def run_mcp():
     server = MCPCodeServer()
-    logger.info("MCP Code Server started.")
     while True:
         try:
             line = await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
-            if not line:
-                break
+            if not line: break
             
             request = json.loads(line)
             method = request.get("method")
@@ -133,21 +131,20 @@ async def run_mcp():
             req_id = request.get("id")
 
             if method == "initialize":
-                response = {"id": req_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
+                response = {"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
             elif method == "list_tools":
-                response = {"id": req_id, "result": {"tools": server.list_tools()}}
+                response = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": server.list_tools()}}
             elif method == "call_tool":
                 result = await server.call_tool(params.get("name"), params.get("arguments", {}))
-                response = {"id": req_id, "result": result}
+                response = {"jsonrpc": "2.0", "id": req_id, "result": result}
             else:
-                response = {"id": req_id, "error": {"code": -32601, "message": f"Method {method} not found"}}
+                response = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method {method} not found"}}
 
-            print(json.dumps(response), flush=True)
-        except json.JSONDecodeError:
-            continue
+            sys.stdout.write(json.dumps(response) + "\n")
+            sys.stdout.flush()
+        except EOFError: break
         except Exception as e:
-            logger.error(f"MCP RPC Loop Error: {str(e)}", exc_info=True)
-            continue
+            logger.error(f"Code MCP RPC Loop Error: {str(e)}")
 
 if __name__ == "__main__":
     asyncio.run(run_mcp())
