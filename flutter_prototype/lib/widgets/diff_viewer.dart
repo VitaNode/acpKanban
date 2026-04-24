@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/content_block.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class DiffViewer extends StatefulWidget {
   final DiffContent diff;
@@ -70,6 +71,9 @@ class _DiffViewerState extends State<DiffViewer> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
     final diffs = _computeDiffs();
     final addedCount = diffs.where((d) => d.type == DiffLineType.added).length;
     final removedCount =
@@ -78,21 +82,21 @@ class _DiffViewerState extends State<DiffViewer> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: AppConstants.space8),
       decoration: BoxDecoration(
-        color: AppConstants.surfaceColor,
-        borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Colors.grey.shade200),
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: theme.dividerTheme.color!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
             onTap: () => setState(() => _isExpanded = !_isExpanded),
-            borderRadius: BorderRadius.circular(AppConstants.space12),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
             child: Padding(
               padding: const EdgeInsets.all(AppConstants.space12),
               child: Row(
                 children: [
-                  const Icon(Icons.code_rounded, size: 18, color: AppConstants.primaryColor),
+                  Icon(Icons.code_rounded, size: 18, color: colorScheme.primary),
                   const SizedBox(width: AppConstants.space12),
                   Expanded(
                     child: Column(
@@ -100,11 +104,11 @@ class _DiffViewerState extends State<DiffViewer> {
                       children: [
                         Text(
                           widget.diff.path.split('/').last,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         Text(
                           widget.diff.path,
-                          style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                          style: theme.textTheme.bodySmall,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -115,29 +119,28 @@ class _DiffViewerState extends State<DiffViewer> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppConstants.successColor.withOpacity(0.1),
+                      color: customColors.success?.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text('+$addedCount',
-                        style: const TextStyle(
-                            color: AppConstants.successColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                        style: TextStyle(
+                            color: customColors.success, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: 4),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppConstants.errorColor.withOpacity(0.1),
+                      color: colorScheme.error.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text('-$removedCount',
-                        style: const TextStyle(
-                            color: AppConstants.errorColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                        style: TextStyle(
+                            color: colorScheme.error, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
                   const SizedBox(width: AppConstants.space8),
                   Icon(
                       _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                      size: 20,
-                      color: AppConstants.textHint),
+                      size: 20),
                 ],
               ),
             ),
@@ -146,7 +149,7 @@ class _DiffViewerState extends State<DiffViewer> {
             Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF1E1E1E),
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppConstants.space12)),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppConstants.radiusMedium)),
               ),
               constraints: const BoxConstraints(maxHeight: 400),
               child: SingleChildScrollView(
