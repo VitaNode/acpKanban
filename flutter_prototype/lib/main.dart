@@ -20,8 +20,11 @@ import 'models/timeline_event.dart';
 import 'utils/icon_util.dart';
 import 'theme/app_theme.dart';
 import 'constants/app_constants.dart';
+import 'services/theme_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ThemeService().init();
   runApp(const KanbanApp());
 }
 
@@ -30,19 +33,26 @@ class KanbanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        FocusScopeNode currentFocus = FocusScope.of(context);
-        if (!currentFocus.hasPrimaryFocus && currentFocus.focusedChild != null) {
-          FocusManager.instance.primaryFocus?.unfocus();
-        }
+    return ListenableBuilder(
+      listenable: ThemeService(),
+      builder: (context, _) {
+        return GestureDetector(
+          onTap: () {
+            FocusScopeNode currentFocus = FocusScope.of(context);
+            if (!currentFocus.hasPrimaryFocus && currentFocus.focusedChild != null) {
+              FocusManager.instance.primaryFocus?.unfocus();
+            }
+          },
+          child: MaterialApp(
+            title: 'AI Kanban',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: ThemeService().themeMode,
+            home: const MainScreen(),
+          ),
+        );
       },
-      child: MaterialApp(
-        title: 'AI Kanban',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        home: const MainScreen(),
-      ),
     );
   }
 }
@@ -597,6 +607,13 @@ class _MainScreenState extends State<MainScreen> {
               onPressed: _showProjectManager,
             ),
           ],
+          IconButton(
+            icon: Icon(ThemeService().isDarkMode
+                ? Icons.light_mode_outlined
+                : Icons.dark_mode_outlined),
+            tooltip: 'Toggle Theme',
+            onPressed: () => ThemeService().toggleTheme(),
+          ),
         ],
       ),
       drawer: _buildDrawer(),

@@ -122,4 +122,116 @@ class AppTheme {
       ),
     );
   }
+
+  static ThemeData get darkTheme {
+    const darkBackgroundColor = Color(0xFF121212);
+    const darkSurfaceColor = Color(0xFF1E1E1E);
+    const darkTextPrimary = Color(0xFFE1E1E1);
+    const darkTextSecondary = Color(0xFFAAAAAA);
+    const darkTextHint = Color(0xFF666666);
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: AppConstants.primaryColor,
+        brightness: Brightness.dark,
+        primary: AppConstants.primaryColor,
+        secondary: AppConstants.secondaryColor,
+        surface: darkSurfaceColor,
+        error: AppConstants.errorColor,
+      ),
+      scaffoldBackgroundColor: darkBackgroundColor,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: darkBackgroundColor,
+        foregroundColor: darkTextPrimary,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: darkTextPrimary,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: darkSurfaceColor,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.space12),
+          side: BorderSide(color: Colors.grey.shade900),
+        ),
+        margin: const EdgeInsets.symmetric(vertical: AppConstants.space8),
+      ),
+      textTheme: const TextTheme(
+        headlineLarge: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: darkTextPrimary,
+        ),
+        headlineMedium: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: darkTextPrimary,
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: darkTextPrimary,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.normal,
+          color: darkTextPrimary,
+        ),
+        labelLarge: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: darkTextSecondary,
+        ),
+        bodySmall: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.normal,
+          color: darkTextSecondary,
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: darkSurfaceColor,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppConstants.space8),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppConstants.space8),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppConstants.space8),
+          borderSide: const BorderSide(color: AppConstants.primaryColor, width: 1),
+        ),
+        labelStyle: const TextStyle(color: darkTextSecondary),
+        hintStyle: const TextStyle(color: darkTextHint),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppConstants.primaryColor,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.space8),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppConstants.primaryColor,
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: Colors.grey.shade900,
+        thickness: 1,
+        space: AppConstants.space24,
+      ),
+    );
+  }
 }
