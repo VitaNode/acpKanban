@@ -79,7 +79,7 @@ class MessageBubble extends StatelessWidget {
                 children: [
                   if (!isUser && message.metadata?['thought'] != null)
                     _buildThoughtSection(context),
-                  _buildMessageContent(isUser),
+                  _buildMessageContent(context, isUser),
                 ],
               ),
             ),
@@ -122,26 +122,37 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildMessageContent(bool isUser) {
+  Widget _buildMessageContent(BuildContext context, bool isUser) {
     final blocks = _parseContentBlocks();
+    final textColor = isUser ? Colors.white : AppConstants.textPrimary;
+    
     if (blocks.length == 1 && blocks[0] is TextContent) {
-      return MarkdownBody(
-        data: (blocks[0] as TextContent).text,
-        selectable: true,
-        styleSheet: MarkdownStyleSheet(
-          p: TextStyle(
-            color: isUser ? Colors.white : AppConstants.textPrimary,
-            fontSize: 14,
-            height: 1.5,
+      return Theme(
+        data: Theme.of(context).copyWith(
+          textSelectionTheme: TextSelectionThemeData(
+            selectionColor: isUser 
+              ? Colors.white.withOpacity(0.3) 
+              : AppConstants.primaryColor.withOpacity(0.2),
           ),
-          code: TextStyle(
-            backgroundColor: isUser ? Colors.teal.shade900 : Colors.grey.shade100,
-            fontFamily: 'monospace',
-            fontSize: 12,
-          ),
-          codeblockDecoration: BoxDecoration(
-            color: isUser ? Colors.teal.shade900 : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(AppConstants.space8),
+        ),
+        child: MarkdownBody(
+          data: (blocks[0] as TextContent).text,
+          selectable: true,
+          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+            p: TextStyle(color: textColor, fontSize: 14, height: 1.5),
+            em: TextStyle(color: textColor, fontStyle: FontStyle.italic),
+            strong: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+            listBullet: TextStyle(color: textColor),
+            code: TextStyle(
+              backgroundColor: isUser ? Colors.teal.shade900 : Colors.grey.shade100,
+              color: isUser ? Colors.white70 : Colors.grey.shade800,
+              fontFamily: 'monospace',
+              fontSize: 12,
+            ),
+            codeblockDecoration: BoxDecoration(
+              color: isUser ? Colors.teal.shade900 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(AppConstants.space8),
+            ),
           ),
         ),
       );
