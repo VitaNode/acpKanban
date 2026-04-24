@@ -59,15 +59,6 @@ class KanbanCardWidget extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (card.description.isNotEmpty) ...[
-                  const SizedBox(height: AppConstants.space8),
-                  Text(
-                    card.description,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
                 const SizedBox(height: AppConstants.space8),
                 Row(
                   children: [
