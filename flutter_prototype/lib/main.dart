@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
-import 'services/smart_connect.dart';
 import 'services/connection_config_manager.dart';
 import 'services/project_service.dart';
 import 'services/kanban_refresh_service.dart';
@@ -17,7 +16,6 @@ import 'widgets/column_manager_dialog.dart';
 import 'widgets/timeline_view.dart';
 import 'widgets/status_summary_widget.dart';
 import 'models/timeline_event.dart';
-import 'utils/icon_util.dart';
 import 'theme/app_theme.dart';
 import 'constants/app_constants.dart';
 import 'services/theme_service.dart';
@@ -115,14 +113,12 @@ class _MainScreenState extends State<MainScreen> {
       );
       await _acpClient.smartConnect(acpConfig);
       
-      // Phase 5.3 FIX: Synchronize ProjectService with the discovered IP
       if (_acpClient.activeUrl != null) {
         _projectService.updateBaseUrl(_acpClient.activeUrl!);
       }
       
       await _acpClient.initialize(acpConfig.systemConfig);
 
-      // Load projects and providers in parallel to avoid blocking UI
       await Future.wait([
         _loadProjects(),
         _loadProviders(),
@@ -146,8 +142,6 @@ class _MainScreenState extends State<MainScreen> {
             _defaultProviderId = data['default_provider'] ?? 'gemini';
             _lastSelectedProviderId = lastProvider;
           });
-          debugPrint(
-              'Loaded ${_providers.length} providers, default: $_defaultProviderId, last: $_lastSelectedProviderId');
         }
       }
     } catch (e) {
@@ -165,7 +159,7 @@ class _MainScreenState extends State<MainScreen> {
         final size = MediaQuery.of(context).size;
         return AlertDialog(
           title: Text('Add Card to ${column.name}'),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
           content: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: 450,
@@ -219,6 +213,11 @@ class _MainScreenState extends State<MainScreen> {
                     'description': descriptionController.text.trim(),
                   });
                 },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                ),
                 child: const Text('Add')),
           ],
         );
@@ -280,10 +279,6 @@ class _MainScreenState extends State<MainScreen> {
       final List<KanbanCard> allCards = [];
       for (var col in columns) {
         final cards = await _projectService.getCardsByColumn(col.id, includeCompleted: true);
-        debugPrint('Fetched ${cards.length} cards for column ${col.name}');
-        for (var c in cards) {
-          debugPrint('  - Card: ${c.title}, status: ${c.status}');
-        }
         allCards.addAll(cards);
       }
       if (mounted) {
@@ -305,7 +300,6 @@ class _MainScreenState extends State<MainScreen> {
       if (mounted) {
         setState(() {
           _timelineEvents = events;
-          // Mock status updates for demo
           _updateAgentStatuses();
         });
       }
@@ -322,20 +316,22 @@ class _MainScreenState extends State<MainScreen> {
       final statuses = await _projectService.getAllProjectStatuses();
       if (!mounted) return;
 
-      _agentStatuses = statuses.map((s) {
-        final project = _projects.firstWhere(
-          (p) => p.id == s['project_id'],
-          orElse: () => _projects.first,
-        );
-        return ProjectAgentStatus(
-          project: project,
-          state: _parseAgentState(s['state'] as String?),
-          startTime: s['start_time'] != null
-              ? DateTime.tryParse(s['start_time'] as String)
-              : null,
-          lastMessage: s['last_message'] as String?,
-        );
-      }).toList();
+      setState(() {
+        _agentStatuses = statuses.map((s) {
+          final project = _projects.firstWhere(
+            (p) => p.id == s['project_id'],
+            orElse: () => _projects.first,
+          );
+          return ProjectAgentStatus(
+            project: project,
+            state: _parseAgentState(s['state'] as String?),
+            startTime: s['start_time'] != null
+                ? DateTime.tryParse(s['start_time'] as String)
+                : null,
+            lastMessage: s['last_message'] as String?,
+          );
+        }).toList();
+      });
     } catch (e) {
       debugPrint('Failed to update agent statuses: $e');
     }
@@ -384,7 +380,6 @@ class _MainScreenState extends State<MainScreen> {
     final oldColumnId = card.columnId;
     final oldPosition = card.position;
     
-    // Determine new position if not provided (default to end of column)
     int newPosition;
     if (targetPosition != null) {
       newPosition = targetPosition;
@@ -393,44 +388,32 @@ class _MainScreenState extends State<MainScreen> {
       newPosition = targetCards.length;
     }
 
-    // Optimistic update
     setState(() {
-      // 1. Remove card from old position/column
       _cards.removeWhere((c) => c.id == card.id);
-      
-      // 2. Adjust positions in old column
       for (var i = 0; i < _cards.length; i++) {
         if (_cards[i].columnId == oldColumnId && _cards[i].position > oldPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position - 1);
         }
       }
-
-      // 3. Adjust positions in target column
       for (var i = 0; i < _cards.length; i++) {
         if (_cards[i].columnId == targetColumnId && _cards[i].position >= newPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position + 1);
         }
       }
-
-      // 4. Insert card at new position
       _cards.add(card.copyWith(
         columnId: targetColumnId,
         position: newPosition,
       ));
-      
-      // 5. Ensure global sort order
       _cards.sort((a, b) => a.position.compareTo(b.position));
     });
 
     final success = await _projectService.moveCard(card.id, targetColumnId, newPosition);
     if (!success && mounted) {
-      // Revert is complex for reordering, so we just reload everything from server
       await _loadProjectData(_currentProject!.id);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to move card')),
       );
     } else if (mounted) {
-      // Refresh to ensure everything is in sync
       await _loadProjectData(_currentProject!.id);
       KanbanRefreshService().markNeedsRefresh();
     }
@@ -467,7 +450,6 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _handleProjectUpdate(
       Project project, String name, String? path, {String? description}) async {
-    // Check for unique name (excluding current project)
     final isDuplicate = _projects.any(
         (p) => p.name.toLowerCase() == name.toLowerCase() && p.id != project.id);
 
@@ -493,7 +475,6 @@ class _MainScreenState extends State<MainScreen> {
             _currentProject = updatedProject;
           }
         }
-        // Re-sort after update
         _projects.sort((a, b) {
           final aTime = DateTime.tryParse(a.updatedAt) ?? DateTime(0);
           final bTime = DateTime.tryParse(b.updatedAt) ?? DateTime(0);
@@ -562,11 +543,14 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         leading: Builder(
           builder: (context) => IconButton(
-            icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.menu_rounded),
             onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
@@ -576,20 +560,29 @@ class _MainScreenState extends State<MainScreen> {
           child: Row(
             children: [
               const Text('AI Kanban'),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Container(
-                width: 10,
-                height: 10,
+                width: 8,
+                height: 8,
                 decoration: BoxDecoration(
                   color: _getStatusDotColor(),
                   shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: _getStatusDotColor().withOpacity(0.4),
+                      blurRadius: 4,
+                      spreadRadius: 1,
+                    )
+                  ],
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
               Text(
                 _acpClient.activeMode.name.toUpperCase(),
-                style:
-                    const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
               ),
             ],
           ),
@@ -622,7 +615,7 @@ class _MainScreenState extends State<MainScreen> {
           Align(
             alignment: Alignment.centerLeft,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
               child: ProjectSelector(
                 currentProject: _currentProject,
                 projects: _projects,
@@ -653,108 +646,120 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildDrawer() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
+      child: Column(
         children: [
           DrawerHeader(
             decoration: BoxDecoration(
-              color: Theme.of(context).primaryColor,
+              color: colorScheme.surfaceContainer,
+              border: Border(bottom: BorderSide(color: theme.dividerTheme.color!)),
             ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Icon(Icons.psychology, size: 48, color: Colors.white),
-                SizedBox(height: 8),
+                Icon(Icons.psychology_rounded, size: 48, color: colorScheme.primary),
+                const SizedBox(height: AppConstants.space12),
                 Text(
                   'AI Kanban',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: theme.textTheme.headlineMedium?.copyWith(color: colorScheme.primary),
                 ),
               ],
             ),
           ),
-          ListTile(
-            leading: const Icon(Icons.dashboard),
-            title: const Text('Board'),
-            selected: _currentView == 'board',
-            onTap: () {
-              setState(() => _currentView = 'board');
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: const Text('Timeline'),
-            selected: _currentView == 'timeline',
-            onTap: () {
-              setState(() => _currentView = 'timeline');
-              Navigator.pop(context);
-            },
-          ),
-          const Divider(),
-          ListTile(
-            leading: Icon(_getStatusIcon()),
-            title: const Text('Connection'),
-            subtitle: Row(
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
               children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _getStatusDotColor(),
-                    shape: BoxShape.circle,
-                  ),
+                _buildDrawerItem(
+                  icon: Icons.dashboard_rounded,
+                  label: 'Board',
+                  view: 'board',
                 ),
-                const SizedBox(width: 8),
-                Text(_acpClient.activeMode.name.toUpperCase()),
+                _buildDrawerItem(
+                  icon: Icons.history_rounded,
+                  label: 'Timeline',
+                  view: 'timeline',
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: AppConstants.space16),
+                  child: Divider(),
+                ),
+                ListTile(
+                  leading: Icon(_getStatusIcon(), color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                  title: const Text('Connection Settings'),
+                  trailing: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: _getStatusDotColor(),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openConnectionSettings();
+                  },
+                ),
               ],
             ),
-            onTap: () {
-              Navigator.pop(context);
-              _openConnectionSettings();
-            },
           ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('Settings'),
-            onTap: () {
-              Navigator.pop(context);
-            },
+          Padding(
+            padding: const EdgeInsets.all(AppConstants.space16),
+            child: Text(
+              'v1.2.0-alpha',
+              style: theme.textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildDrawerItem({required IconData icon, required String label, required String view}) {
+    final isSelected = _currentView == view;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ListTile(
+      leading: Icon(icon, color: isSelected ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+      title: Text(label, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+      selected: isSelected,
+      selectedTileColor: colorScheme.primary.withOpacity(0.08),
+      onTap: () {
+        setState(() => _currentView = view);
+        Navigator.pop(context);
+      },
+    );
+  }
+
   IconData _getStatusIcon() {
     switch (_acpClient.activeMode) {
       case ConnectionPath.local:
-        return Icons.home;
+        return Icons.home_rounded;
       case ConnectionPath.relay:
-        return Icons.cloud;
+        return Icons.cloud_sync_rounded;
       case ConnectionPath.cloud:
-        return Icons.public;
+        return Icons.public_rounded;
       default:
-        return Icons.cloud_off;
+        return Icons.cloud_off_rounded;
     }
   }
 
   Color _getStatusDotColor() {
+    final customColors = Theme.of(context).extension<CustomColors>()!;
     switch (_acpClient.activeMode) {
       case ConnectionPath.local:
-        return Colors.green;
+        return customColors.success!;
       case ConnectionPath.relay:
-        return Colors.orange;
+        return customColors.warning!;
       case ConnectionPath.cloud:
-        return Colors.blue;
+        return customColors.info!;
       default:
-        return Colors.red;
+        return Theme.of(context).colorScheme.error;
     }
   }
 
@@ -767,14 +772,12 @@ class _MainScreenState extends State<MainScreen> {
           currentMode: _getCurrentConnectionMode(),
           userId: _userId ?? 'test_user',
           onConnectionChanged: (newMode, url) async {
-            // Reload config to get the updated userId
             final configManager = await ConnectionConfigManager.getInstance();
             final savedConfig = await configManager.loadConfig();
             if (mounted) {
               setState(() {
                 _userId = savedConfig.userId;
               });
-              // Reload projects if connection changed
               _loadProjects();
             }
           },
@@ -797,18 +800,21 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildBoardView() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     if (_currentProject == null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.folder_off, size: 64, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text('No project selected'),
-            const SizedBox(height: 8),
+            Icon(Icons.folder_off_rounded, size: 64, color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
+            const SizedBox(height: AppConstants.space16),
+            Text('No project selected', style: theme.textTheme.bodyLarge),
+            const SizedBox(height: AppConstants.space8),
             FilledButton.icon(
               onPressed: _showCreateProjectDialog,
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_rounded),
               label: const Text('Create Project'),
             ),
           ],
@@ -825,11 +831,11 @@ class _MainScreenState extends State<MainScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('No columns found for this project.'),
-            const SizedBox(height: 8),
+            Text('No columns found for this project.', style: theme.textTheme.bodyMedium),
+            const SizedBox(height: AppConstants.space8),
             TextButton.icon(
               onPressed: () => _loadProjectData(_currentProject!.id),
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh_rounded),
               label: const Text('Retry'),
             ),
           ],
@@ -843,7 +849,7 @@ class _MainScreenState extends State<MainScreen> {
       },
       child: ReorderableListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8),
         itemCount: _columns.length,
         onReorder: _onColumnReordered,
         itemBuilder: (context, index) {
@@ -864,12 +870,10 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
               ).then((_) {
-                // Refresh when returning from card detail
                 KanbanRefreshService().markNeedsRefresh();
               });
             },
             onCardSessionTap: (card) {
-              // Now both taps go to the same Unified Task Hub
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -914,7 +918,10 @@ class _MainScreenState extends State<MainScreen> {
                   content: Text('Are you sure you want to delete "${card.title}"?'),
                   actions: [
                     TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true), 
+                      child: Text('Delete', style: TextStyle(color: colorScheme.error)),
+                    ),
                   ],
                 ),
               );
