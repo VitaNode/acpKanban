@@ -42,13 +42,6 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
   List<ACPProvider> _providers = [];
   bool _isLoadingProviders = true;
 
-  static const List<String> _colors = [
-    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
-    '#F8B500', '#00CED1', '#FF69B4', '#32CD32', '#FF4500',
-    '#6B5B95', '#008080',
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -82,14 +75,6 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
     super.dispose();
   }
 
-  Color _parseColor(String colorHex) {
-    final hex = colorHex.replaceFirst('#', '');
-    if (hex.length == 6) {
-      return Color(int.parse('FF$hex', radix: 16));
-    }
-    return Colors.grey;
-  }
-
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -112,34 +97,6 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                   controller: _nameController,
                   autofocus: true,
                   decoration: const InputDecoration(labelText: 'Column Name'),
-                ),
-                const SizedBox(height: AppConstants.space24),
-                Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: AppConstants.space8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _colors.map((color) {
-                    final isSelected =
-                        color.toUpperCase() == _selectedColor.toUpperCase();
-                    return GestureDetector(
-                      onTap: () => setState(() => _selectedColor = color),
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: _parseColor(color),
-                          shape: BoxShape.circle,
-                          border: isSelected
-                              ? Border.all(color: AppConstants.textPrimary, width: 2)
-                              : Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: isSelected
-                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
-                            : null,
-                      ),
-                    );
-                  }).toList(),
                 ),
                 const SizedBox(height: AppConstants.space24),
                 if (_isLoadingProviders)
@@ -215,7 +172,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
 }
 
 class _AddColumnDialog extends StatefulWidget {
-  const _AddColumnDialog();
+  final int existingColumnCount;
+  const _AddColumnDialog({required this.existingColumnCount});
 
   @override
   State<_AddColumnDialog> createState() => _AddColumnDialogState();
@@ -225,21 +183,21 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
   final _projectService = ProjectService();
   final _nameController = TextEditingController();
   final _promptTemplateController = TextEditingController();
-  String _selectedColor = '#808080';
+  late String _selectedColor;
   String? _selectedProviderId;
   List<ACPProvider> _providers = [];
   bool _isLoadingProviders = true;
 
   static const List<String> _colors = [
-    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
-    '#F8B500', '#00CED1', '#FF69B4', '#32CD32', '#FF4500',
-    '#6B5B95', '#008080', '#808080',
+    '#4ECDC4', '#45B7D1', '#FF6B6B', '#96CEB4', '#BB8FCE', 
+    '#F7DC6F', '#98D8C8', '#85C1E9', '#F8B500', '#00CED1', 
+    '#FF69B4', '#32CD32', '#FF4500', '#6B5B95', '#008080',
   ];
 
   @override
   void initState() {
     super.initState();
+    _selectedColor = _colors[widget.existingColumnCount % _colors.length];
     _loadProviders();
   }
 
@@ -265,12 +223,6 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
     super.dispose();
   }
 
-  Color _parseColor(String colorHex) {
-    final hex = colorHex.replaceFirst('#', '');
-    if (hex.length == 6) return Color(int.parse('FF$hex', radix: 16));
-    return Colors.grey;
-  }
-
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -293,34 +245,6 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                   controller: _nameController,
                   autofocus: true,
                   decoration: const InputDecoration(labelText: 'Column Name'),
-                ),
-                const SizedBox(height: AppConstants.space24),
-                Text('COLOR', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: AppConstants.space8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _colors.map((color) {
-                    final isSelected =
-                        color.toUpperCase() == _selectedColor.toUpperCase();
-                    return GestureDetector(
-                      onTap: () => setState(() => _selectedColor = color),
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: _parseColor(color),
-                          shape: BoxShape.circle,
-                          border: isSelected
-                              ? Border.all(color: AppConstants.textPrimary, width: 2)
-                              : Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: isSelected
-                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
-                            : null,
-                      ),
-                    );
-                  }).toList(),
                 ),
                 const SizedBox(height: AppConstants.space24),
                 if (_isLoadingProviders)
@@ -432,7 +356,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
   Future<void> _addColumn() async {
     final result = await showDialog<ColorEditResult>(
       context: context,
-      builder: (context) => const _AddColumnDialog(),
+      builder: (context) => _AddColumnDialog(existingColumnCount: _columns.length),
     );
     if (result != null) {
       setState(() => _isLoading = true);
