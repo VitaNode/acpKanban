@@ -42,28 +42,37 @@ class MessageBubble extends StatelessWidget {
     if (message.role == 'tool') return _buildToolLog(context);
 
     final isUser = message.isUser;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.85,
         ),
-        margin: const EdgeInsets.symmetric(vertical: AppConstants.space8, horizontal: AppConstants.space16),
+        margin: const EdgeInsets.symmetric(
+            vertical: AppConstants.space8, horizontal: AppConstants.space16),
         child: Column(
           crossAxisAlignment:
               isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            _buildHeader(isUser),
+            _buildHeader(context, isUser),
             const SizedBox(height: AppConstants.space4),
             Container(
               padding: const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
-                color: isUser ? AppConstants.primaryColor : Theme.of(context).cardTheme.color,
+                color: isUser
+                    ? colorScheme.primary
+                    : (isDark
+                        ? colorScheme.surfaceContainerHigh
+                        : colorScheme.surfaceContainer),
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(AppConstants.space16),
-                  topRight: const Radius.circular(AppConstants.space16),
-                  bottomLeft: Radius.circular(isUser ? AppConstants.space16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : AppConstants.space16),
+                  topLeft: const Radius.circular(AppConstants.radiusMedium),
+                  topRight: const Radius.circular(AppConstants.radiusMedium),
+                  bottomLeft: Radius.circular(isUser ? AppConstants.radiusMedium : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : AppConstants.radiusMedium),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -72,7 +81,7 @@ class MessageBubble extends StatelessWidget {
                     offset: const Offset(0, 2),
                   ),
                 ],
-                border: isUser ? null : Border.all(color: Theme.of(context).dividerColor),
+                border: isUser ? null : Border.all(color: theme.dividerTheme.color!),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -89,34 +98,32 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(bool isUser) {
+  Widget _buildHeader(BuildContext context, bool isUser) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (!isUser) ...[
-          Icon(_getProviderIcon(), size: 12, color: AppConstants.primaryColor),
+          Icon(_getProviderIcon(), size: 12, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space4),
           Text(_getProviderName().toUpperCase(),
-              style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: AppConstants.primaryColor)),
+              style: theme.textTheme.labelLarge),
         ],
         if (isUser) ...[
-          const Text('YOU',
-              style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: AppConstants.textHint)),
+          Text('YOU',
+              style: theme.textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))),
           const SizedBox(width: AppConstants.space4),
-          const Icon(Icons.person_rounded, size: 12, color: AppConstants.textHint),
+          Icon(Icons.person_rounded,
+              size: 12,
+              color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
         ],
         const SizedBox(width: AppConstants.space8),
         Text(
           DateFormatter.formatTimeOnly(message.createdAt),
-          style: const TextStyle(fontSize: 9, color: AppConstants.textHint),
+          style: theme.textTheme.bodySmall,
         ),
       ],
     );
@@ -124,21 +131,25 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildMessageContent(BuildContext context, bool isUser) {
     final blocks = _parseContentBlocks();
-    final textColor = isUser ? Colors.white : Theme.of(context).textTheme.bodyMedium?.color ?? AppConstants.textPrimary;
-    
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textColor = isUser
+        ? colorScheme.onPrimary
+        : theme.textTheme.bodyMedium?.color ?? colorScheme.onSurface;
+
     if (blocks.length == 1 && blocks[0] is TextContent) {
       return Theme(
-        data: Theme.of(context).copyWith(
+        data: theme.copyWith(
           textSelectionTheme: TextSelectionThemeData(
-            selectionColor: isUser 
-              ? Colors.white.withOpacity(0.3) 
-              : AppConstants.primaryColor.withOpacity(0.2),
+            selectionColor: isUser
+                ? Colors.white.withOpacity(0.3)
+                : colorScheme.primary.withOpacity(0.2),
           ),
         ),
         child: MarkdownBody(
           data: (blocks[0] as TextContent).text,
           selectable: true,
-          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+          styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: TextStyle(color: textColor, fontSize: 14, height: 1.5),
             h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 22),
             h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 20),
@@ -150,14 +161,26 @@ class MessageBubble extends StatelessWidget {
             strong: TextStyle(color: textColor, fontWeight: FontWeight.bold),
             listBullet: TextStyle(color: textColor),
             code: TextStyle(
-              backgroundColor: isUser ? Colors.black26 : (Theme.of(context).brightness == Brightness.dark ? Colors.black45 : Colors.grey.shade100),
-              color: isUser ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.grey.shade800),
+              backgroundColor: isUser
+                  ? Colors.black26
+                  : (theme.brightness == Brightness.dark
+                      ? Colors.black45
+                      : colorScheme.surfaceContainerHighest),
+              color: isUser
+                  ? Colors.white
+                  : (theme.brightness == Brightness.dark
+                      ? Colors.white
+                      : colorScheme.onSurfaceVariant),
               fontFamily: 'monospace',
               fontSize: 12,
             ),
             codeblockDecoration: BoxDecoration(
-              color: isUser ? Colors.black26 : (Theme.of(context).brightness == Brightness.dark ? Colors.black45 : Colors.grey.shade100),
-              borderRadius: BorderRadius.circular(AppConstants.space8),
+              color: isUser
+                  ? Colors.black26
+                  : (theme.brightness == Brightness.dark
+                      ? Colors.black45
+                      : colorScheme.surfaceContainerHighest),
+              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
             ),
           ),
         ),
@@ -173,26 +196,33 @@ class MessageBubble extends StatelessWidget {
   Widget _buildThoughtSection(BuildContext context) {
     final thought = message.metadata!['thought'].toString();
     if (thought.isEmpty || thought == "...") return const SizedBox.shrink();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       margin: const EdgeInsets.only(bottom: AppConstants.space12),
       decoration: BoxDecoration(
-        color: isDark ? Colors.amber.shade900.withOpacity(0.1) : Colors.amber.shade50.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(AppConstants.space8),
-        border: Border.all(color: isDark ? Colors.amber.shade900.withOpacity(0.3) : Colors.amber.shade100),
+        color: isDark
+            ? Colors.amber.shade900.withOpacity(0.1)
+            : Colors.amber.shade50.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+        border: Border.all(
+            color: isDark
+                ? Colors.amber.shade900.withOpacity(0.3)
+                : Colors.amber.shade100),
       ),
       child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        data: theme.copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           dense: true,
           visualDensity: VisualDensity.compact,
           initiallyExpanded: false,
-          leading: const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Colors.amber),
+          leading:
+              const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Colors.amber),
           title: Text(
             'THOUGHT PROCESS',
             style: TextStyle(
-              fontSize: 10, 
+              fontSize: 10,
               fontWeight: FontWeight.bold,
               letterSpacing: 0.5,
               color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
@@ -200,7 +230,8 @@ class MessageBubble extends StatelessWidget {
           ),
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(AppConstants.space12, 0, AppConstants.space12, AppConstants.space12),
+              padding: const EdgeInsets.fromLTRB(AppConstants.space12, 0,
+                  AppConstants.space12, AppConstants.space12),
               child: MarkdownBody(
                 data: thought,
                 styleSheet: MarkdownStyleSheet(
@@ -228,26 +259,38 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildToolLog(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: AppConstants.space4, horizontal: AppConstants.space24),
+      margin: const EdgeInsets.symmetric(
+          vertical: AppConstants.space4, horizontal: AppConstants.space24),
       decoration: BoxDecoration(
-        color: isDark ? Colors.blueGrey.shade900.withOpacity(0.3) : AppConstants.surfaceColor,
-        borderRadius: BorderRadius.circular(AppConstants.space8),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: isDark
+            ? colorScheme.surfaceContainer.withOpacity(0.5)
+            : colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+        border: Border.all(color: theme.dividerTheme.color!),
       ),
       child: ExpansionTile(
         dense: true,
         visualDensity: VisualDensity.compact,
-        leading: Icon(Icons.terminal_rounded, size: 16, color: isDark ? Colors.blueGrey.shade200 : Colors.blueGrey),
+        leading: Icon(Icons.terminal_rounded,
+            size: 16,
+            color: isDark ? Colors.blueGrey.shade200 : Colors.blueGrey),
         title: Text(
           'TOOL: ${message.metadata?['name']?.toString().toUpperCase() ?? "UNKNOWN"}',
           style: TextStyle(
-              fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5, fontFamily: 'monospace', color: isDark ? Colors.blueGrey.shade200 : Colors.blueGrey),
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+              fontFamily: 'monospace',
+              color: isDark ? Colors.blueGrey.shade200 : Colors.blueGrey),
         ),
         subtitle: Text(
           DateFormatter.formatTimeOnly(message.createdAt),
-          style: const TextStyle(fontSize: 9, color: AppConstants.textHint),
+          style: theme.textTheme.bodySmall,
         ),
         children: [
           Container(
@@ -259,15 +302,23 @@ class MessageBubble extends StatelessWidget {
               children: [
                 if (message.metadata?['arguments'] != null) ...[
                   Text('ARGUMENTS',
-                      style:
-                          TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isDark ? Colors.blueGrey.shade300 : Colors.blueGrey)),
+                      style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: isDark
+                              ? Colors.blueGrey.shade300
+                              : Colors.blueGrey)),
                   const SizedBox(height: AppConstants.space4),
                   _buildCodeBlock(message.metadata!['arguments'].toString()),
                   const SizedBox(height: AppConstants.space8),
                 ],
                 Text('RESULT',
-                    style:
-                        TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isDark ? Colors.blueGrey.shade300 : Colors.blueGrey)),
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? Colors.blueGrey.shade300
+                            : Colors.blueGrey)),
                 const SizedBox(height: AppConstants.space4),
                 _buildCodeBlock(message.content),
               ],
@@ -284,7 +335,7 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(AppConstants.space4),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
       ),
       child: SelectableText(
         text,
