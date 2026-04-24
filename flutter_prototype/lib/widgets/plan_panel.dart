@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/agent_plan.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class PlanPanel extends StatefulWidget {
   final AgentPlan plan;
@@ -16,14 +17,16 @@ class _PlanPanelState extends State<PlanPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final completedCount = widget.plan.entries.where((s) => s.status == PlanStepStatus.completed).length;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: AppConstants.space8),
       decoration: BoxDecoration(
-        color: AppConstants.backgroundColor,
-        borderRadius: BorderRadius.circular(AppConstants.space16),
-        border: Border.all(color: Colors.grey.shade200),
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: theme.dividerTheme.color!),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.02),
@@ -38,7 +41,7 @@ class _PlanPanelState extends State<PlanPanel> {
           // Header
           InkWell(
             onTap: () => setState(() => _isExpanded = !_isExpanded),
-            borderRadius: BorderRadius.circular(AppConstants.space16),
+            borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
             child: Padding(
               padding: const EdgeInsets.all(AppConstants.space16),
               child: Column(
@@ -47,39 +50,39 @@ class _PlanPanelState extends State<PlanPanel> {
                     children: [
                       Icon(
                         widget.plan.progress >= 1.0 ? Icons.check_circle_rounded : Icons.assignment_rounded,
-                        color: AppConstants.primaryColor,
+                        color: colorScheme.primary,
                         size: 20,
                       ),
                       const SizedBox(width: AppConstants.space12),
                       Expanded(
                         child: Text(
                           'Agent Execution Plan ($completedCount/${widget.plan.entries.length})',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 15),
+                          style: theme.textTheme.headlineMedium?.copyWith(fontSize: 15),
                         ),
                       ),
                       Text(
                         '${(widget.plan.progress * 100).toInt()}%',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: AppConstants.primaryColor,
+                          color: colorScheme.primary,
                         ),
                       ),
                       const SizedBox(width: AppConstants.space8),
                       Icon(
                         _isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                        color: AppConstants.textHint,
+                        color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
                       ),
                     ],
                   ),
                   const SizedBox(height: AppConstants.space12),
                   // Progress Bar
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(AppConstants.space4),
+                    borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
                     child: LinearProgressIndicator(
                       value: widget.plan.progress,
-                      backgroundColor: Colors.grey.shade100,
-                      color: AppConstants.primaryColor,
+                      backgroundColor: colorScheme.surfaceContainer,
+                      color: colorScheme.primary,
                       minHeight: 4,
                     ),
                   ),
@@ -102,6 +105,9 @@ class _PlanPanelState extends State<PlanPanel> {
 
   Widget _buildStepItem(PlanStep step) {
     final isCompleted = step.status == PlanStepStatus.completed;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppConstants.space8),
       child: Row(
@@ -115,8 +121,8 @@ class _PlanPanelState extends State<PlanPanel> {
               children: [
                 Text(
                   step.content,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isCompleted ? AppConstants.textHint : AppConstants.textPrimary,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: isCompleted ? colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis) : colorScheme.onSurface,
                     decoration: isCompleted ? TextDecoration.lineThrough : null,
                     fontWeight: step.status == PlanStepStatus.inProgress ? FontWeight.w600 : FontWeight.normal,
                   ),
@@ -128,7 +134,7 @@ class _PlanPanelState extends State<PlanPanel> {
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: _getPriorityColor(step.priority).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(AppConstants.space4),
+                        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
                       ),
                       child: Text(
                         step.priority.name.toUpperCase(),
@@ -150,27 +156,32 @@ class _PlanPanelState extends State<PlanPanel> {
   }
 
   Widget _buildStatusIcon(PlanStepStatus status) {
+    final customColors = Theme.of(context).extension<CustomColors>()!;
+    final colorScheme = Theme.of(context).colorScheme;
+
     switch (status) {
       case PlanStepStatus.completed:
-        return const Icon(Icons.check_circle_rounded, size: 18, color: AppConstants.successColor);
+        return Icon(Icons.check_circle_rounded, size: 18, color: customColors.success);
       case PlanStepStatus.inProgress:
-        return const SizedBox(
+        return SizedBox(
           width: 16,
           height: 16,
-          child: CircularProgressIndicator(strokeWidth: 2, color: AppConstants.primaryColor),
+          child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary),
         );
       case PlanStepStatus.failed:
-        return const Icon(Icons.error_rounded, size: 18, color: AppConstants.errorColor);
+        return Icon(Icons.error_rounded, size: 18, color: colorScheme.error);
       default:
-        return Icon(Icons.radio_button_unchecked_rounded, size: 18, color: Colors.grey.shade300);
+        return Icon(Icons.radio_button_unchecked_rounded, size: 18, 
+            color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity));
     }
   }
 
   Color _getPriorityColor(PlanStepPriority priority) {
+    final customColors = Theme.of(context).extension<CustomColors>()!;
     switch (priority) {
-      case PlanStepPriority.high: return AppConstants.errorColor;
-      case PlanStepPriority.low: return Colors.blue.shade600;
-      default: return Colors.grey;
+      case PlanStepPriority.high: return Theme.of(context).colorScheme.error;
+      case PlanStepPriority.low: return customColors.info!;
+      default: return Theme.of(context).colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis);
     }
   }
 }
