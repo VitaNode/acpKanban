@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
+import 'services/smart_connect.dart';
 import 'services/connection_config_manager.dart';
 import 'services/project_service.dart';
 import 'services/kanban_refresh_service.dart';
