@@ -12,11 +12,13 @@ class ConfigOptionsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (options.isEmpty) return const SizedBox.shrink();
 
+    final theme = Theme.of(context);
+
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+        color: theme.scaffoldBackgroundColor,
+        border: Border(bottom: BorderSide(color: theme.dividerTheme.color!)),
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -32,6 +34,8 @@ class ConfigOptionsBar extends StatelessWidget {
   }
 
   Widget _buildOptionChip(BuildContext context, ConfigOption option) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final currentValue = option.options.firstWhere(
       (o) => o.value == option.currentValue,
       orElse: () => ConfigOptionValue(value: option.currentValue, name: option.currentValue),
@@ -40,27 +44,30 @@ class ConfigOptionsBar extends StatelessWidget {
     return Center(
       child: InkWell(
         onTap: () => _showOptionPicker(context, option),
-        borderRadius: BorderRadius.circular(AppConstants.space8),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space6),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardTheme.color,
-            borderRadius: BorderRadius.circular(AppConstants.space8),
-            border: Border.all(color: Theme.of(context).dividerColor),
+            color: theme.cardTheme.color,
+            borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+            border: Border.all(color: theme.dividerTheme.color!),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(_getIconForOption(option.category), size: 14, color: AppConstants.primaryColor),
+              Icon(_getIconForOption(option.category), size: 14, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space8),
               Text(
                 currentValue.name,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
                 ),
               ),
               const SizedBox(width: AppConstants.space4),
-              const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: AppConstants.textHint),
+              Icon(Icons.keyboard_arrow_down_rounded, 
+                  size: 16, 
+                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
             ],
           ),
         ),
@@ -68,13 +75,20 @@ class ConfigOptionsBar extends StatelessWidget {
     );
   }
 
-  void _showOptionPicker(BuildContext context, ConfigOption option) {
+  void _showOptionPicker(BuildContext context) {
+    // This seems to be a mistake in original code, _showOptionPicker takes two args
+  }
+
+  void _showOptionPickerInternal(BuildContext context, ConfigOption option) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final isModeCategory = option.category == 'mode';
 
     showModalBottomSheet(
       context: context,
+      backgroundColor: theme.scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusMedium)),
       ),
       builder: (context) {
         return SafeArea(
@@ -88,11 +102,11 @@ class ConfigOptionsBar extends StatelessWidget {
                     Row(
                       children: [
                         Icon(_getIconForOption(option.category),
-                            size: 20, color: AppConstants.primaryColor),
+                            size: 20, color: colorScheme.primary),
                         const SizedBox(width: AppConstants.space8),
                         Text(
                           option.name,
-                          style: Theme.of(context).textTheme.headlineMedium,
+                          style: theme.textTheme.headlineMedium,
                         ),
                       ],
                     ),
@@ -102,7 +116,7 @@ class ConfigOptionsBar extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           option.description!,
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: theme.textTheme.bodySmall,
                         ),
                       ),
                     ],
@@ -121,21 +135,21 @@ class ConfigOptionsBar extends StatelessWidget {
                       leading: isModeCategory
                           ? Icon(_getModeIcon(val.value),
                               color: isSelected
-                                  ? AppConstants.primaryColor
-                                  : AppConstants.textHint)
+                                  ? colorScheme.primary
+                                  : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))
                           : null,
                       title: Text(val.name,
                           style: TextStyle(
                             fontWeight:
                                 isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? AppConstants.primaryColor : AppConstants.textPrimary,
+                            color: isSelected ? colorScheme.primary : colorScheme.onSurface,
                           )),
                       subtitle: val.description != null
                           ? Text(val.description!,
-                              style: Theme.of(context).textTheme.bodySmall)
+                              style: theme.textTheme.bodySmall)
                           : null,
                       trailing: isSelected
-                          ? const Icon(Icons.check_rounded, color: AppConstants.primaryColor)
+                          ? Icon(Icons.check_rounded, color: colorScheme.primary)
                           : null,
                       onTap: () {
                         SessionWebSocketService()
@@ -151,6 +165,10 @@ class ConfigOptionsBar extends StatelessWidget {
         );
       },
     );
+  }
+
+  void _showOptionPicker(BuildContext context, ConfigOption option) {
+    _showOptionPickerInternal(context, option);
   }
 
   IconData _getIconForOption(String category) {
