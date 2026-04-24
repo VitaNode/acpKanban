@@ -207,7 +207,11 @@ class CardRepository(BaseRepository):
             return dict(row) if row else None
 
     def get_by_column(self, column_id: str, include_completed: bool = False) -> List[Dict]:
-        query = "SELECT * FROM cards WHERE column_id = ?"
+        query = """
+            SELECT c.*, 
+            (SELECT COUNT(*) FROM card_sessions cs WHERE cs.card_id = c.id) as session_count
+            FROM cards c WHERE c.column_id = ?
+        """
         params = [column_id]
         if not include_completed:
             query += " AND status != 'completed'"
