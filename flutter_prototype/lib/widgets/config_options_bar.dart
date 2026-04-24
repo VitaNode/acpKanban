@@ -15,8 +15,8 @@ class ConfigOptionsBar extends StatelessWidget {
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: AppConstants.backgroundColor,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+        color: Theme.of(context).scaffoldBackgroundColor,
+        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -44,9 +44,9 @@ class ConfigOptionsBar extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space6),
           decoration: BoxDecoration(
-            color: AppConstants.surfaceColor,
+            color: Theme.of(context).cardTheme.color,
             borderRadius: BorderRadius.circular(AppConstants.space8),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: Theme.of(context).dividerColor),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -57,7 +57,6 @@ class ConfigOptionsBar extends StatelessWidget {
                 currentValue.name,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: AppConstants.textPrimary,
                 ),
               ),
               const SizedBox(width: AppConstants.space4),
@@ -74,7 +73,6 @@ class ConfigOptionsBar extends StatelessWidget {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppConstants.backgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),

@@ -158,7 +158,7 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppConstants.space12),
-          side: BorderSide(color: Colors.grey.shade900),
+          side: BorderSide(color: Colors.white.withOpacity(0.1)),
         ),
         margin: const EdgeInsets.symmetric(vertical: AppConstants.space8),
       ),
@@ -228,7 +228,7 @@ class AppTheme {
         ),
       ),
       dividerTheme: DividerThemeData(
-        color: Colors.grey.shade900,
+        color: Colors.white.withOpacity(0.1),
         thickness: 1,
         space: AppConstants.space24,
       ),

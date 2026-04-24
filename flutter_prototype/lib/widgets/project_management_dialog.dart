@@ -78,7 +78,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                         project.name,
                         style: TextStyle(
                           fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                          color: isCurrent ? AppConstants.primaryColor : AppConstants.textPrimary,
+                          color: isCurrent ? AppConstants.primaryColor : Theme.of(context).textTheme.bodyLarge?.color,
                         ),
                       ),
                       subtitle: Column(
