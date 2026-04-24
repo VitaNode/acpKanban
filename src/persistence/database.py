@@ -256,12 +256,54 @@ class CardRepository(BaseRepository):
     def move(self, card_id: str, target_column_id: str, target_position: int = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
+            # 1. Get current state of the card
+            cursor = conn.execute("SELECT column_id, position FROM cards WHERE id = ?", (card_id,))
+            row = cursor.fetchone()
+            if not row:
+                return
+            
+            old_column_id = row['column_id']
+            old_position = row['position']
+
+            # 2. Determine target position if not provided
             if target_position is None:
                 cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (target_column_id,))
                 max_pos = cursor.fetchone()[0]
                 target_position = (max_pos + 1) if max_pos is not None else 0
-            
-            conn.execute("UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?", (target_column_id, target_position, now, card_id))
+
+            # 3. Handle shifting logic
+            if old_column_id == target_column_id:
+                # Same column move
+                if old_position < target_position:
+                    # Moving down: Shift cards between old and new positions up
+                    conn.execute(
+                        "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ?",
+                        (target_column_id, old_position, target_position)
+                    )
+                elif old_position > target_position:
+                    # Moving up: Shift cards between new and old positions down
+                    conn.execute(
+                        "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ?",
+                        (target_column_id, target_position, old_position)
+                    )
+            else:
+                # Cross column move
+                # Shift cards in old column up to fill the gap
+                conn.execute(
+                    "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ?",
+                    (old_column_id, old_position)
+                )
+                # Shift cards in target column down to make space
+                conn.execute(
+                    "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ?",
+                    (target_column_id, target_position)
+                )
+
+            # 4. Final update for the moved card
+            conn.execute(
+                "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
+                (target_column_id, target_position, now, card_id)
+            )
 
     def update_provider(self, card_id: str, provider_id: str):
         with self.db.get_connection() as conn:
