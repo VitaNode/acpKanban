@@ -912,7 +912,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     Expanded(
                       child: Text(
                           _targetProviderId != null
-                              ? 'Agent [${_targetProviderId!.toUpperCase()}] is ready in this column.'
+                              ? 'Agent [${_providerDisplayName.toUpperCase()}] is ready in this column.'
                               : 'No default agent for this column.',
                           style: Theme.of(context).textTheme.bodySmall),
                     ),
@@ -927,7 +927,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
-                            child: Text('INITIALIZE ${_targetProviderId?.toUpperCase()}'),
+                            child: Text('INITIALIZE ${_providerDisplayName.toUpperCase()}'),
                           ),
                   ],
                 ),
