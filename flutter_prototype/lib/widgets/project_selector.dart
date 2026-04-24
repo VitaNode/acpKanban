@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class ProjectSelector extends StatelessWidget {
   final Project? currentProject;
@@ -22,6 +23,9 @@ class ProjectSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     if (isLoading) {
       return const SizedBox(
         width: 20,
@@ -41,29 +45,29 @@ class ProjectSelector extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: 'Switch Project',
       offset: const Offset(0, 45),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space6),
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space8),
         decoration: BoxDecoration(
-          color: AppConstants.primaryColor.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(AppConstants.space8),
-          border: Border.all(color: AppConstants.primaryColor.withOpacity(0.15)),
+          color: colorScheme.primary.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+          border: Border.all(color: colorScheme.primary.withOpacity(0.15)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.folder_rounded, size: 16, color: AppConstants.primaryColor),
+            Icon(Icons.folder_rounded, size: 16, color: colorScheme.primary),
             const SizedBox(width: AppConstants.space8),
             Text(
               currentProject?.name ?? 'Select Project',
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
-                color: AppConstants.primaryColor,
+                color: colorScheme.primary,
               ),
             ),
             const SizedBox(width: AppConstants.space4),
-            const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppConstants.primaryColor),
+            Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: colorScheme.primary),
           ],
         ),
       ),
@@ -77,7 +81,7 @@ class ProjectSelector extends StatelessWidget {
                 Icon(
                   isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
                   size: 20,
-                  color: isCurrent ? AppConstants.primaryColor : AppConstants.textHint,
+                  color: isCurrent ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
                 ),
                 const SizedBox(width: AppConstants.space12),
                 Expanded(
@@ -89,18 +93,18 @@ class ProjectSelector extends StatelessWidget {
                         project.name,
                         style: TextStyle(
                           fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                          color: isCurrent ? AppConstants.primaryColor : AppConstants.textPrimary,
+                          color: isCurrent ? colorScheme.primary : colorScheme.onSurface,
                         ),
                       ),
                       Text(
                         'Last active: ${project.lastActive}',
-                        style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                        style: theme.textTheme.bodySmall,
                       ),
                     ],
                   ),
                 ),
                 if (isCurrent)
-                  const Icon(Icons.check_rounded, size: 18, color: AppConstants.primaryColor),
+                  Icon(Icons.check_rounded, size: 18, color: colorScheme.primary),
               ],
             ),
           );
@@ -110,9 +114,9 @@ class ProjectSelector extends StatelessWidget {
           value: '_manage_',
           child: Row(
             children: [
-              const Icon(Icons.settings_suggest_rounded, size: 20, color: AppConstants.primaryColor),
+              Icon(Icons.settings_suggest_rounded, size: 20, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space12),
-              Text('Manage Projects...', style: Theme.of(context).textTheme.bodyMedium),
+              Text('Manage Projects...', style: theme.textTheme.bodyMedium),
             ],
           ),
         ),
@@ -120,9 +124,9 @@ class ProjectSelector extends StatelessWidget {
           value: '_create_',
           child: Row(
             children: [
-              const Icon(Icons.add_rounded, size: 20, color: AppConstants.primaryColor),
+              Icon(Icons.add_rounded, size: 20, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space12),
-              Text('New Project', style: Theme.of(context).textTheme.bodyMedium),
+              Text('New Project', style: theme.textTheme.bodyMedium),
             ],
           ),
         ),
@@ -189,16 +193,19 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.create_new_folder_rounded, color: AppConstants.primaryColor),
+          Icon(Icons.create_new_folder_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('New Project', style: Theme.of(context).textTheme.headlineMedium),
+          Text('New Project', style: theme.textTheme.headlineMedium),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 450,
@@ -233,7 +240,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
                 const SizedBox(height: AppConstants.space8),
                 Text(
                   '💡 Description is included in the AI context.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
+                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
@@ -255,6 +262,11 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
         ),
         ElevatedButton(
           onPressed: _isCreating ? null : _handleCreate,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+          ),
           child: _isCreating
               ? const SizedBox(
                   width: 16,
