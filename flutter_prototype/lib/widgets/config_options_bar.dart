@@ -46,7 +46,7 @@ class ConfigOptionsBar extends StatelessWidget {
         onTap: () => _showOptionPicker(context, option),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space6),
+          padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space8),
           decoration: BoxDecoration(
             color: theme.cardTheme.color,
             borderRadius: BorderRadius.circular(AppConstants.radiusSmall),

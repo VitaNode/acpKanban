@@ -737,29 +737,27 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   IconData _getStatusIcon() {
-    switch (_acpClient.activeMode) {
-      case ConnectionPath.local:
-        return Icons.home_rounded;
-      case ConnectionPath.relay:
-        return Icons.cloud_sync_rounded;
-      case ConnectionPath.cloud:
-        return Icons.public_rounded;
-      default:
-        return Icons.cloud_off_rounded;
+    if (_acpClient.activeMode == ConnectionPath.local) {
+      return Icons.home_rounded;
+    } else if (_acpClient.activeMode == ConnectionPath.relay) {
+      return Icons.cloud_sync_rounded;
+    } else if (_acpClient.activeMode == ConnectionPath.cloud) {
+      return Icons.public_rounded;
+    } else {
+      return Icons.cloud_off_rounded;
     }
   }
 
   Color _getStatusDotColor() {
     final customColors = Theme.of(context).extension<CustomColors>()!;
-    switch (_acpClient.activeMode) {
-      case ConnectionPath.local:
-        return customColors.success!;
-      case ConnectionPath.relay:
-        return customColors.warning!;
-      case ConnectionPath.cloud:
-        return customColors.info!;
-      default:
-        return Theme.of(context).colorScheme.error;
+    if (_acpClient.activeMode == ConnectionPath.local) {
+      return customColors.success!;
+    } else if (_acpClient.activeMode == ConnectionPath.relay) {
+      return customColors.warning!;
+    } else if (_acpClient.activeMode == ConnectionPath.cloud) {
+      return customColors.info!;
+    } else {
+      return Theme.of(context).colorScheme.error;
     }
   }
 
@@ -787,15 +785,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   ConnectionMode _getCurrentConnectionMode() {
-    switch (_acpClient.activeMode) {
-      case ConnectionPath.local:
-        return ConnectionMode.local;
-      case ConnectionPath.relay:
-        return ConnectionMode.relay;
-      case ConnectionPath.cloud:
-        return ConnectionMode.cloud;
-      default:
-        return ConnectionMode.local;
+    if (_acpClient.activeMode == ConnectionPath.local) {
+      return ConnectionMode.local;
+    } else if (_acpClient.activeMode == ConnectionPath.relay) {
+      return ConnectionMode.relay;
+    } else if (_acpClient.activeMode == ConnectionPath.cloud) {
+      return ConnectionMode.cloud;
+    } else {
+      return ConnectionMode.local;
     }
   }
 
