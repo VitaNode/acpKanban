@@ -227,7 +227,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppConstants.backgroundColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Connection Settings'),
       ),
@@ -310,7 +310,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     final isSelected = _selectedMode == mode;
     return Expanded(
       child: Material(
-        color: isSelected ? AppConstants.primaryColor.withOpacity(0.1) : AppConstants.surfaceColor,
+        color: isSelected 
+          ? AppConstants.primaryColor.withOpacity(0.1) 
+          : (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor),
         borderRadius: BorderRadius.circular(AppConstants.space8),
         child: InkWell(
           onTap: () => setState(() => _selectedMode = mode),
@@ -320,7 +322,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppConstants.space8),
               border: Border.all(
-                color: isSelected ? AppConstants.primaryColor : Colors.grey.shade200,
+                color: isSelected ? AppConstants.primaryColor : Theme.of(context).dividerColor,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -333,7 +335,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? AppConstants.primaryColor : AppConstants.textSecondary,
+                    color: isSelected ? AppConstants.primaryColor : Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
                   ),
                 ),
               ],
@@ -348,9 +350,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
       decoration: BoxDecoration(
-        color: AppConstants.surfaceColor,
+        color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor,
         borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -510,9 +512,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
       decoration: BoxDecoration(
-        color: AppConstants.surfaceColor,
+        color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor,
         borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

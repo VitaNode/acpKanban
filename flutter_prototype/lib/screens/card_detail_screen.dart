@@ -590,7 +590,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppConstants.backgroundColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
           title: Text(_titleController.text,
               maxLines: 1,
@@ -718,19 +718,20 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Widget _buildFoldedHistory(List<CardMessage> messages) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: isDark ? Colors.grey.shade900 : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           title: Text('Previous Stage (${messages.length} messages)', 
-              style: const TextStyle(fontSize: 12, color: AppConstants.textSecondary, fontWeight: FontWeight.w500)),
-          leading: const Icon(Icons.history_rounded, size: 18, color: AppConstants.textSecondary),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color, fontWeight: FontWeight.w500)),
+          leading: Icon(Icons.history_rounded, size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
           children: messages.map((m) => MessageBubble(message: m, providerName: 'AI Agent')).toList(),
         ),
       ),
@@ -813,7 +814,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               decoration: InputDecoration(
                 hintText: 'Add a summary of the current progress...',
                 filled: true,
-                fillColor: Colors.grey.shade50,
+                fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.black26 : Colors.grey.shade50,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppConstants.space8), borderSide: BorderSide.none),
               ),
             )
@@ -822,9 +823,9 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
-                  color: AppConstants.surfaceColor,
+                  color: Theme.of(context).cardTheme.color,
                   borderRadius: BorderRadius.circular(AppConstants.space12),
-                  border: Border.all(color: Colors.grey.shade200)),
+                  border: Border.all(color: Theme.of(context).dividerColor)),
               child: SelectableText(
                 (_summary == null || _summary!.isEmpty) 
                   ? 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks. You can also manually edit this area to provide context for the next stage.' 
@@ -854,18 +855,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Widget _buildInputArea() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
         padding: const EdgeInsets.all(AppConstants.space12),
         decoration: BoxDecoration(
-            color: AppConstants.backgroundColor,
+            color: Theme.of(context).scaffoldBackgroundColor,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, -2),
               ),
             ],
-            border: Border(top: BorderSide(color: Colors.grey.shade200))),
+            border: Border(top: BorderSide(color: Theme.of(context).dividerColor))),
         child: SafeArea(
             child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -960,15 +962,16 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Widget _buildContextPanel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppConstants.primaryColor.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
-            color: AppConstants.primaryColor.withOpacity(0.05),
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1038,7 +1041,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   : SingleChildScrollView(
                       child: SelectableText(
                         _contextController.text,
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade800, fontFamily: 'monospace'),
+                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade800, fontFamily: 'monospace'),
                       ),
                     ),
             ),

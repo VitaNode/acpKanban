@@ -138,9 +138,9 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
 
     return Card(
       elevation: 0,
-      color: Colors.grey.shade50,
+      color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : Colors.grey.shade50,
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: Colors.grey.shade200),
+        side: BorderSide(color: Theme.of(context).dividerColor),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Padding(
@@ -165,7 +165,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
             if (isRunning && progress != null) ...[
               LinearProgressIndicator(
                 value: (progress['percent'] ?? 0).toDouble() / 100,
-                backgroundColor: Colors.grey.shade200,
+                backgroundColor: Theme.of(context).dividerColor,
                 borderRadius: BorderRadius.circular(4),
               ),
               const SizedBox(height: 8),

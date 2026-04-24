@@ -28,7 +28,10 @@ class KanbanCardWidget extends StatelessWidget {
     final cardWidget = Card(
       elevation: isCompleted ? 0 : 2,
       margin: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
-      color: isCompleted ? AppConstants.surfaceColor : AppConstants.backgroundColor,
+      color: isCompleted 
+        ? (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor)
+        : Theme.of(context).cardTheme.color,
+      shape: Theme.of(context).cardTheme.shape,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppConstants.space12),
@@ -52,7 +55,6 @@ class KanbanCardWidget extends StatelessWidget {
                         card.title,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           decoration: isCompleted ? TextDecoration.lineThrough : null,
-                          color: isCompleted ? AppConstants.textSecondary : AppConstants.textPrimary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),

@@ -44,10 +44,10 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
       width: 300,
       margin: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
-        color: AppConstants.surfaceColor,
+        color: Theme.of(context).cardTheme.color ?? Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppConstants.space16),
         border: Border.all(
-          color: Colors.grey.shade200,
+          color: Theme.of(context).dividerColor,
           width: 1,
         ),
       ),
@@ -67,7 +67,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                   if (index % 2 == 0) {
                     // Drop target
                     final targetPos = index ~/ 2;
-                    return _buildDropTarget(targetPos);
+                    return _buildDropTarget(context, targetPos);
                   } else {
                     // Card
                     final cardIndex = index ~/ 2;
@@ -123,7 +123,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
     );
   }
 
-  Widget _buildDropTarget(int position) {
+  Widget _buildDropTarget(BuildContext context, int position) {
     return DragTarget<KanbanCard>(
       onWillAcceptWithDetails: (details) {
         // Don't accept if it's the same card at the same position
@@ -177,7 +177,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
               Icon(
                 _showCompleted ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
                 size: 18,
-                color: AppConstants.textSecondary,
+                color: Theme.of(context).textTheme.bodySmall?.color,
               ),
               const SizedBox(width: AppConstants.space4),
               Text(
@@ -198,7 +198,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Colors.grey.shade200,
+            color: Theme.of(context).dividerColor,
             width: 1,
           ),
         ),
