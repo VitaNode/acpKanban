@@ -231,6 +231,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Card "${_card.title}" completed')),
         );
+        // Wait a bit for background summary task to start/finish, then reload
+        Future.delayed(const Duration(seconds: 2), () => _loadSummary());
       }
     }
   }
@@ -321,13 +323,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
       if (targetColumn != null && mounted) {
         setState(() => _isSavingCard = true);
-        final success = await _projectService.moveCard(_card.id, targetColumn.id, 0);
+        final success = await _projectService.moveCard(_card.id, targetColumn.id, null);
         if (success && mounted) {
           setState(() {
             _card = _card.copyWith(columnId: targetColumn.id);
             _isSavingCard = false;
           });
           _loadEnvironmentInfo(); // Reload provider info for new column
+          _loadSummary(); // Reload summary for move
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Moved to ${targetColumn.name}')),
           );
