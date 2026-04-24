@@ -68,80 +68,86 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
               : ListView.separated(
                   shrinkWrap: true,
                   itemCount: _localProjects.length,
-                  separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5),
+                  separatorBuilder: (context, index) => const SizedBox(height: AppConstants.space8),
                   itemBuilder: (context, index) {
                     final project = _localProjects[index];
                     final isCurrent = project.id == widget.currentProject?.id;
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(vertical: AppConstants.space4),
-                      leading: Icon(
-                        isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
-                        color: isCurrent ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
                       ),
-                      title: Text(
-                        project.name,
-                        style: TextStyle(
-                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                          color: isCurrent ? colorScheme.primary : theme.textTheme.bodyLarge?.color,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space4),
+                        leading: Icon(
+                          isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
+                          color: isCurrent ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
                         ),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 2),
-                          Text(
-                            project.workspacePath ?? "No workspace path set",
-                            style: theme.textTheme.bodySmall,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        title: Text(
+                          project.name,
+                          style: TextStyle(
+                            fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
+                            color: isCurrent ? colorScheme.primary : theme.textTheme.bodyLarge?.color,
                           ),
-                          Text(
-                            'Last active: ${project.lastActive}',
-                            style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
-                          ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined, size: 20),
-                            tooltip: 'Edit Project',
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) => ProjectEditDialog(
-                                  project: project,
-                                  onUpdate: (name, path, desc) async {
-                                    await widget.onUpdate(project, name, path, description: desc);
-                                    setState(() {
-                                      final idx = _localProjects.indexWhere((p) => p.id == project.id);
-                                      if (idx != -1) {
-                                        _localProjects[idx] = project.copyWith(
-                                          name: name,
-                                          workspacePath: path,
-                                          description: desc,
-                                        );
-                                      }
-                                    });
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                          IconButton(
-                            icon: Icon(Icons.delete_outline_rounded,
-                                size: 20, color: colorScheme.error),
-                            tooltip: isCurrent
-                                ? 'Cannot delete active project'
-                                : 'Delete Project',
-                            onPressed: isCurrent
-                                ? null
-                                : () {
-                                    _showDeleteConfirmation(context, project);
-                                  },
-                          ),
-                        ],
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 2),
+                            Text(
+                              project.workspacePath ?? "No workspace path set",
+                              style: theme.textTheme.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Last active: ${project.lastActive}',
+                              style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+                            ),
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              tooltip: 'Edit Project',
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => ProjectEditDialog(
+                                    project: project,
+                                    onUpdate: (name, path, desc) async {
+                                      await widget.onUpdate(project, name, path, description: desc);
+                                      setState(() {
+                                        final idx = _localProjects.indexWhere((p) => p.id == project.id);
+                                        if (idx != -1) {
+                                          _localProjects[idx] = project.copyWith(
+                                            name: name,
+                                            workspacePath: path,
+                                            description: desc,
+                                          );
+                                        }
+                                      });
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.delete_outline_rounded,
+                                  size: 20, color: colorScheme.error),
+                              tooltip: isCurrent
+                                  ? 'Cannot delete active project'
+                                  : 'Delete Project',
+                              onPressed: isCurrent
+                                  ? null
+                                  : () {
+                                      _showDeleteConfirmation(context, project);
+                                    },
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },

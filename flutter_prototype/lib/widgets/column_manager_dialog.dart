@@ -510,8 +510,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                     Flexible(
                       child: Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: theme.dividerTheme.color!),
-                          borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                          color: colorScheme.surfaceContainer,
+                          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
                         ),
                         child: ReorderableListView.builder(
                           shrinkWrap: true,
@@ -519,24 +519,31 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                           onReorder: _onReorder,
                           itemBuilder: (context, index) {
                             final col = _columns[index];
-                            return ListTile(
+                            return Container(
                               key: ValueKey(col.id),
-                              leading: Icon(Icons.drag_indicator_rounded, 
-                                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-                              title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined, size: 20),
-                                    onPressed: () => _editColumn(col),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(Icons.delete_outline_rounded,
-                                        size: 20, color: colorScheme.error),
-                                    onPressed: () => _deleteColumn(col),
-                                  ),
-                                ],
+                              margin: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainerHigh,
+                                borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                              ),
+                              child: ListTile(
+                                leading: Icon(Icons.drag_indicator_rounded, 
+                                    color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                                title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit_outlined, size: 20),
+                                      onPressed: () => _editColumn(col),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(Icons.delete_outline_rounded,
+                                          size: 20, color: colorScheme.error),
+                                      onPressed: () => _deleteColumn(col),
+                                    ),
+                                  ],
+                                ),
                               ),
                             );
                           },
