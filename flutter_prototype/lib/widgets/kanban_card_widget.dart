@@ -62,12 +62,20 @@ class KanbanCardWidget extends StatelessWidget {
                 const SizedBox(height: AppConstants.space8),
                 Row(
                   children: [
-                    if (card.summary != null && card.summary!.isNotEmpty)
+                    if (card.description.isNotEmpty)
+                      const Icon(
+                        Icons.notes_rounded,
+                        size: 16,
+                        color: AppConstants.textHint,
+                      ),
+                    if (card.summary != null && card.summary!.isNotEmpty) ...[
+                      if (card.description.isNotEmpty) const SizedBox(width: AppConstants.space8),
                       const Icon(
                         Icons.article_outlined,
                         size: 16,
                         color: AppConstants.textHint,
                       ),
+                    ],
                     const Spacer(),
                     InkWell(
                       onTap: onSessionTap,
