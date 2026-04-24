@@ -5,6 +5,7 @@ import '../services/project_service.dart';
 import '../services/kanban_refresh_service.dart';
 import '../constants/app_constants.dart';
 import '../services/acp_client.dart';
+import '../theme/app_theme.dart';
 
 class ProjectIndexingWidget extends StatefulWidget {
   final Project project;
@@ -30,7 +31,6 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
     super.initState();
     _fetchStatus();
     _startStatusPolling();
-    _subscribeToProgress();
   }
 
   @override
@@ -53,31 +53,21 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
         _status = status;
       });
       
-      // If completed, refresh the main view
       if (status['index_status'] == 'idle' && _status?['index_status'] == 'running') {
         KanbanRefreshService().markNeedsRefresh();
       }
     }
   }
 
-  void _subscribeToProgress() {
-    // Phase 4: Listen to WebSocket messages
-    // The main screen usually handles the stream, but we can listen specifically here too if ACPClient exposes it
-    // For simplicity, we use polling for now and complement with manual refresh
-  }
-
   Future<void> _startIndexing({bool forceFull = false}) async {
-    // Validate config first
     Map<String, dynamic>? config;
     
-    // Try ACP client first (WebSocket/Bridge)
     try {
       config = await _acpClient.getSystemConfig();
     } catch (e) {
       debugPrint('ACP Config check failed: $e');
     }
 
-    // Fallback to REST API (Backend DB)
     if (config == null || config.isEmpty) {
       config = await _projectService.getSystemConfig();
     }
@@ -94,10 +84,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  // We could navigate to settings here but we are in a dialog
-                },
+                onPressed: () => Navigator.pop(context),
                 child: const Text('OK'),
               ),
             ],
@@ -130,6 +117,8 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final indexStatus = _status!['index_status'] ?? 'idle';
     final isRunning = indexStatus == 'running';
     final progress = _status!['progress'];
@@ -138,47 +127,51 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
 
     return Card(
       elevation: 0,
-      color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : Colors.grey.shade50,
+      color: colorScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.dividerTheme.color!),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(AppConstants.space16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.analytics_outlined, color: AppConstants.primaryColor, size: 20),
-                const SizedBox(width: 8),
+                Icon(Icons.analytics_outlined, color: colorScheme.primary, size: 20),
+                const SizedBox(width: AppConstants.space8),
                 Text(
                   'Codebase Indexing',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
-                _buildStatusChip(indexStatus),
+                _buildStatusChip(context, indexStatus),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppConstants.space16),
             
             if (isRunning && progress != null) ...[
-              LinearProgressIndicator(
-                value: (progress['percent'] ?? 0).toDouble() / 100,
-                backgroundColor: Theme.of(context).dividerColor,
-                borderRadius: BorderRadius.circular(4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                child: LinearProgressIndicator(
+                  value: (progress['percent'] ?? 0).toDouble() / 100,
+                  backgroundColor: colorScheme.surfaceContainerHighest,
+                  color: colorScheme.primary,
+                  minHeight: 4,
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppConstants.space8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     'Processing: ${progress['current']}/${progress['total']}',
-                    style: const TextStyle(fontSize: 12, color: AppConstants.textHint),
+                    style: theme.textTheme.bodySmall,
                   ),
                   Text(
                     '${progress['percent']}%',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -187,19 +180,19 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
                   padding: const EdgeInsets.only(top: 4.0),
                   child: Text(
                     progress['current_file'],
-                    style: const TextStyle(fontSize: 10, color: AppConstants.textHint, fontStyle: FontStyle.italic),
+                    style: theme.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppConstants.space16),
             ] else ...[
-              _buildStatRow('Files Indexed', '${stats['total_files'] ?? 0}'),
-              _buildStatRow('Symbols Found', '${stats['total_symbols'] ?? 0}'),
-              _buildStatRow('Symbols Vectorized', '${stats['total_vectorized_symbols'] ?? 0}'),
+              _buildStatRow(context, 'Files Indexed', '${stats['total_files'] ?? 0}'),
+              _buildStatRow(context, 'Symbols Found', '${stats['total_symbols'] ?? 0}'),
+              _buildStatRow(context, 'Symbols Vectorized', '${stats['total_vectorized_symbols'] ?? 0}'),
               if (lastIndexed != null)
-                _buildStatRow('Last Updated', _formatDate(lastIndexed)),
-              const SizedBox(height: 16),
+                _buildStatRow(context, 'Last Updated', _formatDate(lastIndexed)),
+              const SizedBox(height: AppConstants.space16),
             ],
 
             Row(
@@ -210,7 +203,10 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
                       onPressed: _cancelIndexing,
                       icon: const Icon(Icons.stop_circle_outlined, size: 18),
                       label: const Text('Cancel'),
-                      style: OutlinedButton.styleFrom(foregroundColor: AppConstants.errorColor),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colorScheme.error,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                      ),
                     ),
                   )
                 else ...[
@@ -219,13 +215,21 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
                       onPressed: () => _startIndexing(forceFull: false),
                       icon: const Icon(Icons.refresh_rounded, size: 18),
                       label: Text(stats['total_files'] == 0 ? 'Start Indexing' : 'Incremental Update'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colorScheme.primary,
+                        foregroundColor: colorScheme.onPrimary,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
+                  const SizedBox(width: AppConstants.space8),
+                  IconButton.outlined(
                     onPressed: () => _startIndexing(forceFull: true),
                     icon: const Icon(Icons.restart_alt_rounded),
                     tooltip: 'Full Re-index',
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                    ),
                   ),
                 ],
               ],
@@ -236,21 +240,25 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
     );
   }
 
-  Widget _buildStatusChip(String status) {
-    Color color = Colors.grey;
+  Widget _buildStatusChip(BuildContext context, String status) {
+    final theme = Theme.of(context);
+    final customColors = theme.extension<CustomColors>()!;
+    final colorScheme = theme.colorScheme;
+    
+    Color color = colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis);
     String label = status.toUpperCase();
     
     switch (status) {
       case 'idle':
-        color = Colors.green;
+        color = customColors.success!;
         label = 'READY';
         break;
       case 'running':
-        color = Colors.orange;
+        color = customColors.warning!;
         label = 'INDEXING';
         break;
       case 'error':
-        color = Colors.red;
+        color = colorScheme.error;
         label = 'ERROR';
         break;
     }
@@ -259,7 +267,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
         border: Border.all(color: color.withOpacity(0.5)),
       ),
       child: Text(
@@ -269,14 +277,15 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
     );
   }
 
-  Widget _buildStatRow(String label, String value) {
+  Widget _buildStatRow(BuildContext context, String label, String value) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: AppConstants.textSecondary)),
-          Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(label, style: theme.textTheme.bodySmall),
+          Text(value, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
         ],
       ),
     );
