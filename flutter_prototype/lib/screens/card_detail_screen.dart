@@ -48,6 +48,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   bool _isEditingContext = false;
 
   String? _targetProviderId;
+  final Map<String, String> _providerNameMap = {};
   bool _isInitializing = false;
   bool _isAgentConnected = false;
   bool _isSavingCard = false;
@@ -83,6 +84,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   Future<void> _loadEnvironmentInfo() async {
     try {
+      final providerData = await _projectService.getProviders();
+      if (providerData != null && mounted) {
+        final providers = providerData['providers'] as List? ?? [];
+        for (final p in providers) {
+          _providerNameMap[p['id']] = p['name'];
+        }
+      }
+
       final columns = await _projectService.getColumns(widget.projectId);
       final myColumn = columns.firstWhere((c) => c.id == _card.columnId);
       if (mounted) {
@@ -93,6 +102,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     } catch (e) {
       debugPrint('Load environment info error: $e');
     }
+  }
+
+  String get _providerDisplayName {
+    if (_targetProviderId != null && _providerNameMap.containsKey(_targetProviderId)) {
+      return _providerNameMap[_targetProviderId]!;
+    }
+    return 'AI Agent';
   }
 
   Future<void> _loadSummary() async {
@@ -686,7 +702,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     }
     
     for (var m in currentBlock) {
-      list.add(MessageBubble(message: m, providerName: 'AI Agent'));
+      list.add(MessageBubble(message: m, providerName: _providerDisplayName));
     }
     
     return list;
@@ -706,7 +722,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           title: Text('Previous Stage (${messages.length} messages)', 
               style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
           leading: const Icon(Icons.history_rounded, size: 18),
-          children: messages.map((m) => MessageBubble(message: m, providerName: 'AI Agent')).toList(),
+          children: messages.map((m) => MessageBubble(message: m, providerName: _providerDisplayName)).toList(),
         ),
       ),
     );
