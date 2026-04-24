@@ -6,33 +6,31 @@ class AppConstants {
   static const animationDuration = Duration(milliseconds: 300);
   static const retryDelayBase = Duration(milliseconds: 500);
 
-  // Colors
-  static const primaryColor = Color(0xFF008080); // Teal
-  static const secondaryColor = Color(0xFF004D40);
-  static const backgroundColor = Color(0xFFFFFFFF);
-  static const surfaceColor = Color(0xFFF5F5F5);
-  static const errorColor = Color(0xFFD32F2F);
-  static const successColor = Color(0xFF388E3C);
-  
-  static const textPrimary = Color(0xFF212121);
-  static const textSecondary = Color(0xFF757575);
-  static const textHint = Color(0xFFBDBDBD);
-
-  // Spacing (Strict Base-4 Rule)
+  // Spacing (Strict 8px Base System)
   static const double space4 = 4.0;
-  static const double space6 = 6.0;
   static const double space8 = 8.0;
   static const double space12 = 12.0;
   static const double space16 = 16.0;
   static const double space24 = 24.0;
   static const double space32 = 32.0;
-  
-  // Text Styles
-  static const metadataStyle = TextStyle(
-    fontSize: 11,
-    fontFamily: 'monospace',
-    color: textSecondary,
-  );
-  
-  static const horizontalPadding = 16.0;
+  static const double space40 = 40.0;
+  static const double space48 = 48.0;
+
+  // Radius Tokens
+  static const double radiusSmall = 8.0;   // Buttons, small containers
+  static const double radiusMedium = 12.0; // Cards, dialogs
+  static const double radiusLarge = 24.0;  // Input fields, chips
+  static const double radiusFull = 99.0;   // Pill buttons
+
+  // Emphasis (Opacity)
+  static const double highEmphasis = 0.87;
+  static const double mediumEmphasis = 0.60;
+  static const double disabledOpacity = 0.38;
+
+  // Layout
+  static const double maxContentWidth = 800.0;
+  static const double horizontalPadding = 16.0;
+
+  // Branding (Seed Colors)
+  static const primaryColor = Color(0xFF008080); // Teal
 }
