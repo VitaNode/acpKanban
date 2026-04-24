@@ -8,6 +8,8 @@ docs/
 .vscode/
 .ruff_cache/
 *.db
+*.db-shm
+*.db-wal
 .agents/
 .gemini/
 .qwen/
