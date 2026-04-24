@@ -44,12 +44,8 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
       width: 300,
       margin: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color ?? Theme.of(context).colorScheme.surface,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppConstants.space16),
-        border: Border.all(
-          color: Theme.of(context).dividerColor,
-          width: 1,
-        ),
       ),
       child: Column(
         children: [
@@ -90,9 +86,9 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                   if (completedIndex == 0) {
                     return Column(
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: AppConstants.space8),
-                          child: Divider(color: Colors.grey.shade300, thickness: 0.5),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: AppConstants.space8),
+                          child: SizedBox(height: 1),
                         ),
                         _buildCompletedToggleButton(completedCards.length),
                       ],
@@ -195,14 +191,6 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
     final color = _parseColor(widget.column.color);
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).dividerColor,
-            width: 1,
-          ),
-        ),
-      ),
       child: Row(
         children: [
           Container(

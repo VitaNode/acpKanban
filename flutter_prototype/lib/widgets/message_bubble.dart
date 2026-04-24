@@ -124,7 +124,7 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildMessageContent(BuildContext context, bool isUser) {
     final blocks = _parseContentBlocks();
-    final textColor = isUser ? Colors.white : AppConstants.textPrimary;
+    final textColor = isUser ? Colors.white : Theme.of(context).textTheme.bodyMedium?.color ?? AppConstants.textPrimary;
     
     if (blocks.length == 1 && blocks[0] is TextContent) {
       return Theme(
@@ -150,13 +150,13 @@ class MessageBubble extends StatelessWidget {
             strong: TextStyle(color: textColor, fontWeight: FontWeight.bold),
             listBullet: TextStyle(color: textColor),
             code: TextStyle(
-              backgroundColor: isUser ? Colors.black26 : Colors.grey.shade100,
-              color: isUser ? Colors.white : Colors.grey.shade800,
+              backgroundColor: isUser ? Colors.black26 : (Theme.of(context).brightness == Brightness.dark ? Colors.black45 : Colors.grey.shade100),
+              color: isUser ? Colors.white : (Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.grey.shade800),
               fontFamily: 'monospace',
               fontSize: 12,
             ),
             codeblockDecoration: BoxDecoration(
-              color: isUser ? Colors.black26 : Colors.grey.shade100,
+              color: isUser ? Colors.black26 : (Theme.of(context).brightness == Brightness.dark ? Colors.black45 : Colors.grey.shade100),
               borderRadius: BorderRadius.circular(AppConstants.space8),
             ),
           ),
