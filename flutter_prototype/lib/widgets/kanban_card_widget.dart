@@ -61,6 +61,12 @@ class KanbanCardWidget extends StatelessWidget {
                     const SizedBox(width: AppConstants.space8),
                     if (card.acpProviderId != null)
                       _buildProviderBadge(card.acpProviderId!),
+                    InkWell(
+                      onTap: onSessionTap,
+                      borderRadius: BorderRadius.circular(AppConstants.space8),
+                      child: _buildSessionBadge(),
+                    ),
+                    _buildMenu(context),
                   ],
                 ),
                 if (card.description.isNotEmpty) ...[
@@ -72,23 +78,6 @@ class KanbanCardWidget extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
-                const SizedBox(height: AppConstants.space12),
-                Row(
-                  children: [
-                    Text(
-                      DateFormatter.formatShortDate(card.updatedAt),
-                      style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
-                    ),
-                    const Spacer(),
-                    InkWell(
-                      onTap: onSessionTap,
-                      borderRadius: BorderRadius.circular(AppConstants.space8),
-                      child: _buildSessionBadge(),
-                    ),
-                    const SizedBox(width: AppConstants.space4),
-                    _buildMenu(context),
-                  ],
-                ),
               ],
             ),
           ),
