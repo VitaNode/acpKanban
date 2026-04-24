@@ -60,6 +60,7 @@ def format_card_response(card: dict) -> dict:
         "session_count": card.get("session_count", 0),
         "acp_session_id": card.get("acp_session_id"),
         "acp_provider_id": card.get("acp_provider_id"),
+        "summary": card.get("last_summary"),
         "created_at": card.get("created_at"),
         "updated_at": card.get("updated_at"),
         "column_name": card.get("column_name"),

@@ -310,6 +310,9 @@ class SummaryRepository(BaseRepository):
                 conn.execute("INSERT INTO summary_history (card_id, summary, created_at) VALUES (?, ?, ?)", (card_id, row['summary'], now))
             
             conn.execute("INSERT INTO summaries (card_id, summary, embedding, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(card_id) DO UPDATE SET summary=excluded.summary, embedding=excluded.embedding, updated_at=excluded.updated_at", (card_id, summary, json.dumps(embedding) if embedding else None, now))
+            
+            # Phase 5.3: Sync summary to cards table for easier retrieval in list views
+            conn.execute("UPDATE cards SET last_summary = ?, updated_at = ? WHERE id = ?", (summary, now, card_id))
 
     def update_card_summary(self, card_id: str, summary: str):
         return self.upsert(card_id, summary)

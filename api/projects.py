@@ -633,6 +633,7 @@ async def switch_project(project_id: str):
                         "acp_session_id": c.get("acp_session_id"),
                         "acp_provider_id": c.get("acp_provider_id"),
                         "session_count": c.get("session_count", 0),
+                        "summary": c.get("last_summary"),
                         "created_at": c["created_at"],
                         "updated_at": c["updated_at"],
                     }
