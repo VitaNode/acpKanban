@@ -7,6 +7,7 @@ import '../widgets/content_block_renderer.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
+import '../theme/app_theme.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
@@ -133,6 +134,7 @@ class MessageBubble extends StatelessWidget {
     final blocks = _parseContentBlocks();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
     final textColor = isUser
         ? colorScheme.onPrimary
         : theme.textTheme.bodyMedium?.color ?? colorScheme.onSurface;
@@ -148,7 +150,6 @@ class MessageBubble extends StatelessWidget {
         ),
         child: MarkdownBody(
           data: (blocks[0] as TextContent).text,
-          selectable: true,
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: TextStyle(color: textColor, fontSize: 14, height: 1.5),
             h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 22),
@@ -163,24 +164,19 @@ class MessageBubble extends StatelessWidget {
             code: TextStyle(
               backgroundColor: isUser
                   ? Colors.black26
-                  : (theme.brightness == Brightness.dark
-                      ? Colors.black45
-                      : colorScheme.surfaceContainerHighest),
+                  : customColors.codeBackground,
               color: isUser
                   ? Colors.white
-                  : (theme.brightness == Brightness.dark
-                      ? Colors.white
-                      : colorScheme.onSurfaceVariant),
+                  : customColors.codeText,
               fontFamily: 'monospace',
               fontSize: 12,
             ),
             codeblockDecoration: BoxDecoration(
               color: isUser
                   ? Colors.black26
-                  : (theme.brightness == Brightness.dark
-                      ? Colors.black45
-                      : colorScheme.surfaceContainerHighest),
+                  : customColors.codeBackground,
               borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+              border: isUser ? null : Border.all(color: Colors.white.withOpacity(0.05)),
             ),
           ),
         ),
@@ -198,29 +194,35 @@ class MessageBubble extends StatelessWidget {
     if (thought.isEmpty || thought == "...") return const SizedBox.shrink();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
     final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       margin: const EdgeInsets.only(bottom: AppConstants.space12),
       decoration: BoxDecoration(
         color: isDark
-            ? colorScheme.surfaceContainerHighest.withOpacity(0.4) // 使用更高亮度的容器
-            : Colors.amber.shade50.withOpacity(0.5),
+            ? customColors.codeBackground 
+            : Colors.amber.shade50.withOpacity(0.3),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         border: Border.all(
             color: isDark
-                ? Colors.amber.withOpacity(0.2) // 深色模式下使用柔和的琥珀色边框
+                ? Colors.white.withOpacity(0.1)
                 : Colors.amber.shade100),
       ),
       child: Theme(
-        data: theme.copyWith(dividerColor: Colors.transparent),
+        data: theme.copyWith(
+          dividerColor: Colors.transparent,
+          colorScheme: colorScheme.copyWith(surface: Colors.transparent),
+        ),
         child: ExpansionTile(
           dense: true,
           visualDensity: VisualDensity.compact,
           initiallyExpanded: false,
+          backgroundColor: Colors.transparent,
+          collapsedBackgroundColor: Colors.transparent,
           leading: Icon(Icons.lightbulb_outline_rounded, 
               size: 16, 
-              color: isDark ? Colors.amber.shade300 : Colors.amber.shade700),
+              color: isDark ? Colors.amber.shade200 : Colors.amber.shade700),
           title: Text(
             'THOUGHT PROCESS',
             style: TextStyle(
@@ -231,17 +233,31 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
           children: [
-            Padding(
+            Container(
+              width: double.infinity,
               padding: const EdgeInsets.fromLTRB(AppConstants.space12, 0,
                   AppConstants.space12, AppConstants.space12),
               child: MarkdownBody(
                 data: thought,
-                styleSheet: MarkdownStyleSheet(
+                selectable: true,
+                styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
                   p: TextStyle(
                     fontSize: 12,
-                    color: isDark ? colorScheme.onSurface.withOpacity(AppConstants.highEmphasis) : Colors.grey.shade800,
+                    color: isDark ? customColors.codeText : Colors.grey.shade800,
                     fontStyle: FontStyle.italic,
                     height: 1.4,
+                    fontFamily: 'monospace',
+                  ),
+                  code: TextStyle(
+                    backgroundColor: isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.1),
+                    color: customColors.codeText,
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                  ),
+                  codeblockDecoration: BoxDecoration(
+                    color: isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
                   ),
                 ),
               ),
@@ -275,74 +291,83 @@ class MessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         border: Border.all(color: theme.dividerTheme.color!),
       ),
-      child: ExpansionTile(
-        dense: true,
-        visualDensity: VisualDensity.compact,
-        leading: Icon(Icons.terminal_rounded,
-            size: 16,
-            color: isDark ? Colors.blueGrey.shade200 : Colors.blueGrey),
-        title: Text(
-          'TOOL: ${message.metadata?['name']?.toString().toUpperCase() ?? "UNKNOWN"}',
-          style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-              fontFamily: 'monospace',
-              color: isDark ? Colors.blueGrey.shade200 : Colors.blueGrey),
-        ),
-        subtitle: Text(
-          DateFormatter.formatTimeOnly(message.createdAt),
-          style: theme.textTheme.bodySmall,
-        ),
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppConstants.space12),
-            color: Colors.black.withOpacity(0.02),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (message.metadata?['arguments'] != null) ...[
-                  Text('ARGUMENTS',
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          leading: Icon(Icons.terminal_rounded,
+              size: 16,
+              color: isDark ? colorScheme.primary : Colors.blueGrey),
+          title: Text(
+            'TOOL: ${message.metadata?['name']?.toString().toUpperCase() ?? "UNKNOWN"}',
+            style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+                fontFamily: 'monospace',
+                color: isDark ? colorScheme.onSurface : Colors.blueGrey),
+          ),
+          subtitle: Text(
+            DateFormatter.formatTimeOnly(message.createdAt),
+            style: theme.textTheme.bodySmall,
+          ),
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppConstants.space12),
+              color: Colors.black.withOpacity(0.02),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (message.metadata?['arguments'] != null) ...[
+                    Text('ARGUMENTS',
+                        style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? colorScheme.primary
+                                : Colors.blueGrey)),
+                    const SizedBox(height: AppConstants.space4),
+                    _buildCodeBlock(context, message.metadata!['arguments'].toString()),
+                    const SizedBox(height: AppConstants.space8),
+                  ],
+                  Text('RESULT',
                       style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
                           color: isDark
-                              ? Colors.blueGrey.shade300
+                              ? colorScheme.primary
                               : Colors.blueGrey)),
                   const SizedBox(height: AppConstants.space4),
-                  _buildCodeBlock(message.metadata!['arguments'].toString()),
-                  const SizedBox(height: AppConstants.space8),
+                  _buildCodeBlock(context, message.content),
                 ],
-                Text('RESULT',
-                    style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: isDark
-                            ? Colors.blueGrey.shade300
-                            : Colors.blueGrey)),
-                const SizedBox(height: AppConstants.space4),
-                _buildCodeBlock(message.content),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildCodeBlock(String text) {
+  Widget _buildCodeBlock(BuildContext context, String text) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
+    
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
+        color: isDark ? colorScheme.surfaceContainerHigh : customColors.codeBackground?.withOpacity(0.5),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+        border: isDark ? Border.all(color: Colors.white.withOpacity(0.05)) : null,
       ),
       child: SelectableText(
         text,
-        style: const TextStyle(
-          color: Color(0xFFCE9178),
+        style: TextStyle(
+          color: customColors.codeText,
           fontFamily: 'monospace',
           fontSize: 11,
         ),
