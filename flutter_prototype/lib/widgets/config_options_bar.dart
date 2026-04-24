@@ -75,11 +75,7 @@ class ConfigOptionsBar extends StatelessWidget {
     );
   }
 
-  void _showOptionPicker(BuildContext context) {
-    // This seems to be a mistake in original code, _showOptionPicker takes two args
-  }
-
-  void _showOptionPickerInternal(BuildContext context, ConfigOption option) {
+  void _showOptionPicker(BuildContext context, ConfigOption option) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isModeCategory = option.category == 'mode';
@@ -165,10 +161,6 @@ class ConfigOptionsBar extends StatelessWidget {
         );
       },
     );
-  }
-
-  void _showOptionPicker(BuildContext context, ConfigOption option) {
-    _showOptionPickerInternal(context, option);
   }
 
   IconData _getIconForOption(String category) {
