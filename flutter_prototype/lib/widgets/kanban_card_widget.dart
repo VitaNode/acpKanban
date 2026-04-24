@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_card.dart';
-import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class KanbanCardWidget extends StatelessWidget {
   final KanbanCard card;
@@ -24,19 +24,20 @@ class KanbanCardWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCompleted = card.isCompleted;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
 
     final cardWidget = Card(
-      elevation: isCompleted ? 0 : 2,
+      elevation: isCompleted ? 0 : 1,
       margin: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
-      color: Theme.of(context).cardTheme.color,
-      shape: Theme.of(context).cardTheme.shape,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppConstants.space12),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.space12),
           child: Opacity(
-            opacity: isCompleted ? 0.6 : 1.0,
+            opacity: isCompleted ? AppConstants.mediumEmphasis : 1.0,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -44,14 +45,14 @@ class KanbanCardWidget extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (isCompleted)
-                      const Padding(
-                        padding: EdgeInsets.only(right: AppConstants.space8, top: 2),
-                        child: Icon(Icons.check_circle, size: 16, color: AppConstants.successColor),
+                      Padding(
+                        padding: const EdgeInsets.only(right: AppConstants.space8, top: 2),
+                        child: Icon(Icons.check_circle, size: 16, color: customColors.success),
                       ),
                     Expanded(
                       child: Text(
                         card.title,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           decoration: isCompleted ? TextDecoration.lineThrough : null,
                           fontWeight: FontWeight.w500,
                         ),
@@ -63,24 +64,24 @@ class KanbanCardWidget extends StatelessWidget {
                 Row(
                   children: [
                     if (card.description.isNotEmpty)
-                      const Icon(
+                      Icon(
                         Icons.notes_rounded,
                         size: 16,
-                        color: AppConstants.textHint,
+                        color: theme.textTheme.bodySmall?.color,
                       ),
                     if (card.summary != null && card.summary!.isNotEmpty) ...[
                       if (card.description.isNotEmpty) const SizedBox(width: AppConstants.space8),
-                      const Icon(
+                      Icon(
                         Icons.article_outlined,
                         size: 16,
-                        color: AppConstants.textHint,
+                        color: theme.textTheme.bodySmall?.color,
                       ),
                     ],
                     const Spacer(),
                     InkWell(
                       onTap: onSessionTap,
-                      borderRadius: BorderRadius.circular(AppConstants.space8),
-                      child: _buildSessionBadge(),
+                      borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      child: _buildSessionBadge(context),
                     ),
                     _buildMenu(context),
                   ],
@@ -98,7 +99,7 @@ class KanbanCardWidget extends StatelessWidget {
         width: 280,
         child: Material(
           elevation: 8,
-          borderRadius: BorderRadius.circular(AppConstants.space12),
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
           child: cardWidget,
         ),
       ),
@@ -111,8 +112,9 @@ class KanbanCardWidget extends StatelessWidget {
   }
 
   Widget _buildMenu(BuildContext context) {
+    final customColors = Theme.of(context).extension<CustomColors>()!;
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_horiz, size: 18, color: AppConstants.textHint),
+      icon: Icon(Icons.more_horiz, size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
       padding: EdgeInsets.zero,
       onSelected: (value) {
         if (value == 'complete') onComplete?.call(card);
@@ -121,34 +123,34 @@ class KanbanCardWidget extends StatelessWidget {
       },
       itemBuilder: (context) => [
         if (card.status == 'active')
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'complete',
             child: Row(
               children: [
-                Icon(Icons.check_circle_outline, size: 18, color: AppConstants.successColor),
-                SizedBox(width: 8),
-                Text('Complete'),
+                Icon(Icons.check_circle_outline, size: 18, color: customColors.success),
+                const SizedBox(width: 8),
+                const Text('Complete'),
               ],
             ),
           ),
         if (card.status == 'completed')
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'uncomplete',
             child: Row(
               children: [
-                Icon(Icons.history, size: 18, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('Reactivate'),
+                Icon(Icons.history, size: 18, color: customColors.warning),
+                const SizedBox(width: 8),
+                const Text('Reactivate'),
               ],
             ),
           ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'delete',
           child: Row(
             children: [
-              Icon(Icons.delete_outline, size: 18, color: AppConstants.errorColor),
-              SizedBox(width: 8),
-              Text('Delete'),
+              Icon(Icons.delete_outline, size: 18, color: Theme.of(context).colorScheme.error),
+              const SizedBox(width: 8),
+              const Text('Delete'),
             ],
           ),
         ),
@@ -156,24 +158,25 @@ class KanbanCardWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildSessionBadge() {
+  Widget _buildSessionBadge(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: AppConstants.primaryColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
+        color: theme.colorScheme.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.chat_bubble_outline_rounded, size: 12, color: AppConstants.primaryColor),
+          Icon(Icons.chat_bubble_outline_rounded, size: 12, color: theme.colorScheme.primary),
           const SizedBox(width: 4),
           Text(
             '${card.sessionCount}',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.bold,
-              color: AppConstants.primaryColor,
+              color: theme.colorScheme.primary,
             ),
           ),
         ],
