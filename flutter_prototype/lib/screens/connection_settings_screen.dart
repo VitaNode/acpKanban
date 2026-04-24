@@ -4,6 +4,7 @@ import '../services/connection_config_manager.dart';
 import '../services/smart_connect.dart';
 import '../services/acp_client.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class ConnectionSettingsScreen extends StatefulWidget {
   final ACPClient acpClient;
@@ -219,15 +220,15 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   }
 
   Color _getStatusColor() {
-    if (_connectionStatus.startsWith('Connected')) return AppConstants.successColor;
-    if (_connectionStatus.startsWith('Failed')) return AppConstants.errorColor;
-    return Colors.orange;
+    final customColors = Theme.of(context).extension<CustomColors>()!;
+    if (_connectionStatus.startsWith('Connected')) return customColors.success!;
+    if (_connectionStatus.startsWith('Failed')) return Theme.of(context).colorScheme.error;
+    return customColors.warning!;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Connection Settings'),
       ),
@@ -267,7 +268,10 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
                     : const Icon(Icons.power_settings_new_rounded),
                 label: Text(_isConnecting ? 'CONNECTING...' : 'SAVE & CONNECT'),
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
                 ),
               ),
             ),
@@ -308,34 +312,40 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     required String label,
   }) {
     final isSelected = _selectedMode == mode;
+    final colorScheme = Theme.of(context).colorScheme;
+    
     return Expanded(
       child: Material(
         color: isSelected 
-          ? AppConstants.primaryColor.withOpacity(0.1) 
-          : (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor),
-        borderRadius: BorderRadius.circular(AppConstants.space8),
+          ? colorScheme.primary.withOpacity(0.1) 
+          : colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         child: InkWell(
           onTap: () => setState(() => _selectedMode = mode),
-          borderRadius: BorderRadius.circular(AppConstants.space8),
+          borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: AppConstants.space12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppConstants.space8),
+              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
               border: Border.all(
-                color: isSelected ? AppConstants.primaryColor : Theme.of(context).dividerColor,
+                color: isSelected ? colorScheme.primary : Theme.of(context).dividerTheme.color!,
                 width: isSelected ? 2 : 1,
               ),
             ),
             child: Column(
               children: [
-                Icon(icon, color: isSelected ? AppConstants.primaryColor : AppConstants.textHint, size: 20),
+                Icon(icon, 
+                  color: isSelected 
+                    ? colorScheme.primary 
+                    : theme.textTheme.bodySmall?.color, 
+                  size: 20),
                 const SizedBox(height: 4),
                 Text(
                   label,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? AppConstants.primaryColor : Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
+                    color: isSelected ? colorScheme.primary : theme.textTheme.bodyMedium?.color?.withOpacity(AppConstants.mediumEmphasis),
                   ),
                 ),
               ],
@@ -346,24 +356,26 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     );
   }
 
+  ThemeData get theme => Theme.of(context);
+
   Widget _buildModeSpecificFields() {
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor,
-        borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: Theme.of(context).dividerTheme.color!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.info_outline_rounded, size: 16, color: AppConstants.primaryColor),
+              Icon(Icons.info_outline_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 8),
               Text(
                 '${_selectedMode.name.toUpperCase()} CONFIGURATION',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(fontSize: 11),
+                style: Theme.of(context).textTheme.labelLarge,
               ),
             ],
           ),
@@ -379,6 +391,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   }
 
   Widget _buildLocalFields() {
+    final customColors = Theme.of(context).extension<CustomColors>()!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -397,6 +410,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
                 label: Text(_isScanning ? 'SCANNING...' : 'SCAN LOCAL NETWORK'),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
                 ),
               ),
             ),
@@ -408,7 +422,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             child: Text(
               _scannedIp!.startsWith('Scan') ? _scannedIp! : 'Found: $_scannedIp',
               style: TextStyle(
-                color: _scannedIp!.startsWith('Scan') ? AppConstants.errorColor : AppConstants.successColor,
+                color: _scannedIp!.startsWith('Scan') ? Theme.of(context).colorScheme.error : customColors.success,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),
@@ -512,9 +526,9 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade900 : AppConstants.surfaceColor,
-        borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: Theme.of(context).dividerTheme.color!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,7 +581,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       padding: const EdgeInsets.all(AppConstants.space12),
       decoration: BoxDecoration(
         color: _getStatusColor().withOpacity(0.05),
-        borderRadius: BorderRadius.circular(AppConstants.space8),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         border: Border.all(color: _getStatusColor().withOpacity(0.2)),
       ),
       child: Row(
