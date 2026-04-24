@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 import 'project_indexing_widget.dart';
 
 class ProjectManagementDialog extends StatefulWidget {
@@ -42,16 +43,19 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.settings_suggest_rounded, color: AppConstants.primaryColor),
+          Icon(Icons.settings_suggest_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('Manage Projects', style: Theme.of(context).textTheme.headlineMedium),
+          Text('Manage Projects', style: theme.textTheme.headlineMedium),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 500,
@@ -72,13 +76,13 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                       contentPadding: const EdgeInsets.symmetric(vertical: AppConstants.space4),
                       leading: Icon(
                         isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
-                        color: isCurrent ? AppConstants.primaryColor : AppConstants.textHint,
+                        color: isCurrent ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
                       ),
                       title: Text(
                         project.name,
                         style: TextStyle(
                           fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                          color: isCurrent ? AppConstants.primaryColor : Theme.of(context).textTheme.bodyLarge?.color,
+                          color: isCurrent ? colorScheme.primary : theme.textTheme.bodyLarge?.color,
                         ),
                       ),
                       subtitle: Column(
@@ -87,13 +91,13 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                           const SizedBox(height: 2),
                           Text(
                             project.workspacePath ?? "No workspace path set",
-                            style: Theme.of(context).textTheme.bodySmall,
+                            style: theme.textTheme.bodySmall,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
                             'Last active: ${project.lastActive}',
-                            style: const TextStyle(fontSize: 10, color: AppConstants.textHint),
+                            style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
                           ),
                         ],
                       ),
@@ -126,8 +130,8 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                             },
                           ),
                           IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded,
-                                size: 20, color: AppConstants.errorColor),
+                            icon: Icon(Icons.delete_outline_rounded,
+                                size: 20, color: colorScheme.error),
                             tooltip: isCurrent
                                 ? 'Cannot delete active project'
                                 : 'Delete Project',
@@ -196,10 +200,13 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+
     return AlertDialog(
       title: const Text('Delete Project?'),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 400,
@@ -220,9 +227,9 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
               if (widget.project.workspacePath != null)
                 _buildInfoRow('Workspace', widget.project.workspacePath!),
               const SizedBox(height: AppConstants.space16),
-              const Text(
+              Text(
                 'This action cannot be undone and will delete all cards, columns, and history associated with this project.',
-                style: TextStyle(color: AppConstants.errorColor, fontSize: 12),
+                style: TextStyle(color: colorScheme.error, fontSize: 12),
               ),
               const SizedBox(height: AppConstants.space16),
               TextField(
@@ -253,7 +260,10 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
                   widget.onConfirm();
                 }
               : null,
-          style: ElevatedButton.styleFrom(backgroundColor: AppConstants.errorColor),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: colorScheme.error,
+            foregroundColor: colorScheme.onError,
+          ),
           child: const Text('Delete Permanently'),
         ),
       ],
@@ -335,16 +345,19 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.edit_rounded, color: AppConstants.primaryColor),
+          Icon(Icons.edit_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('Edit Project', style: Theme.of(context).textTheme.headlineMedium),
+          Text('Edit Project', style: theme.textTheme.headlineMedium),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 450,
@@ -378,7 +391,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                 const SizedBox(height: AppConstants.space8),
                 Text(
                   '💡 Description is included in the AI context.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
+                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
@@ -402,6 +415,10 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
         ),
         ElevatedButton(
           onPressed: _isUpdating ? null : _handleUpdate,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+          ),
           child: _isUpdating
               ? const SizedBox(
                   width: 16,
