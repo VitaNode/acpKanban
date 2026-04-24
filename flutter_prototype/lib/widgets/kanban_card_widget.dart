@@ -50,21 +50,13 @@ class KanbanCardWidget extends StatelessWidget {
                     Expanded(
                       child: Text(
                         card.title,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           decoration: isCompleted ? TextDecoration.lineThrough : null,
                           color: isCompleted ? AppConstants.textSecondary : AppConstants.textPrimary,
+                          fontWeight: FontWeight.w500,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const SizedBox(width: AppConstants.space4),
-                    InkWell(
-                      onTap: onSessionTap,
-                      borderRadius: BorderRadius.circular(AppConstants.space8),
-                      child: _buildSessionBadge(),
-                    ),
-                    _buildMenu(context),
                   ],
                 ),
                 if (card.description.isNotEmpty) ...[
@@ -76,6 +68,24 @@ class KanbanCardWidget extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
+                const SizedBox(height: AppConstants.space8),
+                Row(
+                  children: [
+                    if (card.summary != null && card.summary!.isNotEmpty)
+                      const Icon(
+                        Icons.article_outlined,
+                        size: 16,
+                        color: AppConstants.textHint,
+                      ),
+                    const Spacer(),
+                    InkWell(
+                      onTap: onSessionTap,
+                      borderRadius: BorderRadius.circular(AppConstants.space8),
+                      child: _buildSessionBadge(),
+                    ),
+                    _buildMenu(context),
+                  ],
+                ),
               ],
             ),
           ),
