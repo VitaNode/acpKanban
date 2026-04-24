@@ -171,18 +171,50 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
               color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(AppConstants.space12),
             ),
-            child: Text(
-              '$activeCount',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.column.acpProviderId != null) ...[
+                  _buildProviderBadge(widget.column.acpProviderId!),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  '$activeCount',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildProviderBadge(String providerId) {
+    IconData icon;
+    Color color;
+    switch (providerId) {
+      case 'gemini':
+        icon = Icons.bolt;
+        color = Colors.blue;
+        break;
+      case 'qwen':
+        icon = Icons.code;
+        color = Colors.orange;
+        break;
+      case 'openclaw':
+        icon = Icons.smart_toy;
+        color = AppConstants.primaryColor;
+        break;
+      default:
+        icon = Icons.auto_awesome;
+        color = Colors.grey;
+    }
+    return Icon(icon, size: 14, color: color);
   }
 
   Widget _buildFooter(BuildContext context) {
