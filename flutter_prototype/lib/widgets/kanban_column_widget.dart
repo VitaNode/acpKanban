@@ -10,7 +10,7 @@ class KanbanColumnWidget extends StatefulWidget {
   final Function(KanbanCard) onCardTap;
   final Function(KanbanCard) onCardSessionTap;
   final VoidCallback onAddCard;
-  final Function(KanbanCard, String targetColumnId) onCardMoved;
+  final Function(KanbanCard, String targetColumnId, {int? targetPosition}) onCardMoved;
   final Function(KanbanCard)? onCardComplete;
   final Function(KanbanCard)? onCardUncomplete;
   final Function(KanbanCard)? onCardDelete;
@@ -51,40 +51,56 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
           width: 1,
         ),
       ),
-      child: DragTarget<KanbanCard>(
-        onWillAcceptWithDetails: (details) => details.data.columnId != widget.column.id,
-        onAcceptWithDetails: (details) => widget.onCardMoved(details.data, widget.column.id),
-        builder: (context, candidateData, rejectedData) {
-          final isOver = candidateData.isNotEmpty;
-          return Column(
-            children: [
-              _buildHeader(context, activeCards.length, isOver),
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: isOver ? AppConstants.primaryColor.withOpacity(0.05) : Colors.transparent,
-                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppConstants.space16)),
-                  ),
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
-                    children: [
-                      ...activeCards.map((card) => KanbanCardWidget(
-                            key: ValueKey(card.id),
-                            card: card,
-                            onTap: () => widget.onCardTap(card),
-                            onSessionTap: () => widget.onCardSessionTap(card),
-                            onComplete: widget.onCardComplete,
-                            onUncomplete: widget.onCardUncomplete,
-                            onDelete: widget.onCardDelete,
-                          )),
-                      if (completedCards.isNotEmpty) ...[
+      child: Column(
+        children: [
+          _buildHeader(context, activeCards.length),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppConstants.space8, vertical: AppConstants.space4),
+              itemCount: activeCards.length * 2 + 1 + (completedCards.isNotEmpty ? 2 : 0),
+              itemBuilder: (context, index) {
+                // Drop targets are at even indices: 0, 2, 4, ...
+                // Cards are at odd indices: 1, 3, 5, ...
+                
+                if (index < activeCards.length * 2 + 1) {
+                  if (index % 2 == 0) {
+                    // Drop target
+                    final targetPos = index ~/ 2;
+                    return _buildDropTarget(targetPos);
+                  } else {
+                    // Card
+                    final cardIndex = index ~/ 2;
+                    final card = activeCards[cardIndex];
+                    return KanbanCardWidget(
+                      key: ValueKey(card.id),
+                      card: card,
+                      onTap: () => widget.onCardTap(card),
+                      onSessionTap: () => widget.onCardSessionTap(card),
+                      onComplete: widget.onCardComplete,
+                      onUncomplete: widget.onCardUncomplete,
+                      onDelete: widget.onCardDelete,
+                    );
+                  }
+                }
+                
+                // Handle completed cards section
+                if (completedCards.isNotEmpty) {
+                  final completedIndex = index - (activeCards.length * 2 + 1);
+                  if (completedIndex == 0) {
+                    return Column(
+                      children: [
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: AppConstants.space8),
                           child: Divider(color: Colors.grey.shade300, thickness: 0.5),
                         ),
                         _buildCompletedToggleButton(completedCards.length),
-                        if (_showCompleted)
-                          ...completedCards.map((card) => KanbanCardWidget(
+                      ],
+                    );
+                  } else if (completedIndex == 1 && _showCompleted) {
+                    return Column(
+                      children: completedCards
+                          .map((card) => KanbanCardWidget(
                                 key: ValueKey(card.id),
                                 card: card,
                                 onTap: () => widget.onCardTap(card),
@@ -92,17 +108,59 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                                 onComplete: widget.onCardComplete,
                                 onUncomplete: widget.onCardUncomplete,
                                 onDelete: widget.onCardDelete,
-                              )),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              _buildFooter(context),
-            ],
-          );
-        },
+                              ))
+                          .toList(),
+                    );
+                  }
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+          _buildFooter(context),
+        ],
       ),
+    );
+  }
+
+  Widget _buildDropTarget(int position) {
+    return DragTarget<KanbanCard>(
+      onWillAcceptWithDetails: (details) {
+        // Don't accept if it's the same card at the same position
+        final card = details.data;
+        if (card.columnId == widget.column.id) {
+          if (card.position == position || card.position == position - 1) {
+            return false;
+          }
+        }
+        return true;
+      },
+      onAcceptWithDetails: (details) {
+        widget.onCardMoved(details.data, widget.column.id,
+            targetPosition: position);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final isOver = candidateData.isNotEmpty;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          height: isOver ? 40 : 8,
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: isOver
+                ? AppConstants.primaryColor.withOpacity(0.2)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppConstants.space8),
+            border: isOver
+                ? Border.all(color: AppConstants.primaryColor, width: 1)
+                : null,
+          ),
+          child: isOver
+              ? const Center(
+                  child: Icon(Icons.add_circle_outline,
+                      color: AppConstants.primaryColor, size: 20))
+              : null,
+        );
+      },
     );
   }
 
@@ -133,15 +191,15 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, int activeCount, [bool isOver = false]) {
+  Widget _buildHeader(BuildContext context, int activeCount) {
     final color = _parseColor(widget.column.color);
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: isOver ? AppConstants.primaryColor : Colors.grey.shade200,
-            width: isOver ? 2 : 1,
+            color: Colors.grey.shade200,
+            width: 1,
           ),
         ),
       ),

@@ -606,7 +606,7 @@ class ProjectService {
   }
 
   Future<bool> moveCard(
-      String cardId, String targetColumnId, int position) async {
+      String cardId, String targetColumnId, int? position) async {
     // Try HTTP proxy first in Relay mode
     if (_useProxy) {
       try {

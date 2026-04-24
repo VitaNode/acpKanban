@@ -370,39 +370,58 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _onCardMoved(KanbanCard card, String targetColumnId) async {
+  Future<void> _onCardMoved(KanbanCard card, String targetColumnId, {int? targetPosition}) async {
     final oldColumnId = card.columnId;
-    final targetCards =
-        _cards.where((c) => c.columnId == targetColumnId).toList();
-    final newPosition = targetCards.length;
+    final oldPosition = card.position;
+    
+    // Determine new position if not provided (default to end of column)
+    int newPosition;
+    if (targetPosition != null) {
+      newPosition = targetPosition;
+    } else {
+      final targetCards = _cards.where((c) => c.columnId == targetColumnId).toList();
+      newPosition = targetCards.length;
+    }
 
     // Optimistic update
     setState(() {
-      _cards = _cards.map((c) {
-        if (c.id == card.id) {
-          return c.copyWith(columnId: targetColumnId, position: newPosition);
+      // 1. Remove card from old position/column
+      _cards.removeWhere((c) => c.id == card.id);
+      
+      // 2. Adjust positions in old column
+      for (var i = 0; i < _cards.length; i++) {
+        if (_cards[i].columnId == oldColumnId && _cards[i].position > oldPosition) {
+          _cards[i] = _cards[i].copyWith(position: _cards[i].position - 1);
         }
-        return c;
-      }).toList();
+      }
+
+      // 3. Adjust positions in target column
+      for (var i = 0; i < _cards.length; i++) {
+        if (_cards[i].columnId == targetColumnId && _cards[i].position >= newPosition) {
+          _cards[i] = _cards[i].copyWith(position: _cards[i].position + 1);
+        }
+      }
+
+      // 4. Insert card at new position
+      _cards.add(card.copyWith(
+        columnId: targetColumnId,
+        position: newPosition,
+      ));
+      
+      // 5. Ensure global sort order
+      _cards.sort((a, b) => a.position.compareTo(b.position));
     });
 
-    final success =
-        await _projectService.moveCard(card.id, targetColumnId, newPosition);
+    final success = await _projectService.moveCard(card.id, targetColumnId, newPosition);
     if (!success && mounted) {
-      // Revert on failure
-      setState(() {
-        _cards = _cards.map((c) {
-          if (c.id == card.id) {
-            return c.copyWith(columnId: oldColumnId, position: card.position);
-          }
-          return c;
-        }).toList();
-      });
+      // Revert is complex for reordering, so we just reload everything from server
+      await _loadProjectData(_currentProject!.id);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Failed to move card')),
       );
-    } else {
-      // Trigger refresh on success
+    } else if (mounted) {
+      // Refresh to ensure everything is in sync
+      await _loadProjectData(_currentProject!.id);
       KanbanRefreshService().markNeedsRefresh();
     }
   }
