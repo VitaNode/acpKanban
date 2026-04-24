@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/timeline_event.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class TimelineView extends StatelessWidget {
   final List<TimelineEvent> events;
@@ -17,6 +18,9 @@ class TimelineView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     if (isLoading && events.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -26,9 +30,12 @@ class TimelineView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.history_rounded, size: 64, color: AppConstants.textHint),
+            Icon(Icons.history_rounded, size: 64, 
+                color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
             const SizedBox(height: AppConstants.space16),
-            Text('No events recorded yet.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppConstants.textHint)),
+            Text('No events recorded yet.', 
+                style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))),
             const SizedBox(height: AppConstants.space16),
             TextButton.icon(
               onPressed: onRefresh,
@@ -54,8 +61,10 @@ class TimelineView extends StatelessWidget {
   }
 
   Widget _buildEventItem(BuildContext context, TimelineEvent event, bool isLast) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final iconData = _getIconData(event.type);
-    final iconColor = _getIconColor(event.type);
+    final iconColor = _getIconColor(context, event.type);
     final timeStr = _formatDateTime(event.createdAt);
 
     return IntrinsicHeight(
@@ -77,7 +86,7 @@ class TimelineView extends StatelessWidget {
                   child: Container(
                     width: 1,
                     margin: const EdgeInsets.symmetric(vertical: AppConstants.space4),
-                    color: Colors.grey.shade200,
+                    color: theme.dividerTheme.color,
                   ),
                 ),
             ],
@@ -101,14 +110,14 @@ class TimelineView extends StatelessWidget {
                     ),
                     Text(
                       timeStr,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
+                      style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppConstants.space4),
                 Text(
                   event.content,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 ),
                 if (event.metadata != null && event.metadata!.isNotEmpty) ...[
                   const SizedBox(height: AppConstants.space8),
@@ -116,16 +125,15 @@ class TimelineView extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(AppConstants.space8),
                     decoration: BoxDecoration(
-                      color: AppConstants.surfaceColor,
-                      borderRadius: BorderRadius.circular(AppConstants.space8),
-                      border: Border.all(color: Colors.grey.shade200),
+                      color: colorScheme.surfaceContainer,
+                      borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      border: Border.all(color: theme.dividerTheme.color!),
                     ),
                     child: Text(
                       event.metadata.toString(),
-                      style: const TextStyle(
+                      style: theme.textTheme.bodySmall?.copyWith(
                         fontSize: 10,
                         fontFamily: 'monospace',
-                        color: AppConstants.textSecondary,
                       ),
                     ),
                   ),
@@ -168,26 +176,30 @@ class TimelineView extends StatelessWidget {
     }
   }
 
-  Color _getIconColor(TimelineEventType type) {
+  Color _getIconColor(BuildContext context, TimelineEventType type) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
+
     switch (type) {
       case TimelineEventType.cardCreated:
-        return AppConstants.successColor;
+        return customColors.success!;
       case TimelineEventType.cardUpdated:
-        return Colors.blue.shade600;
+        return colorScheme.primary;
       case TimelineEventType.cardDeleted:
-        return AppConstants.errorColor;
+        return colorScheme.error;
       case TimelineEventType.cardMoved:
-        return Colors.orange.shade700;
+        return customColors.warning!;
       case TimelineEventType.aiAction:
-        return AppConstants.primaryColor;
+        return colorScheme.primary;
       case TimelineEventType.userAction:
-        return Colors.blueGrey.shade600;
+        return colorScheme.secondary;
       case TimelineEventType.columnCreated:
-        return Colors.teal.shade600;
+        return customColors.success!;
       case TimelineEventType.columnUpdated:
-        return Colors.indigo.shade600;
+        return colorScheme.primary;
       default:
-        return Colors.grey.shade600;
+        return colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis);
     }
   }
 
