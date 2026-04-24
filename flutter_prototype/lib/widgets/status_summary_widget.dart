@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 enum AgentState {
   idle,
@@ -55,11 +56,13 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
     final activeStatuses = widget.statuses.where((s) => s.state != AgentState.idle).toList();
     if (activeStatuses.isEmpty) return const SizedBox.shrink();
 
+    final theme = Theme.of(context);
+
     return Container(
       height: 44,
       decoration: BoxDecoration(
-        color: AppConstants.backgroundColor,
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+        color: theme.scaffoldBackgroundColor,
+        border: Border(bottom: BorderSide(color: theme.dividerTheme.color!)),
       ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
@@ -73,24 +76,28 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
   }
 
   Widget _buildStatusChip(ProjectAgentStatus status) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
+    
     Color color;
     String text;
     IconData icon;
 
     switch (status.state) {
       case AgentState.working:
-        color = Colors.orange.shade700;
+        color = customColors.warning!;
         icon = Icons.bolt_rounded;
         final duration = DateTime.now().difference(status.startTime ?? DateTime.now());
         text = 'Working (${_formatDuration(duration)})';
         break;
       case AgentState.needsAuthorization:
-        color = AppConstants.errorColor;
+        color = colorScheme.error;
         icon = Icons.lock_clock_rounded;
         text = 'Needs Auth';
         break;
       case AgentState.completed:
-        color = AppConstants.successColor;
+        color = customColors.success!;
         icon = Icons.check_circle_rounded;
         text = 'Completed';
         break;
@@ -99,21 +106,27 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
     }
 
     return Container(
-      margin: const EdgeInsets.only(right: AppConstants.space8, top: AppConstants.space8, bottom: AppConstants.space8),
+      margin: const EdgeInsets.symmetric(
+        horizontal: AppConstants.space4,
+        vertical: AppConstants.space8,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppConstants.radiusFull),
         border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: color),
-          const SizedBox(width: AppConstants.space6),
+          const SizedBox(width: AppConstants.space8),
           Text(
             status.project.name,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppConstants.textPrimary),
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontSize: 11,
+              color: colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
+            ),
           ),
           const SizedBox(width: AppConstants.space4),
           Text(
