@@ -508,46 +508,40 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                     Text('DRAG TO REORDER', style: theme.textTheme.labelLarge),
                     const SizedBox(height: AppConstants.space8),
                     Flexible(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainer,
-                          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                        ),
-                        child: ReorderableListView.builder(
-                          shrinkWrap: true,
-                          itemCount: _columns.length,
-                          onReorder: _onReorder,
-                          itemBuilder: (context, index) {
-                            final col = _columns[index];
-                            return Container(
-                              key: ValueKey(col.id),
-                              margin: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
-                              decoration: BoxDecoration(
-                                color: colorScheme.surfaceContainerHigh,
-                                borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      child: ReorderableListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _columns.length,
+                        onReorder: _onReorder,
+                        itemBuilder: (context, index) {
+                          final col = _columns[index];
+                          return Container(
+                            key: ValueKey(col.id),
+                            margin: const EdgeInsets.symmetric(vertical: AppConstants.space4),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainer,
+                              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                            ),
+                            child: ListTile(
+                              leading: Icon(Icons.drag_indicator_rounded, 
+                                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                              title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, size: 20),
+                                    onPressed: () => _editColumn(col),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.delete_outline_rounded,
+                                        size: 20, color: colorScheme.error),
+                                    onPressed: () => _deleteColumn(col),
+                                  ),
+                                ],
                               ),
-                              child: ListTile(
-                                leading: Icon(Icons.drag_indicator_rounded, 
-                                    color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-                                title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined, size: 20),
-                                      onPressed: () => _editColumn(col),
-                                    ),
-                                    IconButton(
-                                      icon: Icon(Icons.delete_outline_rounded,
-                                          size: 20, color: colorScheme.error),
-                                      onPressed: () => _deleteColumn(col),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],

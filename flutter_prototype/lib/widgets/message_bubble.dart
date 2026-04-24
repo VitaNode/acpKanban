@@ -203,12 +203,12 @@ class MessageBubble extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: AppConstants.space12),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.amber.shade900.withOpacity(0.1)
+            ? colorScheme.surfaceContainerHighest.withOpacity(0.4) // 使用更高亮度的容器
             : Colors.amber.shade50.withOpacity(0.5),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         border: Border.all(
             color: isDark
-                ? Colors.amber.shade900.withOpacity(0.3)
+                ? Colors.amber.withOpacity(0.2) // 深色模式下使用柔和的琥珀色边框
                 : Colors.amber.shade100),
       ),
       child: Theme(
@@ -217,8 +217,9 @@ class MessageBubble extends StatelessWidget {
           dense: true,
           visualDensity: VisualDensity.compact,
           initiallyExpanded: false,
-          leading:
-              const Icon(Icons.lightbulb_outline_rounded, size: 16, color: Colors.amber),
+          leading: Icon(Icons.lightbulb_outline_rounded, 
+              size: 16, 
+              color: isDark ? Colors.amber.shade300 : Colors.amber.shade700),
           title: Text(
             'THOUGHT PROCESS',
             style: TextStyle(
@@ -237,7 +238,7 @@ class MessageBubble extends StatelessWidget {
                 styleSheet: MarkdownStyleSheet(
                   p: TextStyle(
                     fontSize: 12,
-                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                    color: isDark ? colorScheme.onSurface.withOpacity(AppConstants.highEmphasis) : Colors.grey.shade800,
                     fontStyle: FontStyle.italic,
                     height: 1.4,
                   ),

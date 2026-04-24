@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../models/kanban_card.dart';
 import '../models/kanban_column.dart';
 import '../models/card_message.dart';
@@ -14,6 +12,7 @@ import '../widgets/plan_panel.dart';
 import '../widgets/config_options_bar.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
 
 class CardDetailScreen extends StatefulWidget {
   final KanbanCard card;
@@ -137,8 +136,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       if (mounted)
         setState(() {
           _messages = msgs;
-          // 只有流式更新产生的 streaming- 消息才显示"正在执行"
-          // 历史消息（从数据库加载的）一律视为已完成
           _isAgentProcessing = msgs.isNotEmpty &&
               msgs.last.role == 'assistant' &&
               !msgs.last.isComplete &&
@@ -169,7 +166,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(error),
-            backgroundColor: AppConstants.errorColor,
+            backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -209,9 +206,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   Future<void> _initializeAgent() async {
     if (_isInitializing) return;
     setState(() => _isInitializing = true);
-    // Send session_init command via WebSocket
     _wsService.sendInit();
-    // Also request the context immediately
     _wsService.getContext();
   }
 
@@ -231,13 +226,13 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Card "${_card.title}" completed')),
         );
-        // Wait a bit for background summary task to start/finish, then reload
         Future.delayed(const Duration(seconds: 2), () => _loadSummary());
       }
     }
   }
 
   Future<void> _onDelete() async {
+    final customColors = Theme.of(context).extension<CustomColors>()!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -249,7 +244,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               child: const Text('Cancel')),
           TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete', style: TextStyle(color: Colors.red))),
+              child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error))),
         ],
       ),
     );
@@ -257,7 +252,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (confirmed == true) {
       final success = await _projectService.deleteCard(_card.id);
       if (success && mounted) {
-        Navigator.pop(context); // Go back to board
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Card "${_card.title}" deleted')),
         );
@@ -298,12 +293,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                             fontWeight:
                                 isCurrent ? FontWeight.bold : FontWeight.normal,
                             color: isCurrent
-                                ? AppConstants.primaryColor
-                                : AppConstants.textPrimary,
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.onSurface,
                           )),
                       trailing: isCurrent
-                          ? const Icon(Icons.check_rounded,
-                              color: AppConstants.primaryColor)
+                          ? Icon(Icons.check_rounded,
+                              color: Theme.of(context).colorScheme.primary)
                           : null,
                       onTap: isCurrent ? null : () => Navigator.pop(context, col),
                     );
@@ -329,8 +324,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
             _card = _card.copyWith(columnId: targetColumn.id);
             _isSavingCard = false;
           });
-          _loadEnvironmentInfo(); // Reload provider info for new column
-          _loadSummary(); // Reload summary for move
+          _loadEnvironmentInfo();
+          _loadSummary();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Moved to ${targetColumn.name}')),
           );
@@ -375,8 +370,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
     String toolName = toolCall['name'] ?? toolCall['title'] ?? 'Unknown Tool';
     String arguments = toolCall['arguments'] ?? '';
+    final customColors = Theme.of(context).extension<CustomColors>()!;
 
-    // Handle official ACP content block if name/arguments are missing (e.g. Plan mode)
     if (toolCall['content'] != null && toolCall['content'] is List) {
       final contentList = toolCall['content'] as List;
       for (var block in contentList) {
@@ -394,31 +389,30 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title:
-            const Text('权限申请', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Permission Request'),
         content: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Agent 申请: $toolName',
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 12),
+              Text('Agent requesting: $toolName',
+                  style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: AppConstants.space12),
               if (arguments.isNotEmpty)
                 Container(
                   constraints: const BoxConstraints(maxHeight: 200),
                   width: double.infinity,
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(AppConstants.space8),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(4),
+                    color: Theme.of(context).colorScheme.surfaceContainer,
+                    borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
                   ),
                   child: SingleChildScrollView(
                     child: Text(arguments,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 13,
-                            color: Colors.black87,
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontFamily: 'monospace')),
                   ),
                 ),
@@ -439,8 +433,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   child: Text(opt['name'],
                       style: TextStyle(
                         color: opt['kind'].toString().contains('allow')
-                            ? const Color(0xFF008080)
-                            : Colors.red,
+                            ? customColors.success
+                            : Theme.of(context).colorScheme.error,
                         fontWeight: opt['kind'].toString().contains('always')
                             ? FontWeight.bold
                             : FontWeight.normal,
@@ -472,20 +466,18 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               width: size.width - 32,
               child: Material(
                   elevation: 8,
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                  color: Theme.of(context).cardTheme.color,
                   child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: _availableCommands
                           .map((c) => ListTile(
-                                leading: const Icon(Icons.flash_on,
-                                    size: 18, color: Color(0xFF008080)),
+                                leading: Icon(Icons.flash_on,
+                                    size: 18, color: Theme.of(context).colorScheme.primary),
                                 title: Text('/${c['name']}',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14)),
+                                    style: Theme.of(context).textTheme.bodyLarge),
                                 subtitle: Text(c['description'] ?? '',
-                                    style: const TextStyle(fontSize: 12)),
+                                    style: Theme.of(context).textTheme.bodySmall),
                                 onTap: () {
                                   _chatController.text = '/${c['name']} ';
                                   _chatController.selection =
@@ -508,7 +500,6 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
     _debounceTimer =
         Timer(AppConstants.autoSaveDebounce, () => _autoSaveCard());
-    // Ensure AppBar title updates immediately
     if (mounted) setState(() {});
   }
 
@@ -534,7 +525,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients)
         _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+            duration: AppConstants.animationDuration, curve: Curves.easeOut);
     });
   }
 
@@ -552,7 +543,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     final contextText = _contextController.text.trim();
     if (contextText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Context is empty. Please add context or summary before sending.')),
+        const SnackBar(content: Text('Context is empty.')),
       );
       return;
     }
@@ -590,12 +581,8 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-          title: Text(_titleController.text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          title: Text(_titleController.text),
           actions: [
             if (_isSavingCard || _isSavingSummary)
               const Center(
@@ -607,52 +594,40 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2)))),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
-              tooltip: 'Card Actions',
               onSelected: (value) {
-                if (value == 'complete') {
-                  _onComplete();
-                } else if (value == 'delete') {
-                  _onDelete();
-                } else if (value == 'move') {
-                  _onMove();
-                }
+                if (value == 'complete') _onComplete();
+                else if (value == 'delete') _onDelete();
+                else if (value == 'move') _onMove();
               },
               itemBuilder: (context) => [
                 PopupMenuItem(
                   value: 'complete',
                   child: Row(
                     children: [
-                      Icon(
-                          _card.status == 'completed'
-                              ? Icons.undo_rounded
-                              : Icons.check_circle_outline_rounded,
-                          size: 20),
-                      const SizedBox(width: 12),
-                      Text(_card.status == 'completed'
-                          ? 'Reactivate Card'
-                          : 'Complete Card'),
+                      Icon(_card.status == 'completed' ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 20),
+                      const SizedBox(width: AppConstants.space12),
+                      Text(_card.status == 'completed' ? 'Reactivate Card' : 'Complete Card'),
                     ],
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'move',
                   child: Row(
                     children: [
-                      Icon(Icons.drive_file_move_outline, size: 20),
-                      const SizedBox(width: 12),
-                      Text('Move to Column'),
+                      const Icon(Icons.drive_file_move_outline, size: 20),
+                      const SizedBox(width: AppConstants.space12),
+                      const Text('Move to Column'),
                     ],
                   ),
                 ),
                 const PopupMenuDivider(),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline_rounded,
-                          size: 20, color: Colors.red),
-                      const SizedBox(width: 12),
-                      Text('Delete Card', style: TextStyle(color: Colors.red)),
+                      Icon(Icons.delete_outline_rounded, size: 20, color: Theme.of(context).colorScheme.error),
+                      const SizedBox(width: AppConstants.space12),
+                      Text('Delete Card', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     ],
                   ),
                 ),
@@ -678,11 +653,11 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                     padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
                     child: Divider()),
                 if (_messages.isEmpty)
-                  const Center(
+                  Center(
                       child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: AppConstants.space32),
+                          padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
                           child: Text('Start a conversation...',
-                              style: TextStyle(color: AppConstants.textHint))))
+                              style: Theme.of(context).textTheme.bodySmall)))
                 else
                   ..._buildMessageList(),
                 if (_isAgentProcessing) _buildProcessingIndicator(),
@@ -718,20 +693,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Widget _buildFoldedHistory(List<CardMessage> messages) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
       decoration: BoxDecoration(
-        color: isDark ? Colors.grey.shade900 : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(AppConstants.space12),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: Theme.of(context).dividerTheme.color!),
       ),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           title: Text('Previous Stage (${messages.length} messages)', 
-              style: TextStyle(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color, fontWeight: FontWeight.w500)),
-          leading: Icon(Icons.history_rounded, size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
+          leading: const Icon(Icons.history_rounded, size: 18),
           children: messages.map((m) => MessageBubble(message: m, providerName: 'AI Agent')).toList(),
         ),
       ),
@@ -739,12 +713,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Widget _buildHeader() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    
     return Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Level 1: Title (High Emphasis)
           TextField(
               controller: _titleController,
-              style: Theme.of(context).textTheme.headlineLarge,
+              style: theme.textTheme.headlineLarge?.copyWith(
+                fontSize: 26,
+                letterSpacing: -0.5,
+              ),
               decoration: const InputDecoration(
                   border: InputBorder.none, 
                   enabledBorder: InputBorder.none,
@@ -753,20 +734,66 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   filled: false,
                   contentPadding: EdgeInsets.zero),
               maxLines: null),
-          TextField(
-              controller: _descriptionController,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppConstants.textSecondary),
-              decoration: const InputDecoration(
-                  border: InputBorder.none, 
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  hintText: 'Add description...',
-                  filled: false,
-                  contentPadding: EdgeInsets.zero),
-              maxLines: null),
+          
           const SizedBox(height: AppConstants.space8),
-          Text('Created ${DateFormatter.formatFull(_card.createdAt)}',
-              style: Theme.of(context).textTheme.bodySmall),
+          
+          // Level 2: Description (Medium Emphasis, with leading icon)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(Icons.notes_rounded, 
+                    size: 16, 
+                    color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+              ),
+              const SizedBox(width: AppConstants.space8),
+              Expanded(
+                child: TextField(
+                    controller: _descriptionController,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+                      height: 1.5,
+                    ),
+                    decoration: const InputDecoration(
+                        border: InputBorder.none, 
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        hintText: 'Add a detailed description...',
+                        filled: false,
+                        contentPadding: EdgeInsets.zero),
+                    maxLines: null),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: AppConstants.space16),
+          
+          // Level 3: Metadata (Disabled/Low Emphasis, chip style)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.access_time_rounded, 
+                    size: 12, 
+                    color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
+                const SizedBox(width: 6),
+                Text(
+                  'Created ${DateFormatter.formatFull(_card.createdAt)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: AppConstants.space16),
         ]));
   }
@@ -776,10 +803,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.handshake_rounded, size: 16, color: AppConstants.primaryColor),
+            Icon(Icons.handshake_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: AppConstants.space8),
             Text('CONTEXT FOR NEXT AGENT',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppConstants.primaryColor, fontWeight: FontWeight.bold)),
+                style: Theme.of(context).textTheme.labelLarge),
             const Spacer(),
             if (!_isEditingSummary)
               TextButton.icon(
@@ -802,20 +829,17 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                 ),
               ]),
           ]),
-          const SizedBox(height: 4),
-          const Text('Confirm or edit the progress summary before initializing the agent.', 
-              style: TextStyle(fontSize: 10, color: AppConstants.textSecondary, fontStyle: FontStyle.italic)),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppConstants.space4),
+          Text('Confirm or edit the progress summary before initializing the agent.', 
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
+          const SizedBox(height: AppConstants.space12),
           if (_isEditingSummary)
             TextField(
               controller: _summaryController,
               maxLines: null,
               style: const TextStyle(fontSize: 13),
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Add a summary of the current progress...',
-                filled: true,
-                fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.black26 : Colors.grey.shade50,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppConstants.space8), borderSide: BorderSide.none),
               ),
             )
           else
@@ -824,15 +848,14 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               padding: const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
                   color: Theme.of(context).cardTheme.color,
-                  borderRadius: BorderRadius.circular(AppConstants.space12),
-                  border: Border.all(color: Theme.of(context).dividerColor)),
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                  border: Border.all(color: Theme.of(context).dividerTheme.color!)),
               child: SelectableText(
                 (_summary == null || _summary!.isEmpty) 
-                  ? 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks. You can also manually edit this area to provide context for the next stage.' 
+                  ? 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks.' 
                   : _summary!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   height: 1.4,
-                  color: (_summary == null || _summary!.isEmpty) ? AppConstants.textHint : null,
                   fontStyle: (_summary == null || _summary!.isEmpty) ? FontStyle.italic : null,
                 ),
               ),
@@ -844,30 +867,19 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     return Padding(
         padding: const EdgeInsets.all(AppConstants.space16),
         child: Row(children: [
-          const SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: AppConstants.space12),
-          Text('Agent is working...',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
+          Text('Agent is working...', style: Theme.of(context).textTheme.bodySmall),
         ]));
   }
 
   Widget _buildInputArea() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
         padding: const EdgeInsets.all(AppConstants.space12),
         decoration: BoxDecoration(
             color: Theme.of(context).scaffoldBackgroundColor,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
-              ),
-            ],
-            border: Border(top: BorderSide(color: Theme.of(context).dividerColor))),
+            border: Border(top: BorderSide(color: Theme.of(context).dividerTheme.color!))),
         child: SafeArea(
             child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -876,41 +888,31 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               _buildContextPanel(),
             if (!_isAgentConnected)
               Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: AppConstants.space12),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline_rounded,
-                        size: 16, color: AppConstants.textSecondary),
-                    const SizedBox(width: 8),
+                    const Icon(Icons.info_outline_rounded, size: 16),
+                    const SizedBox(width: AppConstants.space8),
                     Expanded(
                       child: Text(
                           _targetProviderId != null
                               ? 'Agent [${_targetProviderId!.toUpperCase()}] is ready in this column.'
                               : 'No default agent for this column.',
-                          style: const TextStyle(
-                              fontSize: 12, color: AppConstants.textSecondary)),
+                          style: Theme.of(context).textTheme.bodySmall),
                     ),
-                    if (_targetProviderId == null)
-                      const SizedBox.shrink()
-                    else if (_isInitializing)
-                      const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                    else
-                      TextButton(
-                        onPressed: _initializeAgent,
-                        style: TextButton.styleFrom(
-                          backgroundColor:
-                              AppConstants.primaryColor.withOpacity(0.1),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 4),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: Text(
-                            'INITIALIZE ${_targetProviderId?.toUpperCase() ?? "AGENT"}'),
-                      ),
+                    if (_targetProviderId != null)
+                      _isInitializing
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : TextButton(
+                            onPressed: _initializeAgent,
+                            style: TextButton.styleFrom(
+                              backgroundColor: colorScheme.primary.withOpacity(0.1),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text('INITIALIZE ${_targetProviderId?.toUpperCase()}'),
+                          ),
                   ],
                 ),
               ),
@@ -921,39 +923,16 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       focusNode: _chatFocusNode,
                       enabled: _isAgentConnected,
                       decoration: InputDecoration(
-                          hintText: _isAgentConnected
-                              ? 'Ask or type / command...'
-                              : 'Connect agent to start chatting',
-                          border: OutlineInputBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppConstants.space24),
-                              borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppConstants.space24),
-                              borderSide: BorderSide.none),
-                          focusedBorder: OutlineInputBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppConstants.space24),
-                              borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: AppConstants.space16,
-                              vertical: AppConstants.space8)),
+                          hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
                       onSubmitted: (_) => _handleSend())),
               const SizedBox(width: AppConstants.space8),
-              Material(
-                color: _isAgentConnected
-                    ? AppConstants.primaryColor
-                    : Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(AppConstants.space24),
-                child: InkWell(
-                  onTap: _isAgentConnected ? _handleSend : null,
-                  borderRadius: BorderRadius.circular(AppConstants.space24),
-                  child: const Padding(
-                    padding: EdgeInsets.all(AppConstants.space8),
-                    child: Icon(Icons.arrow_upward_rounded,
-                        color: Colors.white, size: 24),
-                  ),
+              IconButton.filled(
+                onPressed: _isAgentConnected ? _handleSend : null,
+                icon: const Icon(Icons.arrow_upward_rounded),
+                style: IconButton.styleFrom(
+                  backgroundColor: _isAgentConnected ? colorScheme.primary : colorScheme.surfaceContainerHigh,
+                  foregroundColor: colorScheme.onPrimary,
                 ),
               ),
             ]),
@@ -962,20 +941,12 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   }
 
   Widget _buildContextPanel() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: AppConstants.space12),
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppConstants.primaryColor.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -983,41 +954,31 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
           ListTile(
             dense: true,
             visualDensity: VisualDensity.compact,
-            leading: const Icon(Icons.psychology_outlined, size: 20, color: AppConstants.primaryColor),
+            leading: Icon(Icons.psychology_outlined, size: 20, color: Theme.of(context).colorScheme.primary),
             title: const Text('Agent Context', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (!_isEditingContext)
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    onPressed: () => setState(() => _isEditingContext = true),
-                    tooltip: 'Edit Context',
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.check_rounded, size: 18, color: Colors.green),
-                    onPressed: () => setState(() => _isEditingContext = false),
-                    tooltip: 'Done Editing',
-                  ),
+                IconButton(
+                  icon: Icon(_isEditingContext ? Icons.check_rounded : Icons.edit_outlined, size: 18),
+                  onPressed: () => setState(() => _isEditingContext = !_isEditingContext),
+                ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
                   onPressed: () => setState(() => _contextController.clear()),
-                  tooltip: 'Clear Context',
                 ),
                 IconButton(
                   icon: Icon(_isShowingContext ? Icons.expand_less : Icons.expand_more, size: 20),
                   onPressed: () => setState(() => _isShowingContext = !_isShowingContext),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: AppConstants.space4),
                 ElevatedButton(
                   onPressed: _sendContextPrompt,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppConstants.primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     minimumSize: const Size(0, 32),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: const Text('SEND', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                 ),
@@ -1033,15 +994,11 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                       controller: _contextController,
                       maxLines: null,
                       style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.all(8),
-                      ),
                     )
                   : SingleChildScrollView(
                       child: SelectableText(
                         _contextController.text,
-                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade800, fontFamily: 'monospace'),
+                        style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                       ),
                     ),
             ),
