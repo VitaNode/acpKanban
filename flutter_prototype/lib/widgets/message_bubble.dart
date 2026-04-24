@@ -197,6 +197,7 @@ class MessageBubble extends StatelessWidget {
     final thought = message.metadata!['thought'].toString();
     if (thought.isEmpty || thought == "...") return const SizedBox.shrink();
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
     return Container(
