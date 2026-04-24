@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
-import '../models/connection_config.dart';
 import '../services/project_service.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
 import '../models/acp_provider.dart';
+import '../theme/app_theme.dart';
 
 class ColorEditResult {
   final String name;
@@ -77,10 +77,13 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+
     return AlertDialog(
       title: const Text('Edit Column'),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 450,
@@ -138,7 +141,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 const SizedBox(height: AppConstants.space8),
                 Text(
                   '💡 Custom prompt for cards in this column.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppConstants.primaryColor),
+                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
                 ),
               ],
             ),
@@ -164,6 +167,11 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                       acpProviderId: _selectedProviderId));
             }
           },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+          ),
           child: const Text('Save'),
         ),
       ],
@@ -225,10 +233,13 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+
     return AlertDialog(
       title: const Text('Add Column'),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 450,
@@ -307,6 +318,11 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                       acpProviderId: _selectedProviderId));
             }
           },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+          ),
           child: const Text('Create'),
         ),
       ],
@@ -409,7 +425,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Column'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -436,7 +452,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
               child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppConstants.errorColor),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Delete'),
           ),
         ],
@@ -463,16 +479,19 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+
     return AlertDialog(
       title: Row(
         children: [
-          const Icon(Icons.view_column_rounded, color: AppConstants.primaryColor),
+          Icon(Icons.view_column_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('Manage Columns', style: Theme.of(context).textTheme.headlineMedium),
+          Text('Manage Columns', style: theme.textTheme.headlineMedium),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.space16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 450,
@@ -486,13 +505,13 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('DRAG TO REORDER', style: Theme.of(context).textTheme.labelLarge),
+                    Text('DRAG TO REORDER', style: theme.textTheme.labelLarge),
                     const SizedBox(height: AppConstants.space8),
                     Flexible(
                       child: Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade200),
-                          borderRadius: BorderRadius.circular(AppConstants.space8),
+                          border: Border.all(color: theme.dividerTheme.color!),
+                          borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
                         ),
                         child: ReorderableListView.builder(
                           shrinkWrap: true,
@@ -502,7 +521,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                             final col = _columns[index];
                             return ListTile(
                               key: ValueKey(col.id),
-                              leading: const Icon(Icons.drag_indicator_rounded, color: AppConstants.textHint),
+                              leading: Icon(Icons.drag_indicator_rounded, 
+                                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
                               title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -512,8 +532,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                                     onPressed: () => _editColumn(col),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline_rounded,
-                                        size: 20, color: AppConstants.errorColor),
+                                    icon: Icon(Icons.delete_outline_rounded,
+                                        size: 20, color: colorScheme.error),
                                     onPressed: () => _deleteColumn(col),
                                   ),
                                 ],
