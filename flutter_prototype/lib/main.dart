@@ -298,7 +298,7 @@ class _MainScreenState extends State<MainScreen> {
       if (mounted) {
         setState(() {
           _columns = columns;
-          _cards = allCards;
+          _cards = allCards..sort((a, b) => a.position.compareTo(b.position));
         });
         await _loadTimeline(projectId);
       }
@@ -373,7 +373,8 @@ class _MainScreenState extends State<MainScreen> {
           _currentProject = switchData.project;
           _columns = switchData.columns.map((c) => c.column).toList()
             ..sort((a, b) => a.position.compareTo(b.position));
-          _cards = switchData.columns.expand((c) => c.cards).toList();
+          _cards = switchData.columns.expand((c) => c.cards).toList()
+            ..sort((a, b) => a.position.compareTo(b.position));
           _timelineEvents = switchData.timeline;
         });
         _updateAgentStatuses();
@@ -403,25 +404,40 @@ class _MainScreenState extends State<MainScreen> {
     final oldPosition = card.position;
     
     int newPosition;
+    final targetCards = _cards.where((c) => c.columnId == targetColumnId).toList()
+      ..sort((a, b) => a.position.compareTo(b.position));
+
     if (targetPosition != null) {
       newPosition = targetPosition;
     } else {
-      final targetCards = _cards.where((c) => c.columnId == targetColumnId).toList();
-      newPosition = targetCards.length;
+      if (targetCards.isEmpty) {
+        newPosition = 0;
+      } else {
+        newPosition = targetCards.last.position + 1;
+      }
     }
 
     setState(() {
       _cards.removeWhere((c) => c.id == card.id);
+      
+      // If moving within the same column, we need to handle the shift carefully
+      // First, normalize the current column by removing the gap left by the card
       for (var i = 0; i < _cards.length; i++) {
         if (_cards[i].columnId == oldColumnId && _cards[i].position > oldPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position - 1);
         }
       }
+      
+      // If the targetPosition was based on a card that shifted, we should adjust it
+      // However, if we pass the target card's position value from the UI, we don't need to adjust.
+      
+      // Shift cards in the target column to make room for the new card
       for (var i = 0; i < _cards.length; i++) {
         if (_cards[i].columnId == targetColumnId && _cards[i].position >= newPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position + 1);
         }
       }
+      
       _cards.add(card.copyWith(
         columnId: targetColumnId,
         position: newPosition,

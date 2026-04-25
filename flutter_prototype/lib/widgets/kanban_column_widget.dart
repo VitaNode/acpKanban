@@ -118,19 +118,34 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
 
   Widget _buildDropTarget(BuildContext context, int position) {
     final colorScheme = Theme.of(context).colorScheme;
+    final activeCards = widget.cards.where((c) => c.status == 'active').toList();
+    
     return DragTarget<KanbanCard>(
       onWillAcceptWithDetails: (details) {
         final card = details.data;
         if (card.columnId == widget.column.id) {
-          if (card.position == position || card.position == position - 1) {
-            return false;
+          // If it's the same column, we hide targets immediately above and below the card
+          final cardIndexInActive = activeCards.indexWhere((c) => c.id == card.id);
+          if (cardIndexInActive != -1) {
+            if (position == cardIndexInActive || position == cardIndexInActive + 1) {
+              return false;
+            }
           }
         }
         return true;
       },
       onAcceptWithDetails: (details) {
+        int? actualTargetPosition;
+        if (position < activeCards.length) {
+          // Drop before card at index 'position'
+          actualTargetPosition = activeCards[position].position;
+        } else if (activeCards.isNotEmpty) {
+          // Drop after last card
+          actualTargetPosition = activeCards.last.position + 1;
+        }
+        
         widget.onCardMoved(details.data, widget.column.id,
-            targetPosition: position);
+            targetPosition: actualTargetPosition);
       },
       builder: (context, candidateData, rejectedData) {
         final isOver = candidateData.isNotEmpty;
