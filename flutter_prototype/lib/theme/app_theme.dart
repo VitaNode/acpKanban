@@ -6,19 +6,43 @@ class CustomColors extends ThemeExtension<CustomColors> {
   final Color? success;
   final Color? warning;
   final Color? info;
+  final Color? codeBackground;
+  final Color? codeText;
+  final Color? diffAdded;
+  final Color? diffRemoved;
+  final Color? diffUnchanged;
 
   const CustomColors({
     required this.success,
     required this.warning,
     required this.info,
+    required this.codeBackground,
+    required this.codeText,
+    required this.diffAdded,
+    required this.diffRemoved,
+    required this.diffUnchanged,
   });
 
   @override
-  CustomColors copyWith({Color? success, Color? warning, Color? info}) {
+  CustomColors copyWith({
+    Color? success,
+    Color? warning,
+    Color? info,
+    Color? codeBackground,
+    Color? codeText,
+    Color? diffAdded,
+    Color? diffRemoved,
+    Color? diffUnchanged,
+  }) {
     return CustomColors(
       success: success ?? this.success,
       warning: warning ?? this.warning,
       info: info ?? this.info,
+      codeBackground: codeBackground ?? this.codeBackground,
+      codeText: codeText ?? this.codeText,
+      diffAdded: diffAdded ?? this.diffAdded,
+      diffRemoved: diffRemoved ?? this.diffRemoved,
+      diffUnchanged: diffUnchanged ?? this.diffUnchanged,
     );
   }
 
@@ -29,6 +53,11 @@ class CustomColors extends ThemeExtension<CustomColors> {
       success: Color.lerp(success, other.success, t),
       warning: Color.lerp(warning, other.warning, t),
       info: Color.lerp(info, other.info, t),
+      codeBackground: Color.lerp(codeBackground, other.codeBackground, t),
+      codeText: Color.lerp(codeText, other.codeText, t),
+      diffAdded: Color.lerp(diffAdded, other.diffAdded, t),
+      diffRemoved: Color.lerp(diffRemoved, other.diffRemoved, t),
+      diffUnchanged: Color.lerp(diffUnchanged, other.diffUnchanged, t),
     );
   }
 }
@@ -51,6 +80,11 @@ class AppTheme {
       success: Color(0xFF2E7D32),
       warning: Color(0xFFED6C02),
       info: Color(0xFF0288D1),
+      codeBackground: Color(0xFFF8F8F8),
+      codeText: Color(0xFF92230D), // 明亮模式下使用深砖红色，确保高对比度
+      diffAdded: Color(0xFF2E7D32),
+      diffRemoved: Color(0xFFD32F2F),
+      diffUnchanged: Color(0xFF757575),
     ));
   }
 
@@ -70,6 +104,11 @@ class AppTheme {
       success: Color(0xFFA5D6A7), // 降饱和绿色
       warning: Color(0xFFFFCC80), // 降饱和橙色
       info: Color(0xFF90CAF9),    // 降饱和蓝色
+      codeBackground: Color(0xFF1E1E1E),
+      codeText: Color(0xFFCE9178),
+      diffAdded: Color(0xFFB5CEA8),
+      diffRemoved: Color(0xFFF44747),
+      diffUnchanged: Color(0xFFD4D4D4),
     ));
   }
 

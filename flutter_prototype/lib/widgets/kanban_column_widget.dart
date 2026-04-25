@@ -245,6 +245,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
   Widget _buildProviderBadge(String providerId) {
     IconData icon;
     Color color;
+    final theme = Theme.of(context);
     switch (providerId) {
       case 'gemini':
         icon = Icons.bolt;
@@ -256,7 +257,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
         break;
       case 'openclaw':
         icon = Icons.smart_toy;
-        color = const Color(0xFF008080);
+        color = theme.colorScheme.primary;
         break;
       default:
         icon = Icons.auto_awesome;

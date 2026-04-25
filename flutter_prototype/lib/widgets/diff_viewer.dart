@@ -148,7 +148,7 @@ class _DiffViewerState extends State<DiffViewer> {
           if (_isExpanded)
             Container(
               decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
+                color: customColors.codeBackground,
                 borderRadius: const BorderRadius.vertical(bottom: Radius.circular(AppConstants.radiusMedium)),
               ),
               constraints: const BoxConstraints(maxHeight: 400),
@@ -180,41 +180,33 @@ class _DiffLineWidget extends StatelessWidget {
 
   const _DiffLineWidget({required this.line});
 
-  Color get backgroundColor {
-    switch (line.type) {
-      case DiffLineType.added:
-        return Colors.green.withOpacity(0.1);
-      case DiffLineType.removed:
-        return Colors.red.withOpacity(0.1);
-      case DiffLineType.unchanged:
-        return Colors.transparent;
-    }
-  }
-
-  Color get textColor {
-    switch (line.type) {
-      case DiffLineType.added:
-        return const Color(0xFFB5CEA8);
-      case DiffLineType.removed:
-        return const Color(0xFFF44747);
-      case DiffLineType.unchanged:
-        return const Color(0xFFD4D4D4);
-    }
-  }
-
-  String get prefix {
-    switch (line.type) {
-      case DiffLineType.added:
-        return '+';
-      case DiffLineType.removed:
-        return '-';
-      case DiffLineType.unchanged:
-        return ' ';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final customColors = theme.extension<CustomColors>()!;
+    
+    Color backgroundColor;
+    Color textColor;
+    String prefix;
+
+    switch (line.type) {
+      case DiffLineType.added:
+        backgroundColor = customColors.diffAdded!.withOpacity(0.1);
+        textColor = customColors.diffAdded!;
+        prefix = '+';
+        break;
+      case DiffLineType.removed:
+        backgroundColor = customColors.diffRemoved!.withOpacity(0.1);
+        textColor = customColors.diffRemoved!;
+        prefix = '-';
+        break;
+      case DiffLineType.unchanged:
+        backgroundColor = Colors.transparent;
+        textColor = customColors.diffUnchanged!;
+        prefix = ' ';
+        break;
+    }
+
     return Container(
       color: backgroundColor,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 1),
