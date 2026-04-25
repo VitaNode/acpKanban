@@ -41,6 +41,8 @@ class ContextBuilder:
         if project:
             sections.append(f"# Global Project Context: {project['name']}")
             sections.append(f"Project ID: {project_id}")
+            if project.get("description"):
+                sections.append(f"Project Description: {project['description']}")
             if project.get("workspace_path"):
                 sections.append(f"Root Workspace: {project['workspace_path']}")
             
