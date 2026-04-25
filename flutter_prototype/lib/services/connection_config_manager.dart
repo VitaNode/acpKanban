@@ -121,6 +121,16 @@ class ConnectionConfigManager {
     return _prefs?.getString('last_acp_provider');
   }
 
+  /// 保存上次选择的项目 ID
+  Future<void> setLastProjectId(String projectId) async {
+    await _prefs?.setString('last_project_id', projectId);
+  }
+
+  /// 获取上次选择的项目 ID
+  String? getLastProjectId() {
+    return _prefs?.getString('last_project_id');
+  }
+
   /// 测试连接
   Future<ConnectionTestResult> testConnection(
       ConnectionConfig config, String userId) async {

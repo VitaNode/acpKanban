@@ -248,13 +248,26 @@ class _MainScreenState extends State<MainScreen> {
         final bTime = DateTime.tryParse(b.updatedAt) ?? DateTime(0);
         return bTime.compareTo(aTime);
       });
+      
       if (mounted) {
+        final configManager = await ConnectionConfigManager.getInstance();
+        final lastProjectId = configManager.getLastProjectId();
+        
         setState(() {
           _projects = projects;
           if (_currentProject == null && projects.isNotEmpty) {
-            _currentProject = projects.first;
+            if (lastProjectId != null) {
+              final lastProject = projects.firstWhere(
+                (p) => p.id == lastProjectId,
+                orElse: () => projects.first,
+              );
+              _currentProject = lastProject;
+            } else {
+              _currentProject = projects.first;
+            }
           }
         });
+
         if (_currentProject != null) {
           final stillExists = projects.any((p) => p.id == _currentProject!.id);
           if (stillExists) {
@@ -364,8 +377,16 @@ class _MainScreenState extends State<MainScreen> {
           _timelineEvents = switchData.timeline;
         });
         _updateAgentStatuses();
+        
+        // Save last project ID
+        final configManager = await ConnectionConfigManager.getInstance();
+        await configManager.setLastProjectId(project.id);
       } else {
         await _loadProjectData(project.id);
+        
+        // Even if full switch data failed, if we loaded columns/cards, we consider it the active project
+        final configManager = await ConnectionConfigManager.getInstance();
+        await configManager.setLastProjectId(project.id);
       }
     } catch (e) {
       debugPrint('Switch project error: $e');
