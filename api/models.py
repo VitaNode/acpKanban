@@ -9,11 +9,13 @@ class CardCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(default="", max_length=5000)
     acp_provider_id: Optional[str] = Field(None, max_length=50)
+    feature_id: Optional[str] = Field(None, max_length=50)
 
 
 class CardUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=5000)
+    feature_id: Optional[str] = Field(None, max_length=50)
 
 
 class ProviderInfo(BaseModel):
@@ -54,6 +56,8 @@ class CardResponse(BaseModel):
     description: str
     position: int
     status: str = "active"
+    plan_status: str = "plan"
+    feature_id: Optional[str] = None
     completed_at: Optional[str] = None
     parent_id: Optional[str] = None
     session_count: int
@@ -114,3 +118,49 @@ class ErrorResponse(BaseModel):
 class SuccessResponse(BaseModel):
     message: str
     data: Optional[Dict[str, Any]] = None
+
+
+class MilestoneCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    target_date: Optional[str] = None
+
+
+class MilestoneUpdateRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    status: Optional[str] = None
+    target_date: Optional[str] = None
+
+
+class FeatureCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+
+
+class FeatureUpdateRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    status: Optional[str] = None
+
+
+class FeatureResponse(BaseModel):
+    id: str
+    milestone_id: str
+    title: str
+    description: Optional[str]
+    status: str
+    progress: float
+    counts: Dict[str, int]
+    cards: Optional[List[Dict[str, Any]]] = None
+
+
+class MilestoneResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    description: Optional[str]
+    status: str
+    target_date: Optional[str]
+    progress: float
+    features: List[FeatureResponse]

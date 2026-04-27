@@ -55,6 +55,8 @@ def format_card_response(card: dict) -> dict:
         "description": card.get("description") or "",
         "position": card.get("position", 0),
         "status": card.get("status") or "active",
+        "plan_status": card.get("plan_status") or "plan",
+        "feature_id": card.get("feature_id"),
         "completed_at": card.get("completed_at"),
         "parent_id": card.get("parent_id"),
         "session_count": card.get("session_count", 0),

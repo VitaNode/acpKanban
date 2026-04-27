@@ -79,6 +79,30 @@ class IndexStatusResponse(BaseModel):
     last_indexed_at: Optional[str] = None
 
 
+class MilestoneCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    target_date: Optional[str] = None
+
+
+class MilestoneUpdateRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    status: Optional[str] = None
+    target_date: Optional[str] = None
+
+
+class FeatureCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+
+
+class FeatureUpdateRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    status: Optional[str] = None
+
+
 class IndexTaskManager:
     """Manages background indexing tasks with robust locking and progress tracking."""
     def __init__(self):
@@ -426,6 +450,78 @@ async def delete_project(project_id: str):
         return {"message": f"Project '{project['name']}' deleted successfully"}
     except Exception as e:
         raise HTTPError(400, str(e))
+
+
+@router.get("/projects/{project_id}/progress")
+async def get_project_progress(
+    project_id: str, 
+    depth: int = Query(3, ge=1, le=3)
+):
+    db = get_db()
+    validate_project_exists(project_id, db)
+    
+    stats = db.get_project_progress(project_id)
+    
+    # Simple depth-based filtering
+    if depth == 1:
+        for m in stats:
+            m['features'] = []
+    elif depth == 2:
+        for m in stats:
+            for f in m['features']:
+                f['cards'] = []
+                
+    return stats
+
+
+@router.get("/projects/{project_id}/milestones")
+async def get_milestones(project_id: str):
+    db = get_db()
+    validate_project_exists(project_id, db)
+    return db.get_milestones(project_id)
+
+
+@router.post("/projects/{project_id}/milestones", status_code=201)
+async def create_milestone(project_id: str, request: MilestoneCreateRequest):
+    db = get_db()
+    validate_project_exists(project_id, db)
+    m_id = db.create_milestone(project_id, request.title, request.description, request.target_date)
+    return {"id": m_id}
+
+
+@router.put("/milestones/{m_id}")
+async def update_milestone(m_id: str, request: MilestoneUpdateRequest):
+    db = get_db()
+    db.update_milestone(m_id, request.title, request.description, request.status, request.target_date)
+    return {"status": "updated"}
+
+
+@router.delete("/milestones/{m_id}")
+async def delete_milestone(m_id: str):
+    db = get_db()
+    db.delete_milestone(m_id)
+    return {"status": "deleted"}
+
+
+@router.post("/milestones/{m_id}/features", status_code=201)
+async def create_feature(m_id: str, request: FeatureCreateRequest):
+    db = get_db()
+    f_id = db.create_feature(m_id, request.title, request.description)
+    return {"id": f_id}
+
+
+@router.put("/features/{f_id}")
+async def update_feature(f_id: str, request: FeatureUpdateRequest):
+    db = get_db()
+    db.update_feature(f_id, request.title, request.description, request.status)
+    return {"status": "updated"}
+
+
+@router.delete("/features/{f_id}")
+async def delete_feature(f_id: str):
+    db = get_db()
+    db.delete_feature(f_id)
+    return {"status": "deleted"}
 
 
 @router.get("/projects/{project_id}/columns", response_model=list)

@@ -68,6 +68,7 @@ async def create_card(request: CardCreateRequest):
             column_id=request.column_id,
             title=request.title,
             description=request.description or "",
+            feature_id=request.feature_id,
         )
         db.update_card_provider(card_id, provider_id)
 
@@ -104,6 +105,7 @@ async def update_card(card_id: str, request: CardUpdateRequest):
             card_id=card_id,
             title=request.title,
             description=request.description,
+            feature_id=request.feature_id,
         )
         card = db.get_card(card_id)
         if not card:
