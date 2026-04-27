@@ -7,6 +7,7 @@ import '../models/agent_plan.dart';
 import '../models/config_option.dart';
 import '../models/project_roadmap.dart';
 import '../services/project_service.dart';
+import '../services/session_websocket_service.dart';
 import '../services/acp_client.dart';
 import '../widgets/roadmap_manager_dialog.dart';
 import '../widgets/message_bubble.dart';
