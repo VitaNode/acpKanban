@@ -46,6 +46,7 @@ class MessageDispatcher:
         self.commands = CommandRegistry()
         self.tasks = TaskRegistry()
         self._setup_local_commands()
+        self._setup_handlers()
         self._engine_creation_locks: Dict[str, asyncio.Lock] = {}
         self._internal_sessions: Set[str] = set()
         self._pending_ui_requests = ui_requests if ui_requests is not None else {}
@@ -55,6 +56,110 @@ class MessageDispatcher:
         self.commands.register("/reset", self._handle_reset_cmd)
         self.commands.register("/summarize", self._handle_summarize_cmd)
         self.commands.register("/help", self._handle_help_cmd)
+
+    def _setup_handlers(self):
+        self._handlers = {
+            "initialize": self._handle_initialize,
+            "kanban/progress/get": self._handle_get_progress,
+            "kanban/milestone/create": self._handle_create_milestone,
+            "kanban/milestone/update": self._handle_update_milestone,
+            "kanban/milestone/delete": self._handle_delete_milestone,
+            "kanban/feature/create": self._handle_create_feature,
+            "kanban/feature/update": self._handle_update_feature,
+            "kanban/feature/delete": self._handle_delete_feature,
+            "kanban/card/create": self._handle_create_card,
+            "kanban/card/update": self._handle_update_card,
+            "cards/move": self._handle_card_move,
+        }
+
+    async def _handle_initialize(self, params, rid):
+        return {
+            "protocolVersion": 1,
+            "agentCapabilities": {
+                "tools": {"supported": True},
+                "resources": {"supported": True}
+            },
+            "agentInfo": {
+                "name": "Kanban-Bridge",
+                "title": "Agent Kanban Bridge",
+                "version": "1.0.0"
+            }
+        }
+
+    async def _handle_get_progress(self, params, rid):
+        pid = params.get("project_id")
+        depth = params.get("depth", 3)
+        if not pid: return {"error": "Missing project_id"}
+        stats = await asyncio.to_thread(self.db.get_project_progress, pid)
+        
+        if depth == 1:
+            for m in stats: m['features'] = []
+        elif depth == 2:
+            for m in stats:
+                for f in m['features']: f['cards'] = []
+        return stats
+
+    async def _handle_create_milestone(self, params, rid):
+        pid = params.get("project_id"); title = params.get("title")
+        if not pid or not title: return {"error": "Missing project_id or title"}
+        m_id = await asyncio.to_thread(self.db.create_milestone, pid, title, params.get("description"), params.get("target_date"))
+        return {"id": m_id}
+
+    async def _handle_update_milestone(self, params, rid):
+        mid = params.get("milestone_id")
+        if not mid: return {"error": "Missing milestone_id"}
+        await asyncio.to_thread(self.db.update_milestone, mid, params.get("title"), params.get("description"), params.get("status"), params.get("target_date"))
+        return {"status": "ok"}
+
+    async def _handle_delete_milestone(self, params, rid):
+        mid = params.get("milestone_id")
+        if not mid: return {"error": "Missing milestone_id"}
+        await asyncio.to_thread(self.db.delete_milestone, mid)
+        return {"status": "ok"}
+
+    async def _handle_create_feature(self, params, rid):
+        mid = params.get("milestone_id"); title = params.get("title")
+        if not mid or not title: return {"error": "Missing milestone_id or title"}
+        fid = await asyncio.to_thread(self.db.create_feature, mid, title, params.get("description"))
+        return {"id": fid}
+
+    async def _handle_update_feature(self, params, rid):
+        fid = params.get("feature_id")
+        if not fid: return {"error": "Missing feature_id"}
+        await asyncio.to_thread(self.db.update_feature, fid, params.get("title"), params.get("description"), params.get("status"))
+        return {"status": "ok"}
+
+    async def _handle_delete_feature(self, params, rid):
+        fid = params.get("feature_id")
+        if not fid: return {"error": "Missing feature_id"}
+        await asyncio.to_thread(self.db.delete_feature, fid)
+        return {"status": "ok"}
+
+    async def _handle_create_card(self, params, rid):
+        col_id = params.get("column_id"); title = params.get("title")
+        if not col_id or not title: return {"error": "Missing column_id or title"}
+        cid = await asyncio.to_thread(self.db.create_card, col_id, title, params.get("description"), feature_id=params.get("feature_id"))
+        return {"id": cid}
+
+    async def _handle_update_card(self, params, rid):
+        cid = params.get("card_id")
+        if not cid: return {"error": "Missing card_id"}
+        await asyncio.to_thread(self.db.update_card, cid, params.get("title"), params.get("description"), feature_id=params.get("feature_id"))
+        return {"status": "ok"}
+
+    async def _handle_card_move(self, params, rid):
+        cid = params.get("id"); tid = params.get("target_column_id")
+        if not cid or not tid: return {"error": "Missing id or target_column_id"}
+        
+        async def trigger():
+            card = await asyncio.to_thread(self.db.cards.get_by_id, cid)
+            target = await asyncio.to_thread(self.db.columns.get_by_id, tid)
+            if card and target:
+                source = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
+                await self.summary_service.summarize_move(cid, source["name"] if source else "Manual", target["name"])
+        
+        asyncio.create_task(trigger())
+        return {"status": "ok"}
 
     def _get_available_commands(self):
         return [
@@ -85,31 +190,9 @@ class MessageDispatcher:
         params = data.get("params", {})
         request_id = data.get("id")
 
-        # Handle initialize request
-        if method == "initialize":
-            return {
-                "protocolVersion": 1,
-                "agentCapabilities": {
-                    "tools": {"supported": True},
-                    "resources": {"supported": True}
-                },
-                "agentInfo": {
-                    "name": "Kanban-Bridge",
-                    "title": "Agent Kanban Bridge",
-                    "version": "1.0.0"
-                }
-            }
-
-        if method == "cards/move":
-            cid = params.get("id"); tid = params.get("target_column_id")
-            if cid and tid:
-                async def trigger():
-                    card = await asyncio.to_thread(self.db.cards.get_by_id, cid)
-                    target = await asyncio.to_thread(self.db.columns.get_by_id, tid)
-                    if card and target:
-                        source = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
-                        await self.summary_service.summarize_move(cid, source["name"] if source else "Manual", target["name"])
-                asyncio.create_task(trigger())
+        # Use registered handlers first
+        if method in self._handlers:
+            return await self._handlers[method](params, request_id)
 
         ui_format = params.get("ui_format", "acp")
 
