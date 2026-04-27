@@ -419,8 +419,8 @@ class CardRepository(BaseRepository):
         with self.db.get_connection() as conn:
             query = """
                 SELECT 
-                    m.id as m_id, m.title as m_title, m.status as m_status, m.target_date as m_target,
-                    f.id as f_id, f.title as f_title, f.status as f_status,
+                    m.id as m_id, m.project_id, m.title as m_title, m.description as m_desc, m.status as m_status, m.target_date as m_target,
+                    f.id as f_id, f.milestone_id, f.title as f_title, f.description as f_desc, f.status as f_status,
                     c.id as c_id, c.title as c_title, c.plan_status
                 FROM milestones m
                 LEFT JOIN features f ON f.milestone_id = m.id AND f.deleted_at IS NULL
@@ -436,8 +436,13 @@ class CardRepository(BaseRepository):
                 mid = row['m_id']
                 if mid not in milestones:
                     milestones[mid] = {
-                        'id': mid, 'title': row['m_title'], 'status': row['m_status'], 
-                        'target_date': row['m_target'], 'progress': 0.0, 'features': [],
+                        'id': mid, 
+                        'project_id': row['project_id'],
+                        'title': row['m_title'], 
+                        'description': row['m_desc'],
+                        'status': row['m_status'], 
+                        'target_date': row['m_target'], 
+                        'progress': 0.0, 'features': [],
                         '_features': {}, '_total': 0, '_done': 0
                     }
                 
@@ -448,8 +453,13 @@ class CardRepository(BaseRepository):
                 if fid:
                     if fid not in m['_features']:
                         m['_features'][fid] = {
-                            'id': fid, 'milestone_id': mid, 'title': row['f_title'], 
-                            'status': row['f_status'], 'progress': 0.0, 'cards': [],
+                            'id': fid, 
+                            'milestone_id': row['milestone_id'], 
+                            'title': row['f_title'], 
+                            'description': row['f_desc'],
+                            'status': row['f_status'], 
+                            'progress': 0.0, 
+                            'cards': [],
                             'counts': {'plan': 0, 'active': 0, 'completed': 0}
                         }
                         m['features'].append(m['_features'][fid])

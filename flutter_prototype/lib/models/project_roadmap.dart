@@ -21,16 +21,17 @@ class ProjectMilestone {
 
   factory ProjectMilestone.fromJson(Map<String, dynamic> json) {
     return ProjectMilestone(
-      id: json['id'],
-      projectId: json['project_id'],
-      title: json['title'],
+      id: json['id'] ?? '',
+      projectId: json['project_id'] ?? '',
+      title: json['title'] ?? 'Untitled Milestone',
       description: json['description'],
-      status: json['status'],
+      status: json['status'] ?? 'active',
       targetDate: json['target_date'],
-      progress: (json['progress'] as num).toDouble(),
-      features: (json['features'] as List)
-          .map((f) => ProjectFeature.fromJson(f))
-          .toList(),
+      progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
+      features: (json['features'] as List?)
+              ?.map((f) => ProjectFeature.fromJson(f))
+              .toList() ??
+          [],
     );
   }
 }
@@ -58,13 +59,15 @@ class ProjectFeature {
 
   factory ProjectFeature.fromJson(Map<String, dynamic> json) {
     return ProjectFeature(
-      id: json['id'],
-      milestoneId: json['milestone_id'],
-      title: json['title'],
+      id: json['id'] ?? '',
+      milestoneId: json['milestone_id'] ?? '',
+      title: json['title'] ?? 'Untitled Feature',
       description: json['description'],
-      status: json['status'],
-      progress: (json['progress'] as num).toDouble(),
-      counts: Map<String, int>.from(json['counts']),
+      status: json['status'] ?? 'active',
+      progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
+      counts: json['counts'] != null
+          ? Map<String, int>.from(json['counts'])
+          : {'plan': 0, 'active': 0, 'completed': 0},
       cards: json['cards'] != null
           ? (json['cards'] as List)
               .map((c) => RoadmapCardSummary.fromJson(c))
@@ -87,9 +90,9 @@ class RoadmapCardSummary {
 
   factory RoadmapCardSummary.fromJson(Map<String, dynamic> json) {
     return RoadmapCardSummary(
-      id: json['id'],
-      title: json['title'],
-      planStatus: json['plan_status'],
+      id: json['id'] ?? '',
+      title: json['title'] ?? 'Untitled Card',
+      planStatus: json['plan_status'] ?? 'plan',
     );
   }
 }
