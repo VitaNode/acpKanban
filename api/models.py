@@ -187,6 +187,11 @@ class ProviderInfo(BaseModel):
     icon: Optional[str] = None
 
 
+class ProviderListResponse(BaseModel):
+    providers: List[ProviderInfo]
+    default_provider: str
+
+
 class ProjectResponse(BaseModel):
     id: str
     name: str
