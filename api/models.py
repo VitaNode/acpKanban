@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
+import re
 
 
 class CardCreateRequest(BaseModel):
@@ -11,42 +12,27 @@ class CardCreateRequest(BaseModel):
     acp_provider_id: Optional[str] = Field(None, max_length=50)
     feature_id: Optional[str] = Field(None, max_length=50)
 
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v):
+        return re.sub(r'[<>\'"]', '', v).strip()
+
 
 class CardUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=5000)
     feature_id: Optional[str] = Field(None, max_length=50)
 
-
-class ProviderInfo(BaseModel):
-    id: str
-    name: str
-    command: List[str]
-    supports_yolo: bool = False
-    icon: str = "smart_toy"
-
-
-class ProviderListResponse(BaseModel):
-    providers: List[ProviderInfo]
-    default_provider: str
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v):
+        if v is None: return v
+        return re.sub(r'[<>\'"]', '', v).strip()
 
 
 class CardMoveRequest(BaseModel):
     target_column_id: str = Field(..., min_length=1, max_length=50)
     target_position: Optional[int] = Field(None, ge=0)
-
-
-class SessionRole(str, Enum):
-    USER = "user"
-    ASSISTANT = "assistant"
-    SYSTEM = "system"
-    TOOL = "tool"
-
-
-class SessionMessageRequest(BaseModel):
-    role: SessionRole = Field(..., description="Role of the message sender")
-    content: str = Field(..., min_length=1)
-    metadata: Optional[Dict[str, Any]] = None
 
 
 class CardResponse(BaseModel):
@@ -75,12 +61,19 @@ class CardListResponse(BaseModel):
     total: int
 
 
+class SessionMessageRequest(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant|system)$")
+    content: str = Field(..., min_length=1)
+    metadata: Optional[Dict[str, Any]] = None
+
+
 class SessionMessageResponse(BaseModel):
     id: int
     card_id: str
     role: str
     content: str
-    metadata: Optional[Dict[str, Any]]
+    metadata: Optional[Dict[str, Any]] = None
+    is_complete: bool
     created_at: str
 
 
@@ -94,11 +87,11 @@ class SessionHistoryResponse(BaseModel):
 class TimelineEventResponse(BaseModel):
     id: int
     project_id: str
-    card_id: Optional[str]
+    card_id: Optional[str] = None
     card_title: Optional[str] = None
     event_type: str
-    content: Optional[str]
-    metadata: Optional[Dict[str, Any]]
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
     timestamp: str
 
 
@@ -109,39 +102,50 @@ class ProjectTimelineResponse(BaseModel):
     total: int
 
 
-class ErrorResponse(BaseModel):
-    error: str
-    message: str
-    details: Optional[Dict[str, Any]] = None
-
-
-class SuccessResponse(BaseModel):
-    message: str
-    data: Optional[Dict[str, Any]] = None
-
-
 class MilestoneCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
     target_date: Optional[str] = None
 
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v):
+        return re.sub(r'[<>\'"]', '', v).strip()
+
 
 class MilestoneUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
-    status: Optional[str] = None
+    status: Optional[str] = Field(None, pattern="^(active|completed|archived)$")
     target_date: Optional[str] = None
+
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v):
+        if v is None: return v
+        return re.sub(r'[<>\'"]', '', v).strip()
 
 
 class FeatureCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
 
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v):
+        return re.sub(r'[<>\'"]', '', v).strip()
+
 
 class FeatureUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
-    status: Optional[str] = None
+    status: Optional[str] = Field(None, pattern="^(active|completed|archived)$")
+
+    @field_validator('title')
+    @classmethod
+    def sanitize_title(cls, v):
+        if v is None: return v
+        return re.sub(r'[<>\'"]', '', v).strip()
 
 
 class FeatureResponse(BaseModel):
@@ -151,7 +155,7 @@ class FeatureResponse(BaseModel):
     description: Optional[str]
     status: str
     progress: float
-    counts: Dict[str, int]
+    counts: Optional[Dict[str, int]] = None
     cards: Optional[List[Dict[str, Any]]] = None
 
 
@@ -161,6 +165,33 @@ class MilestoneResponse(BaseModel):
     title: str
     description: Optional[str]
     status: str
-    target_date: Optional[str]
+    target_date: Optional[str] = None
     progress: float
     features: List[FeatureResponse]
+
+
+class SuccessResponse(BaseModel):
+    message: str
+    data: Optional[Dict[str, Any]] = None
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+
+class ProviderInfo(BaseModel):
+    id: str
+    name: str
+    icon: Optional[str] = None
+
+
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    workspace_path: Optional[str] = None
+    created_at: str
+    updated_at: str
+    card_count: int = 0

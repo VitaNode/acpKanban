@@ -460,17 +460,8 @@ async def get_project_progress(
     db = get_db()
     validate_project_exists(project_id, db)
     
-    stats = db.get_project_progress(project_id)
-    
-    # Simple depth-based filtering
-    if depth == 1:
-        for m in stats:
-            m['features'] = []
-    elif depth == 2:
-        for m in stats:
-            for f in m['features']:
-                f['cards'] = []
-                
+    # Passing depth to DB level ensures we don't fetch unnecessary features/cards from SQL
+    stats = db.get_project_progress(project_id, depth=depth)
     return stats
 
 
