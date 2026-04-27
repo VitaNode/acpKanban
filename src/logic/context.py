@@ -52,6 +52,12 @@ class ContextBuilder:
 2. **Use `get_symbol_code`** to read specific classes/functions instead of whole files.
 3. **Semantic Search**: Use `search_code` if you are unsure where a feature is implemented.""")
 
+        # --- Level 1.5: Project Roadmap & Progress ---
+        if project_id:
+            roadmap = self._get_roadmap_context(project_id, card.get("feature_id"))
+            if roadmap:
+                sections.append(f"## Project Roadmap & Progress\n{roadmap}")
+
         agent_md = self._load_agent_md(project.get("workspace_path") if project else None)
         if agent_md:
             content = agent_md
@@ -204,3 +210,37 @@ class ContextBuilder:
                 except Exception as e:
                     logger.warning(f"Failed to read agent.md at {path}: {e}")
         return None
+
+    def _get_roadmap_context(self, project_id: str, current_feature_id: Optional[str]) -> Optional[str]:
+        """
+        Assembles a hierarchical progress tree.
+        Highlights the path to the current card's feature.
+        """
+        try:
+            stats = self.db.get_project_progress(project_id)
+            if not stats:
+                return None
+                
+            lines = []
+            for m in stats:
+                is_focused_m = any(f['id'] == current_feature_id for f in m['features'])
+                m_icon = "▼" if is_focused_m else "▷"
+                lines.append(f"{m_icon} {m['title']} ({m['progress']:.1f}%)")
+                
+                # Only show features for the focused milestone or if there's only one milestone
+                if is_focused_m or len(stats) == 1:
+                    for f in m['features']:
+                        is_focused_f = f['id'] == current_feature_id
+                        f_icon = "  ▼" if is_focused_f else "  ▷"
+                        f_focus_tag = " [Focus]" if is_focused_f else ""
+                        lines.append(f"{f_icon} {f['title']}{f_focus_tag} ({f['progress']:.1f}%)")
+                        
+                        # Only show task counts for focused features or if minimal features exist
+                        if is_focused_f or len(m['features']) <= 3:
+                            c = f['counts']
+                            lines.append(f"    - [done] {c['completed']}, [active] {c['active']}, [plan] {c['plan']}")
+            
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Error building roadmap context: {e}")
+            return None
