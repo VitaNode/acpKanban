@@ -343,6 +343,90 @@ class ACPClient {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getProjectProgress(String projectId,
+      {int depth = 3}) async {
+    final response = await sendRequest(
+        'kanban/progress/get', {'project_id': projectId, 'depth': depth});
+    if (response.containsKey('result')) {
+      return List<Map<String, dynamic>>.from(response['result']);
+    }
+    return [];
+  }
+
+  Future<String> createMilestone(String projectId, String title,
+      {String? description, String? targetDate}) async {
+    final response = await sendRequest('kanban/milestone/create', {
+      'project_id': projectId,
+      'title': title,
+      if (description != null) 'description': description,
+      if (targetDate != null) 'target_date': targetDate,
+    });
+    return response['result']['id'];
+  }
+
+  Future<void> updateMilestone(String mId,
+      {String? title,
+      String? description,
+      String? status,
+      String? targetDate}) async {
+    await sendRequest('kanban/milestone/update', {
+      'milestone_id': mId,
+      if (title != null) 'title': title,
+      if (description != null) 'description': description,
+      if (status != null) 'status': status,
+      if (targetDate != null) 'target_date': targetDate,
+    });
+  }
+
+  Future<void> deleteMilestone(String mId) async {
+    await sendRequest('kanban/milestone/delete', {'milestone_id': mId});
+  }
+
+  Future<String> createFeature(String mId, String title,
+      {String? description}) async {
+    final response = await sendRequest('kanban/feature/create', {
+      'milestone_id': mId,
+      'title': title,
+      if (description != null) 'description': description,
+    });
+    return response['result']['id'];
+  }
+
+  Future<void> updateFeature(String fId,
+      {String? title, String? description, String? status}) async {
+    await sendRequest('kanban/feature/update', {
+      'feature_id': fId,
+      if (title != null) 'title': title,
+      if (description != null) 'description': description,
+      if (status != null) 'status': status,
+    });
+  }
+
+  Future<void> deleteFeature(String fId) async {
+    await sendRequest('kanban/feature/delete', {'feature_id': fId});
+  }
+
+  Future<String> createCard(String columnId, String title,
+      {String? description, String? featureId}) async {
+    final response = await sendRequest('kanban/card/create', {
+      'column_id': columnId,
+      'title': title,
+      if (description != null) 'description': description,
+      if (featureId != null) 'feature_id': featureId,
+    });
+    return response['result']['id'];
+  }
+
+  Future<void> updateCard(String cardId,
+      {String? title, String? description, String? featureId}) async {
+    await sendRequest('kanban/card/update', {
+      'card_id': cardId,
+      if (title != null) 'title': title,
+      if (description != null) 'description': description,
+      if (featureId != null) 'feature_id': featureId,
+    });
+  }
+
   Future<String> sendMessage(String message) async {
     try {
       final response =

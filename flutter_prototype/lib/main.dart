@@ -16,6 +16,8 @@ import 'widgets/kanban_column_widget.dart';
 import 'widgets/column_manager_dialog.dart';
 import 'widgets/timeline_view.dart';
 import 'widgets/status_summary_widget.dart';
+import 'widgets/project_roadmap_view.dart';
+import 'widgets/roadmap_manager_dialog.dart';
 import 'models/timeline_event.dart';
 import 'theme/app_theme.dart';
 import 'constants/app_constants.dart';
@@ -126,6 +128,28 @@ class _MainScreenState extends State<MainScreen> {
       ]);
     } catch (e) {
       debugPrint('Init Error: $e');
+    }
+  }
+
+  void _openCardById(String cardId) {
+    try {
+      final card = _cards.firstWhere((c) => c.id == cardId);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CardDetailScreen(
+            card: card,
+            projectId: _currentProject!.id,
+          ),
+        ),
+      ).then((_) {
+        KanbanRefreshService().markNeedsRefresh();
+      });
+    } catch (e) {
+      debugPrint('Card $cardId not found in local state: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Card not found in current project view')),
+      );
     }
   }
 
@@ -579,6 +603,20 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _showRoadmapManager() {
+    if (_currentProject == null) return;
+    showDialog(
+      context: context,
+      builder: (context) => RoadmapManagerDialog(
+        projectId: _currentProject!.id,
+      ),
+    ).then((_) {
+      if (_currentProject != null) {
+        _loadProjectData(_currentProject!.id);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -628,6 +666,11 @@ class _MainScreenState extends State<MainScreen> {
         actions: [
           if (_currentProject != null) ...[
             IconButton(
+              icon: const Icon(Icons.alt_route_rounded),
+              tooltip: 'Project Roadmap',
+              onPressed: _showRoadmapManager,
+            ),
+            IconButton(
               icon: const Icon(Icons.view_column_outlined),
               tooltip: 'Manage Columns',
               onPressed: _showColumnManager,
@@ -668,15 +711,20 @@ class _MainScreenState extends State<MainScreen> {
           Expanded(
             child: _currentView == 'board'
                 ? _buildBoardView()
-                : TimelineView(
-                    events: _timelineEvents,
-                    isLoading: _isLoadingTimeline,
-                    onRefresh: () {
-                      if (_currentProject != null) {
-                        _loadTimeline(_currentProject!.id);
-                      }
-                    },
-                  ),
+                : _currentView == 'roadmap'
+                    ? ProjectRoadmapView(
+                        projectId: _currentProject!.id,
+                        onCardTap: _openCardById,
+                      )
+                    : TimelineView(
+                        events: _timelineEvents,
+                        isLoading: _isLoadingTimeline,
+                        onRefresh: () {
+                          if (_currentProject != null) {
+                            _loadTimeline(_currentProject!.id);
+                          }
+                        },
+                      ),
           ),
         ],
       ),
@@ -716,6 +764,11 @@ class _MainScreenState extends State<MainScreen> {
                   icon: Icons.dashboard_rounded,
                   label: 'Board',
                   view: 'board',
+                ),
+                _buildDrawerItem(
+                  icon: Icons.alt_route_rounded,
+                  label: 'Roadmap',
+                  view: 'roadmap',
                 ),
                 _buildDrawerItem(
                   icon: Icons.history_rounded,

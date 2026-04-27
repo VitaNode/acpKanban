@@ -5,8 +5,10 @@ import '../models/kanban_column.dart';
 import '../models/card_message.dart';
 import '../models/agent_plan.dart';
 import '../models/config_option.dart';
+import '../models/project_roadmap.dart';
 import '../services/project_service.dart';
-import '../services/session_websocket_service.dart';
+import '../services/acp_client.dart';
+import '../widgets/roadmap_manager_dialog.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/plan_panel.dart';
 import '../widgets/config_options_bar.dart';
@@ -47,6 +49,11 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
   bool _isShowingContext = false;
   bool _isEditingContext = false;
 
+  // Roadmap state
+  List<ProjectMilestone> _milestones = [];
+  ProjectMilestone? _selectedMilestone;
+  ProjectFeature? _selectedFeature;
+
   String? _targetProviderId;
   final Map<String, String> _providerNameMap = {};
   bool _isInitializing = false;
@@ -77,9 +84,66 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     _setupWebSocket();
     _loadSummary();
     _loadEnvironmentInfo();
+    _loadRoadmapData();
     _chatController.addListener(_onChatChanged);
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
+  }
+
+  Future<void> _loadRoadmapData() async {
+    try {
+      final data = await ACPClient().getProjectProgress(widget.projectId, depth: 2);
+      final milestones = data.map((m) => ProjectMilestone.fromJson(m)).toList();
+      
+      ProjectMilestone? foundMilestone;
+      ProjectFeature? foundFeature;
+      
+      if (_card.featureId != null) {
+        for (var m in milestones) {
+          for (var f in m.features) {
+            if (f.id == _card.featureId) {
+              foundMilestone = m;
+              foundFeature = f;
+              break;
+            }
+          }
+          if (foundMilestone != null) break;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _milestones = milestones;
+          _selectedMilestone = foundMilestone;
+          _selectedFeature = foundFeature;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading roadmap data: $e');
+    }
+  }
+
+  Future<void> _onFeatureSelected(ProjectFeature? feature) async {
+    if (feature?.id == _card.featureId) return;
+    
+    setState(() {
+      _selectedFeature = feature;
+      _isSavingCard = true;
+    });
+
+    try {
+      await ACPClient().updateCard(_card.id, featureId: feature?.id);
+      _card = _card.copyWith(featureId: feature?.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Card category updated'), duration: Duration(seconds: 1)),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error updating card feature: $e');
+    } finally {
+      if (mounted) setState(() => _isSavingCard = false);
+    }
   }
 
   Future<void> _loadEnvironmentInfo() async {
@@ -728,6 +792,105 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     );
   }
 
+  Widget _buildRoadmapSelector(ThemeData theme, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.space12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.alt_route_rounded, size: 16, color: colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('Project Roadmap', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline, size: 18),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => RoadmapManagerDialog(projectId: widget.projectId),
+                  ).then((_) => _loadRoadmapData());
+                },
+                tooltip: 'Manage Roadmap',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              // Milestone Dropdown
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ProjectMilestone>(
+                    value: _selectedMilestone,
+                    isDense: true,
+                    hint: const Text('Milestone', style: TextStyle(fontSize: 12)),
+                    style: theme.textTheme.bodySmall,
+                    items: [
+                      const DropdownMenuItem<ProjectMilestone>(
+                        value: null,
+                        child: Text('Uncategorized', style: TextStyle(fontSize: 12)),
+                      ),
+                      ..._milestones.map((m) => DropdownMenuItem(
+                            value: m,
+                            child: Text(m.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                          )),
+                    ],
+                    onChanged: (m) {
+                      setState(() {
+                        _selectedMilestone = m;
+                        _selectedFeature = null;
+                      });
+                      if (m == null) _onFeatureSelected(null);
+                    },
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
+              ),
+              // Feature Dropdown
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ProjectFeature>(
+                    value: _selectedFeature,
+                    isDense: true,
+                    hint: const Text('Feature', style: TextStyle(fontSize: 12)),
+                    style: theme.textTheme.bodySmall,
+                    disabledHint: const Text('Select Milestone', style: TextStyle(fontSize: 12)),
+                    items: _selectedMilestone == null
+                        ? []
+                        : [
+                            const DropdownMenuItem<ProjectFeature>(
+                              value: null,
+                              child: Text('None', style: TextStyle(fontSize: 12)),
+                            ),
+                            ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
+                                  value: f,
+                                  child: Text(f.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                )),
+                          ],
+                    onChanged: _selectedMilestone == null ? null : (f) => _onFeatureSelected(f),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -782,6 +945,10 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
               ),
             ],
           ),
+          
+          const SizedBox(height: AppConstants.space16),
+          
+          _buildRoadmapSelector(theme, colorScheme),
           
           const SizedBox(height: AppConstants.space16),
           

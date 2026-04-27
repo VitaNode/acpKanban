@@ -8,6 +8,8 @@ class KanbanCard {
   final String updatedAt;
   final int sessionCount;
   final String status;
+  final String planStatus;
+  final String? featureId;
   final String? completedAt;
   final String? parentId;
   final String? acpSessionId;
@@ -26,6 +28,8 @@ class KanbanCard {
     required this.updatedAt,
     this.sessionCount = 0,
     this.status = 'active',
+    this.planStatus = 'plan',
+    this.featureId,
     this.completedAt,
     this.parentId,
     this.acpSessionId,
@@ -49,6 +53,8 @@ class KanbanCard {
       updatedAt: json['updated_at'] ?? DateTime.now().toIso8601String(),
       sessionCount: json['session_count'] ?? 0,
       status: json['status'] ?? 'active',
+      planStatus: json['plan_status'] ?? 'plan',
+      featureId: json['feature_id'],
       completedAt: json['completed_at'],
       parentId: json['parent_id'],
       acpSessionId: json['acp_session_id'],
@@ -69,6 +75,8 @@ class KanbanCard {
       'created_at': createdAt,
       'updated_at': updatedAt,
       'status': status,
+      'plan_status': planStatus,
+      if (featureId != null) 'feature_id': featureId,
       if (completedAt != null) 'completed_at': completedAt,
       if (parentId != null) 'parent_id': parentId,
       if (acpSessionId != null) 'acp_session_id': acpSessionId,
@@ -86,6 +94,8 @@ class KanbanCard {
     int? position,
     int? sessionCount,
     String? status,
+    String? planStatus,
+    String? featureId,
     String? completedAt,
     String? updatedAt,
     String? acpSessionId,
@@ -102,6 +112,8 @@ class KanbanCard {
       updatedAt: updatedAt ?? DateTime.now().toIso8601String(),
       sessionCount: sessionCount ?? this.sessionCount,
       status: status ?? this.status,
+      planStatus: planStatus ?? this.planStatus,
+      featureId: featureId ?? this.featureId,
       completedAt: completedAt ?? this.completedAt,
       parentId: parentId,
       acpSessionId: acpSessionId ?? this.acpSessionId,
