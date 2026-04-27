@@ -85,8 +85,8 @@ class ProjectRepository(BaseRepository):
         with self.db.get_connection() as conn:
             cursor = conn.execute("""
                 SELECT p.*, 
-                (SELECT COUNT(*) FROM cards c JOIN columns col ON c.column_id = col.id WHERE col.project_id = p.id) as card_count
-                FROM projects p ORDER BY created_at DESC
+                (SELECT COUNT(*) FROM cards c JOIN columns col ON c.column_id = col.id WHERE col.project_id = p.id AND c.deleted_at IS NULL) as card_count
+                FROM projects p WHERE 1=1 ORDER BY created_at DESC
             """)
             return [dict(row) for row in cursor.fetchall()]
 
@@ -122,6 +122,87 @@ class ProjectRepository(BaseRepository):
     def delete(self, project_id: str):
         with self.db.get_connection() as conn:
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+class MilestoneRepository(BaseRepository):
+    def create(self, project_id: str, title: str, description: str = None, target_date: str = None) -> str:
+        m_id = str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT MAX(order_index) FROM milestones WHERE project_id = ?", (project_id,))
+            max_idx = cursor.fetchone()[0]
+            order_index = (max_idx + 1) if max_idx is not None else 0
+            conn.execute("""
+                INSERT INTO milestones (id, project_id, title, description, target_date, status, order_index, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (m_id, project_id, title, description, target_date, 'active', order_index, now))
+            return m_id
+
+    def get_by_project(self, project_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM milestones WHERE project_id = ? AND deleted_at IS NULL ORDER BY order_index", (project_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update(self, m_id: str, title: str = None, description: str = None, status: str = None, target_date: str = None):
+        updates = []
+        params = []
+        if title: updates.append("title = ?"); params.append(title)
+        if description: updates.append("description = ?"); params.append(description)
+        if status: updates.append("status = ?"); params.append(status)
+        if target_date: updates.append("target_date = ?"); params.append(target_date)
+        if not updates: return
+        params.append(m_id)
+        with self.db.get_connection() as conn:
+            conn.execute(f"UPDATE milestones SET {', '.join(updates)} WHERE id = ?", params)
+
+    def delete(self, m_id: str):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            # Soft delete milestone
+            conn.execute("UPDATE milestones SET deleted_at = ? WHERE id = ?", (now, m_id))
+            # Soft delete related features
+            conn.execute("UPDATE features SET deleted_at = ? WHERE milestone_id = ?", (now, m_id))
+            # Soft delete related cards
+            conn.execute("""
+                UPDATE cards SET deleted_at = ? WHERE feature_id IN (
+                    SELECT id FROM features WHERE milestone_id = ?
+                )
+            """, (now, m_id))
+
+class FeatureRepository(BaseRepository):
+    def create(self, milestone_id: str, title: str, description: str = None) -> str:
+        f_id = str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT MAX(order_index) FROM features WHERE milestone_id = ?", (milestone_id,))
+            max_idx = cursor.fetchone()[0]
+            order_index = (max_idx + 1) if max_idx is not None else 0
+            conn.execute("""
+                INSERT INTO features (id, milestone_id, title, description, status, order_index, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (f_id, milestone_id, title, description, 'active', order_index, now))
+            return f_id
+
+    def get_by_milestone(self, milestone_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM features WHERE milestone_id = ? AND deleted_at IS NULL ORDER BY order_index", (milestone_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update(self, f_id: str, title: str = None, description: str = None, status: str = None):
+        updates = []
+        params = []
+        if title: updates.append("title = ?"); params.append(title)
+        if description: updates.append("description = ?"); params.append(description)
+        if status: updates.append("status = ?"); params.append(status)
+        if not updates: return
+        params.append(f_id)
+        with self.db.get_connection() as conn:
+            conn.execute(f"UPDATE features SET {', '.join(updates)} WHERE id = ?", params)
+
+    def delete(self, f_id: str):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE features SET deleted_at = ? WHERE id = ?", (now, f_id))
+            conn.execute("UPDATE cards SET deleted_at = ? WHERE feature_id = ?", (now, f_id))
 
 class ColumnRepository(BaseRepository):
     def create(self, project_id: str, name: str, position: int = None, color: str = "#808080", prompt_template: str = None, acp_provider_id: str = None) -> str:
@@ -184,14 +265,17 @@ class ColumnRepository(BaseRepository):
                 conn.execute("UPDATE columns SET position = ? WHERE id = ?", (item["position"], item["id"]))
 
 class CardRepository(BaseRepository):
-    def create(self, column_id: str, title: str, description: str = None, parent_id: str = None) -> str:
+    def create(self, column_id: str, title: str, description: str = None, parent_id: str = None, feature_id: str = None) -> str:
         card_id = str(uuid.uuid4())[:8]
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (column_id,))
             max_pos = cursor.fetchone()[0]
             position = (max_pos + 1) if max_pos is not None else 0
-            conn.execute("INSERT INTO cards (id, column_id, title, description, position, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (card_id, column_id, title, description, position, parent_id, now, now))
+            conn.execute("""
+                INSERT INTO cards (id, column_id, title, description, position, parent_id, feature_id, plan_status, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (card_id, column_id, title, description, position, parent_id, feature_id, 'plan', now, now))
             return card_id
 
     def get_by_id(self, card_id: str) -> Optional[Dict]:
@@ -201,7 +285,7 @@ class CardRepository(BaseRepository):
                 (SELECT COUNT(*) FROM card_sessions WHERE card_id = c.id) as session_count
                 FROM cards c 
                 JOIN columns col ON col.id = c.column_id 
-                WHERE c.id = ?
+                WHERE c.id = ? AND c.deleted_at IS NULL
             """, (card_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
@@ -210,7 +294,7 @@ class CardRepository(BaseRepository):
         query = """
             SELECT c.*, 
             (SELECT COUNT(*) FROM card_sessions cs WHERE cs.card_id = c.id) as session_count
-            FROM cards c WHERE c.column_id = ?
+            FROM cards c WHERE c.column_id = ? AND c.deleted_at IS NULL
         """
         params = [column_id]
         if not include_completed:
@@ -221,23 +305,34 @@ class CardRepository(BaseRepository):
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def update(self, card_id: str, title: str = None, description: str = None, status: str = None):
+    def update(self, card_id: str, title: str = None, description: str = None, status: str = None, feature_id: str = None):
         updates = []
         params = []
         if title is not None:
-            updates.append("title = ?")
-            params.append(title)
+            updates.append("title = ?"); params.append(title)
         if description is not None:
-            updates.append("description = ?")
-            params.append(description)
+            updates.append("description = ?"); params.append(description)
+        if feature_id is not None:
+            updates.append("feature_id = ?"); params.append(feature_id)
         if status is not None:
             updates.append("status = ?")
             params.append(status)
             if status == 'completed':
                 updates.append("completed_at = ?")
                 params.append(datetime.now().isoformat())
+                updates.append("plan_status = ?")
+                params.append('completed')
             else:
                 updates.append("completed_at = NULL")
+                # If not completed, re-evaluate plan_status based on session_id
+                # This logic is handled more robustly in update_session_id,
+                # but for direct status updates:
+                with self.db.get_connection() as conn:
+                    cursor = conn.execute("SELECT acp_session_id FROM cards WHERE id = ?", (card_id,))
+                    row = cursor.fetchone()
+                    session_id = row['acp_session_id'] if row else None
+                    updates.append("plan_status = ?")
+                    params.append('active' if session_id else 'plan')
         
         if not updates:
             return
@@ -250,8 +345,9 @@ class CardRepository(BaseRepository):
             conn.execute(f"UPDATE cards SET {', '.join(updates)} WHERE id = ?", params)
 
     def delete(self, card_id: str):
+        now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
+            conn.execute("UPDATE cards SET deleted_at = ? WHERE id = ?", (now, card_id))
 
     def move(self, card_id: str, target_column_id: str, target_position: int = None):
         now = datetime.now().isoformat()
@@ -277,25 +373,25 @@ class CardRepository(BaseRepository):
                 if old_position < target_position:
                     # Moving down: Shift cards between old and new positions up
                     conn.execute(
-                        "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ?",
+                        "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ? AND deleted_at IS NULL",
                         (target_column_id, old_position, target_position)
                     )
                 elif old_position > target_position:
                     # Moving up: Shift cards between new and old positions down
                     conn.execute(
-                        "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ?",
+                        "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ? AND deleted_at IS NULL",
                         (target_column_id, target_position, old_position)
                     )
             else:
                 # Cross column move
                 # Shift cards in old column up to fill the gap
                 conn.execute(
-                    "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ?",
+                    "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND deleted_at IS NULL",
                     (old_column_id, old_position)
                 )
                 # Shift cards in target column down to make space
                 conn.execute(
-                    "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ?",
+                    "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND deleted_at IS NULL",
                     (target_column_id, target_position)
                 )
 
@@ -310,8 +406,80 @@ class CardRepository(BaseRepository):
             conn.execute("UPDATE cards SET acp_provider_id = ? WHERE id = ?", (provider_id, card_id))
 
     def update_session_id(self, card_id: str, session_id: str):
+        now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            conn.execute("UPDATE cards SET acp_session_id = ? WHERE id = ?", (session_id, card_id))
+            # Sync plan_status: if session_id is provided, status is active. If cleared, status is plan.
+            # But ONLY if not already completed.
+            cursor = conn.execute("SELECT plan_status FROM cards WHERE id = ?", (card_id,))
+            row = cursor.fetchone()
+            current_plan_status = row['plan_status'] if row else 'plan'
+            
+            new_plan_status = current_plan_status
+            if current_plan_status != 'completed':
+                new_plan_status = 'active' if session_id else 'plan'
+
+            conn.execute("UPDATE cards SET acp_session_id = ?, plan_status = ?, updated_at = ? WHERE id = ?", (session_id, new_plan_status, now, card_id))
+
+    def get_progress_stats(self, project_id: str) -> List[Dict]:
+        """
+        Fetches a hierarchical progress tree.
+        Milestones -> Features -> Status Counts.
+        """
+        with self.db.get_connection() as conn:
+            # 1. Fetch Milestones
+            m_cursor = conn.execute("""
+                SELECT * FROM milestones 
+                WHERE project_id = ? AND deleted_at IS NULL 
+                ORDER BY order_index
+            """, (project_id,))
+            milestones = [dict(m) for m in m_cursor.fetchall()]
+
+            for m in milestones:
+                # 2. Fetch Features for each Milestone
+                f_cursor = conn.execute("""
+                    SELECT * FROM features 
+                    WHERE milestone_id = ? AND deleted_at IS NULL 
+                    ORDER BY order_index
+                """, (m['id'],))
+                m['features'] = [dict(f) for f in f_cursor.fetchall()]
+
+                m_total_cards = 0
+                m_completed_cards = 0
+
+                for f in m['features']:
+                    # 3. Count Card statuses for each Feature
+                    c_cursor = conn.execute("""
+                        SELECT plan_status, COUNT(*) as count 
+                        FROM cards 
+                        WHERE feature_id = ? AND deleted_at IS NULL 
+                        GROUP BY plan_status
+                    """, (f['id'],))
+                    counts = {row['plan_status']: row['count'] for row in c_cursor.fetchall()}
+                    f['counts'] = {
+                        'plan': counts.get('plan', 0),
+                        'active': counts.get('active', 0),
+                        'completed': counts.get('completed', 0)
+                    }
+                    
+                    f_total = sum(f['counts'].values())
+                    f_done = f['counts']['completed']
+                    f['progress'] = (f_done / f_total * 100) if f_total > 0 else 0.0
+                    
+                    m_total_cards += f_total
+                    m_completed_cards += f_done
+                    
+                    # 4. Fetch card list (minimal)
+                    card_cursor = conn.execute("""
+                        SELECT id, title, plan_status 
+                        FROM cards 
+                        WHERE feature_id = ? AND deleted_at IS NULL 
+                        ORDER BY position
+                    """, (f['id'],))
+                    f['cards'] = [dict(c) for c in card_cursor.fetchall()]
+
+                m['progress'] = (m_completed_cards / m_total_cards * 100) if m_total_cards > 0 else 0.0
+
+            return milestones
 
     def get_config_options(self, card_id: str) -> Optional[str]:
         with self.db.get_connection() as conn:
@@ -579,6 +747,8 @@ class KanbanDB:
         self.db_path = db_path
         self._pool = ConnectionPool(self._create_new_connection)
         self.projects = ProjectRepository(self)
+        self.milestones = MilestoneRepository(self)
+        self.features = FeatureRepository(self)
         self.columns = ColumnRepository(self)
         self.cards = CardRepository(self)
         self.summaries = SummaryRepository(self)
@@ -612,8 +782,10 @@ class KanbanDB:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, workspace_path TEXT, description TEXT, created_at DATETIME, updated_at DATETIME, index_status TEXT DEFAULT 'idle', last_indexed_at DATETIME, total_files INTEGER DEFAULT 0, total_symbols INTEGER DEFAULT 0, total_vectorized_symbols INTEGER DEFAULT 0, index_checkpoint TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS milestones (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, target_date DATETIME, status TEXT DEFAULT 'active', order_index INTEGER DEFAULT 0, created_at DATETIME, deleted_at DATETIME, FOREIGN KEY (project_id) REFERENCES projects(id))")
+            cursor.execute("CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, milestone_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'active', order_index INTEGER DEFAULT 0, created_at DATETIME, deleted_at DATETIME, FOREIGN KEY (milestone_id) REFERENCES milestones(id))")
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', plan_status TEXT DEFAULT 'plan', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT, feature_id TEXT, deleted_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, card_id TEXT, event_type TEXT, content TEXT, metadata TEXT, timestamp DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_agent_status (project_id TEXT PRIMARY KEY, state TEXT, start_time DATETIME, last_message TEXT, updated_at DATETIME)")
@@ -637,6 +809,9 @@ class KanbanDB:
                 ("cards", "last_summary", "TEXT"), 
                 ("cards", "config_options", "TEXT"), 
                 ("cards", "embedding", "TEXT"), 
+                ("cards", "plan_status", "TEXT DEFAULT 'plan'"),
+                ("cards", "feature_id", "TEXT"),
+                ("cards", "deleted_at", "DATETIME"),
                 ("summaries", "embedding", "TEXT"), 
                 ("card_sessions", "is_milestone", "INTEGER DEFAULT 0")
             ]
@@ -657,6 +832,16 @@ class KanbanDB:
     def update_project(self, project_id, name=None, workspace_path=None, description=None): return self.projects.update(project_id, name, workspace_path, description)
     def delete_project(self, project_id): return self.projects.delete(project_id)
 
+    def get_milestones(self, project_id): return self.milestones.get_by_project(project_id)
+    def create_milestone(self, project_id, title, description=None, target_date=None): return self.milestones.create(project_id, title, description, target_date)
+    def update_milestone(self, m_id, title=None, description=None, status=None, target_date=None): return self.milestones.update(m_id, title, description, status, target_date)
+    def delete_milestone(self, m_id): return self.milestones.delete(m_id)
+
+    def get_features(self, m_id): return self.features.get_by_milestone(m_id)
+    def create_feature(self, m_id, title, description=None): return self.features.create(m_id, title, description)
+    def update_feature(self, f_id, title=None, description=None, status=None): return self.features.update(f_id, title, description, status)
+    def delete_feature(self, f_id): return self.features.delete(f_id)
+
     def get_columns(self, project_id): return self.columns.get_all(project_id)
     def get_column(self, column_id): return self.columns.get_by_id(column_id)
     def create_column(self, project_id, name, position=None, color="#808080", prompt_template=None, acp_provider_id=None): return self.columns.create(project_id, name, position, color, prompt_template, acp_provider_id)
@@ -666,12 +851,13 @@ class KanbanDB:
 
     def get_card(self, card_id): return self.cards.get_by_id(card_id)
     def get_cards_by_column(self, column_id, include_completed=False): return self.cards.get_by_column(column_id, include_completed)
-    def create_card(self, column_id, title, description=None, parent_id=None): return self.cards.create(column_id, title, description, parent_id)
-    def update_card(self, card_id, title=None, description=None, status=None): return self.cards.update(card_id, title, description, status)
+    def create_card(self, column_id, title, description=None, parent_id=None, feature_id=None): return self.cards.create(column_id, title, description, parent_id, feature_id)
+    def update_card(self, card_id, title=None, description=None, status=None, feature_id=None): return self.cards.update(card_id, title, description, status, feature_id)
     def delete_card(self, card_id): return self.cards.delete(card_id)
     def move_card(self, card_id, target_column_id, target_position=None): return self.cards.move(card_id, target_column_id, target_position)
     def update_card_provider(self, card_id, provider_id): return self.cards.update_provider(card_id, provider_id)
     def update_card_session_id(self, card_id, session_id): return self.cards.update_session_id(card_id, session_id)
+    def get_project_progress(self, project_id): return self.cards.get_progress_stats(project_id)
     def get_card_config_options(self, card_id): return self.cards.get_config_options(card_id)
     def update_card_config_options(self, card_id, config_options): return self.cards.update_config_options(card_id, config_options)
     def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
