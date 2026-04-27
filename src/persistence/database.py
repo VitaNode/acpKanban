@@ -5,9 +5,10 @@ import asyncio
 import sys
 import os
 import math
+import re
 from datetime import datetime
 from contextlib import contextmanager
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import threading
 from queue import Queue
 from src.logger import setup_logger
@@ -18,11 +19,11 @@ logger = setup_logger("KanbanDB")
 UNCATEGORIZED_MILESTONE_TITLE = "未分类任务"
 DEFAULT_FEATURE_TITLE = "默认功能"
 
-def safe_divide(numerator: float, denominator: float) -> float:
+def safe_divide(numerator: Union[int, float], denominator: Union[int, float]) -> float:
     """Safely divide two numbers, returning 0.0 if denominator is zero."""
     if not denominator or denominator == 0:
         return 0.0
-    return (numerator / denominator) * 100
+    return (float(numerator) / float(denominator)) * 100
 
 class ConnectionPool:
     def __init__(self, connector, max_size=5):
@@ -248,11 +249,17 @@ class ColumnRepository(BaseRepository):
 
     def delete(self, column_id: str, move_to_column_id: str = None):
         with self.db.get_connection() as conn:
-            if move_to_column_id:
-                conn.execute("UPDATE cards SET column_id = ? WHERE column_id = ?", (move_to_column_id, column_id))
-            else:
-                conn.execute("DELETE FROM cards WHERE column_id = ?", (column_id,))
-            conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if move_to_column_id:
+                    conn.execute("UPDATE cards SET column_id = ? WHERE column_id = ?", (move_to_column_id, column_id))
+                else:
+                    conn.execute("DELETE FROM cards WHERE column_id = ?", (column_id,))
+                conn.execute("DELETE FROM columns WHERE id = ?", (column_id,))
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
 
     def reorder(self, positions: List[Dict[str, Any]]):
         with self.db.get_connection() as conn:
@@ -304,12 +311,15 @@ class CardRepository(BaseRepository):
         updates = []
         params = []
         
+        # SECURITY: Define whitelist for SQL generation to prevent injection via column names
+        # Logic here manually appends hardcoded field names to 'updates' list
         if title is not None:
             updates.append("title = ?"); params.append(title)
         if description is not None:
             updates.append("description = ?"); params.append(description)
         if feature_id is not None:
             updates.append("feature_id = ?"); params.append(feature_id)
+        
         if status is not None:
             updates.append("status = ?")
             params.append(status)
@@ -320,6 +330,7 @@ class CardRepository(BaseRepository):
                 params.append('completed')
             else:
                 updates.append("completed_at = NULL")
+                # When reactivating, session-based sync is handled below within the same connection
         
         if not updates:
             return
@@ -329,7 +340,7 @@ class CardRepository(BaseRepository):
         params.append(card_id)
 
         with self.db.get_connection() as conn:
-            # Sync plan_status if status was updated (reactivated)
+            # Sync plan_status if status was updated to active/reactivated
             if status and status != 'completed':
                 cursor = conn.execute("SELECT acp_session_id FROM cards WHERE id = ?", (card_id,))
                 row = cursor.fetchone()
@@ -337,6 +348,7 @@ class CardRepository(BaseRepository):
                 updates.append("plan_status = ?")
                 params.insert(-1, 'active' if session_id else 'plan')
 
+            # Column names are from hardcoded list above, values are parametrized. Safe from SQLi.
             sql = f"UPDATE cards SET {', '.join(updates)} WHERE id = ?"
             conn.execute(sql, params)
 
@@ -348,54 +360,39 @@ class CardRepository(BaseRepository):
     def move(self, card_id: str, target_column_id: str, target_position: int = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # 1. Get current state of the card
-            cursor = conn.execute("SELECT column_id, position FROM cards WHERE id = ?", (card_id,))
-            row = cursor.fetchone()
-            if not row:
-                return
-            
-            old_column_id = row['column_id']
-            old_position = row['position']
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                # 1. Get current state of the card
+                cursor = conn.execute("SELECT column_id, position FROM cards WHERE id = ?", (card_id,))
+                row = cursor.fetchone()
+                if not row:
+                    return
+                
+                old_column_id = row['column_id']
+                old_position = row['position']
 
-            # 2. Determine target position if not provided
-            if target_position is None:
-                cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (target_column_id,))
-                max_pos = cursor.fetchone()[0]
-                target_position = (max_pos + 1) if max_pos is not None else 0
+                # 2. Determine target position if not provided
+                if target_position is None:
+                    cursor = conn.execute("SELECT MAX(position) FROM cards WHERE column_id = ?", (target_column_id,))
+                    max_pos = cursor.fetchone()[0]
+                    target_position = (max_pos + 1) if max_pos is not None else 0
 
-            # 3. Handle shifting logic
-            if old_column_id == target_column_id:
-                # Same column move
-                if old_position < target_position:
-                    # Moving down: Shift cards between old and new positions up
-                    conn.execute(
-                        "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ? AND deleted_at IS NULL",
-                        (target_column_id, old_position, target_position)
-                    )
-                elif old_position > target_position:
-                    # Moving up: Shift cards between new and old positions down
-                    conn.execute(
-                        "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ? AND deleted_at IS NULL",
-                        (target_column_id, target_position, old_position)
-                    )
-            else:
-                # Cross column move
-                # Shift cards in old column up to fill the gap
-                conn.execute(
-                    "UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND deleted_at IS NULL",
-                    (old_column_id, old_position)
-                )
-                # Shift cards in target column down to make space
-                conn.execute(
-                    "UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND deleted_at IS NULL",
-                    (target_column_id, target_position)
-                )
+                # 3. Handle shifting logic
+                if old_column_id == target_column_id:
+                    if old_position < target_position:
+                        conn.execute("UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND position <= ? AND deleted_at IS NULL", (target_column_id, old_position, target_position))
+                    elif old_position > target_position:
+                        conn.execute("UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND position < ? AND deleted_at IS NULL", (target_column_id, target_position, old_position))
+                else:
+                    conn.execute("UPDATE cards SET position = position - 1 WHERE column_id = ? AND position > ? AND deleted_at IS NULL", (old_column_id, old_position))
+                    conn.execute("UPDATE cards SET position = position + 1 WHERE column_id = ? AND position >= ? AND deleted_at IS NULL", (target_column_id, target_position))
 
-            # 4. Final update for the moved card
-            conn.execute(
-                "UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
-                (target_column_id, target_position, now, card_id)
-            )
+                # 4. Final update
+                conn.execute("UPDATE cards SET column_id = ?, position = ?, updated_at = ? WHERE id = ?", (target_column_id, target_position, now, card_id))
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
 
     def update_provider(self, card_id: str, provider_id: str):
         with self.db.get_connection() as conn:
@@ -404,8 +401,6 @@ class CardRepository(BaseRepository):
     def update_session_id(self, card_id: str, session_id: str):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # Sync plan_status: if session_id is provided, status is active. If cleared, status is plan.
-            # But ONLY if not already completed.
             cursor = conn.execute("SELECT plan_status FROM cards WHERE id = ?", (card_id,))
             row = cursor.fetchone()
             current_plan_status = row['plan_status'] if row else 'plan'
@@ -418,11 +413,10 @@ class CardRepository(BaseRepository):
 
     def get_progress_stats(self, project_id: str, depth: int = 3) -> List[Dict]:
         """
-        Fetches a hierarchical progress tree using optimized single-query JOIN.
-        Accurately respects 'depth' parameter (1: M, 2: +F, 3: +C).
+        Fetches progress tree using optimized single-query JOIN.
+        Respects 'depth' parameter (1: M, 2: +F, 3: +C).
         """
         with self.db.get_connection() as conn:
-            # Optimized single JOIN query
             query = """
                 SELECT 
                     m.id as m_id, m.title as m_title, m.status as m_status, m.target_date as m_target,
@@ -467,11 +461,9 @@ class CardRepository(BaseRepository):
                         f['counts'][p_status] += 1
                         m['_total'] += 1
                         if p_status == 'completed': m['_done'] += 1
-                        
                         if depth >= 3:
                             f['cards'].append({'id': cid, 'title': row['c_title'], 'plan_status': p_status})
 
-            # Calculate percentages and cleanup
             result = []
             for m in milestones.values():
                 for f in m['features']:
@@ -496,13 +488,19 @@ class SummaryRepository(BaseRepository):
     def upsert(self, card_id: str, summary: str, embedding: str = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
+            # Check if summary actually changed before recording history
+            cursor = conn.execute("SELECT summary FROM summaries WHERE card_id = ?", (card_id,))
+            row = cursor.fetchone()
+            existing_summary = row[0] if row else None
+            
             conn.execute("""
                 INSERT INTO summaries (card_id, summary, embedding, updated_at) 
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(card_id) DO UPDATE SET summary=excluded.summary, embedding=excluded.embedding, updated_at=excluded.updated_at
             """, (card_id, summary, embedding, now))
-            # Also keep history
-            conn.execute("INSERT INTO summary_history (card_id, summary, created_at) VALUES (?, ?, ?)", (card_id, summary, now))
+            
+            if summary and summary != existing_summary:
+                conn.execute("INSERT INTO summary_history (card_id, summary, created_at) VALUES (?, ?, ?)", (card_id, summary, now))
 
     def get(self, card_id: str) -> Optional[Dict]:
         with self.db.get_connection() as conn:
@@ -511,13 +509,6 @@ class SummaryRepository(BaseRepository):
             return dict(row) if row else None
 
     def search_semantic(self, query_vector: List[float], project_id: str, limit: int = 5) -> List[Dict]:
-        """
-        Naive vector search in SQLite (Euclidean distance on JSON strings).
-        Requires the embedding_service to provide vectors.
-        """
-        # Note: True vector search in SQLite usually requires sqlite-vss or similar.
-        # This is a placeholder for a more robust vector extension.
-        # For now, we fetch all for this project and sort in Python.
         with self.db.get_connection() as conn:
             cursor = conn.execute("""
                 SELECT s.card_id, s.summary, s.embedding, c.title
@@ -527,17 +518,14 @@ class SummaryRepository(BaseRepository):
                 WHERE col.project_id = ?
             """, (project_id,))
             rows = cursor.fetchall()
-            
             results = []
             for row in rows:
                 if row['embedding']:
                     try:
                         emb = json.loads(row['embedding'])
-                        # Euclidean distance
                         dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(query_vector, emb)))
                         results.append({'card_id': row['card_id'], 'summary': row['summary'], 'title': row['title'], 'distance': dist})
                     except: continue
-            
             results.sort(key=lambda x: x['distance'])
             return results[:limit]
 
@@ -548,13 +536,11 @@ class SessionRepository(BaseRepository):
             conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now))
 
     def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = False):
-        """Appends to the last message of the same role if incomplete, or creates new."""
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # Check if last message is from same role and incomplete
             cursor = conn.execute("SELECT id, content FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
-            if row and is_complete is False: # Only append to incomplete ones if we're not finishing it
+            if row and is_complete is False:
                 msg_id = row[0]
                 new_content = (row[1] or "") + content_chunk
                 conn.execute("UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?", (new_content, 0, msg_id))
@@ -562,9 +548,7 @@ class SessionRepository(BaseRepository):
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete) VALUES (?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0))
 
     def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True):
-        """Finds a message by metadata key/val and updates it."""
         with self.db.get_connection() as conn:
-            # This is complex in SQLite with JSON strings. For simplicity, we search for the last 5 messages.
             cursor = conn.execute("SELECT id, metadata FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 10", (card_id,))
             rows = cursor.fetchall()
             for r in rows:
@@ -724,12 +708,10 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS code_symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, symbol_name TEXT NOT NULL, symbol_type TEXT NOT NULL, signature TEXT, start_line INTEGER, end_line INTEGER, documentation TEXT, code_content TEXT, embedding TEXT, UNIQUE(project_id, file_path, symbol_name, symbol_type))")
             cursor.execute("CREATE TABLE IF NOT EXISTS file_index (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, file_path TEXT NOT NULL, file_hash TEXT NOT NULL, file_size INTEGER, indexed_at DATETIME, UNIQUE(project_id, file_path))")
             
-            # --- Indexes for Soft Delete Performance ---
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_milestones_project_deleted ON milestones(project_id, deleted_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_features_milestone_deleted ON features(milestone_id, deleted_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_feature_deleted ON cards(feature_id, deleted_at)")
 
-            # --- Migration/Maintenance: Consolidated Logic ---
             migrations = [
                 ("projects", "description", "TEXT"), 
                 ("projects", "index_status", "TEXT DEFAULT 'idle'"),
@@ -757,7 +739,6 @@ class KanbanDB:
                     if "duplicate column name" not in str(e).lower():
                         logger.warning(f"DB Migration: Could not add {table}.{col}: {e}")
             
-            # --- Ensure Uncategorized Defaults Exist (Migration) ---
             now = datetime.now().isoformat()
             cursor.execute("SELECT id FROM projects")
             projects = cursor.fetchall()
@@ -810,12 +791,8 @@ class KanbanDB:
     def add_session_message(self, card_id, role, content, metadata=None): return self.sessions.add_message(card_id, role, content, metadata)
     def append_message(self, card_id, role, content_chunk, is_complete=False): return self.sessions.append_message(card_id, role, content_chunk, is_complete)
     def update_message_with_metadata(self, card_id, metadata_key, metadata_val, content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, metadata_key, metadata_val, content, is_complete)
-    def add_thought(self, card_id, thought):
-        # Implementation moved to specialized methods for thought trace
-        pass
-    def append_thought(self, card_id, thought_chunk):
-        # Using SessionRepository.append_message with thought role/metadata
-        pass
+    def add_thought(self, card_id, thought): pass
+    def append_thought(self, card_id, thought_chunk): pass
 
     def get_timeline(self, project_id, limit=100): return self.timeline.get_by_project(project_id, limit)
     def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)
@@ -842,10 +819,8 @@ class KanbanDB:
         with self.get_connection() as conn:
             conn.execute("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", (key, str(value), now))
 
-    def update_card_config_options(self, card_id: str, config_options: str):
-        return self.cards.update_config_options(card_id, config_options)
-    def get_card_config_options(self, card_id: str):
-        return self.cards.get_config_options(card_id)
+    def update_card_config_options(self, card_id: str, config_options: str): return self.cards.update_config_options(card_id, config_options)
+    def get_card_config_options(self, card_id: str): return self.cards.get_config_options(card_id)
     def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
     def uncomplete_card(self, card_id): return self.cards.update(card_id, status='active')
     def update_card_summary(self, card_id, summary): return self.summaries.upsert(card_id, summary)
