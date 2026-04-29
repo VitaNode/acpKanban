@@ -679,21 +679,11 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         actions: [
-          if (_currentProject != null && !isMobile) ...[
-            IconButton(
-              icon: const Icon(Icons.alt_route_rounded),
-              tooltip: 'Project Roadmap',
-              onPressed: _showRoadmapManager,
-            ),
+          if (_currentProject != null) ...[
             IconButton(
               icon: const Icon(Icons.view_column_outlined),
               tooltip: 'Manage Columns',
               onPressed: _showColumnManager,
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings_suggest_outlined),
-              tooltip: 'Manage Projects',
-              onPressed: _showProjectManager,
             ),
           ],
           IconButton(
@@ -827,6 +817,7 @@ class _MainScreenState extends State<MainScreen> {
                   ? ProjectRoadmapView(
                       projectId: _currentProject!.id,
                       onCardTap: _openCardById,
+                      onManageTap: _showRoadmapManager,
                     )
                   : TimelineView(
                       events: _timelineEvents,

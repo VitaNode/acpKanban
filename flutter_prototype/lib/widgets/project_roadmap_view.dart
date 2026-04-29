@@ -5,11 +5,13 @@ import '../services/acp_client.dart';
 class ProjectRoadmapView extends StatefulWidget {
   final String projectId;
   final Function(String cardId) onCardTap;
+  final VoidCallback? onManageTap;
 
   const ProjectRoadmapView({
     Key? key,
     required this.projectId,
     required this.onCardTap,
+    this.onManageTap,
   }) : super(key: key);
 
   @override
@@ -65,19 +67,42 @@ class _ProjectRoadmapViewState extends State<ProjectRoadmapView> {
       );
     }
 
-    if (_roadmap == null || _roadmap!.isEmpty) {
-      return const Center(child: Text('No roadmap items defined.'));
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadRoadmap,
-      child: ListView.builder(
-        itemCount: _roadmap!.length,
-        itemBuilder: (context, index) {
-          final milestone = _roadmap![index];
-          return _buildMilestoneTile(milestone);
-        },
-      ),
+    return Column(
+      children: [
+        if (widget.onManageTap != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.alt_route_rounded, size: 20),
+                const SizedBox(width: 12),
+                const Text('PROJECT ROADMAP', 
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.5)),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: widget.onManageTap,
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                  label: const Text('Manage'),
+                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: (_roadmap == null || _roadmap!.isEmpty)
+              ? const Center(child: Text('No roadmap items defined.'))
+              : RefreshIndicator(
+                  onRefresh: _loadRoadmap,
+                  child: ListView.builder(
+                    itemCount: _roadmap!.length,
+                    itemBuilder: (context, index) {
+                      final milestone = _roadmap![index];
+                      return _buildMilestoneTile(milestone);
+                    },
+                  ),
+                ),
+        ),
+      ],
     );
   }
 
