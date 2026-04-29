@@ -540,13 +540,28 @@ class SummaryRepository(BaseRepository):
             return results[:limit]
 
 class SessionRepository(BaseRepository):
-    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None, is_milestone: bool = False):
+    def add_message(self, *args, **kwargs):
+        # Flexible signature to avoid TypeError: (card_id, role, content, metadata=None, is_milestone=False, ...)
+        card_id = args[0] if len(args) > 0 else kwargs.get('card_id')
+        role = args[1] if len(args) > 1 else kwargs.get('role')
+        content = args[2] if len(args) > 2 else kwargs.get('content')
+        metadata = args[3] if len(args) > 3 else kwargs.get('metadata')
+        is_milestone = kwargs.get('is_milestone', False)
+        if len(args) > 4 and not is_milestone: is_milestone = args[4]
+        
         now = datetime.now().isoformat()
+        is_complete = kwargs.get('is_complete', 1)
+        
+        logger.info(f"Adding message: card={card_id}, role={role}, is_milestone={is_milestone}")
+        
         with self.db.get_connection() as conn:
-            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0))
+            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone, is_complete) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                         (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0, 1 if is_complete else 0))
 
     def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = False):
         now = datetime.now().isoformat()
+        if content_chunk:
+            logger.debug(f"Appending chunk to card {card_id}: role={role}, chunk_len={len(content_chunk)}, is_complete={is_complete}")
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT id, content FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()

@@ -246,7 +246,7 @@ class SessionEngine:
                 
                 milestone_text = f"🚀 **Session Started: {self.provider_id}**\nMode: `{mode_name}`\nSession: `{self.acp_session_id[:8]}`"
                 if self.db:
-                    await asyncio.to_thread(self.db.sessions.add_message, self.card_id, "system", milestone_text, is_milestone=True)
+                    await asyncio.to_thread(self.db.sessions.add_message, self.card_id, "system", milestone_text, None, True)
                     from src.transport.bus import bus
                     bus.publish(self.card_id, {"type": "refresh"})
                 self._milestone_inserted = True
