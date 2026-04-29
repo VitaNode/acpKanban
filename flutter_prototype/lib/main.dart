@@ -87,6 +87,7 @@ class _MainScreenState extends State<MainScreen> {
 
   // View state
   String _currentView = 'board';
+  bool _isSidebarExpanded = false;
 
   @override
   void initState() {
@@ -617,6 +618,26 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  int _viewToIndex(String view) {
+    switch (view) {
+      case 'board': return 0;
+      case 'roadmap': return 1;
+      case 'timeline': return 2;
+      case 'settings': return 3;
+      default: return 0;
+    }
+  }
+
+  String _indexToView(int index) {
+    switch (index) {
+      case 0: return 'board';
+      case 1: return 'roadmap';
+      case 2: return 'timeline';
+      case 3: return 'settings';
+      default: return 'board';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -624,12 +645,6 @@ class _MainScreenState extends State<MainScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_rounded),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-        ),
         title: FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
@@ -690,120 +705,47 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      drawer: _buildDrawer(),
-      body: Column(
+      body: Row(
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
-              child: ProjectSelector(
-                currentProject: _currentProject,
-                projects: _projects,
-                onProjectSelected: _switchProject,
-                onCreateProject: _showCreateProjectDialog,
-                onManageProjects: _showProjectManager,
-                isLoading: _isLoadingProjects,
-              ),
-            ),
-          ),
-          StatusSummaryWidget(statuses: _agentStatuses),
+          _buildSidebar(theme, colorScheme),
+          const VerticalDivider(width: 1),
           Expanded(
-            child: _currentView == 'board'
-                ? _buildBoardView()
-                : _currentView == 'roadmap'
-                    ? ProjectRoadmapView(
-                        projectId: _currentProject!.id,
-                        onCardTap: _openCardById,
-                      )
-                    : TimelineView(
-                        events: _timelineEvents,
-                        isLoading: _isLoadingTimeline,
-                        onRefresh: () {
-                          if (_currentProject != null) {
-                            _loadTimeline(_currentProject!.id);
-                          }
-                        },
-                      ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawer() {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Drawer(
-      child: Column(
-        children: [
-          DrawerHeader(
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainer,
-              border: Border(bottom: BorderSide(color: theme.dividerTheme.color!)),
-            ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Icon(Icons.psychology_rounded, size: 48, color: colorScheme.primary),
-                const SizedBox(height: AppConstants.space12),
-                Text(
-                  'AI Kanban',
-                  style: theme.textTheme.headlineMedium?.copyWith(color: colorScheme.primary),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _buildDrawerItem(
-                  icon: Icons.dashboard_rounded,
-                  label: 'Board',
-                  view: 'board',
-                ),
-                _buildDrawerItem(
-                  icon: Icons.alt_route_rounded,
-                  label: 'Roadmap',
-                  view: 'roadmap',
-                ),
-                _buildDrawerItem(
-                  icon: Icons.history_rounded,
-                  label: 'Timeline',
-                  view: 'timeline',
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: AppConstants.space16),
-                  child: Divider(),
-                ),
-                ListTile(
-                  leading: Icon(_getStatusIcon(), color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-                  title: const Text('Connection Settings'),
-                  trailing: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: _getStatusDotColor(),
-                      shape: BoxShape.circle,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+                    child: ProjectSelector(
+                      currentProject: _currentProject,
+                      projects: _projects,
+                      onProjectSelected: _switchProject,
+                      onCreateProject: _showCreateProjectDialog,
+                      onManageProjects: _showProjectManager,
+                      isLoading: _isLoadingProjects,
                     ),
                   ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _openConnectionSettings();
-                  },
+                ),
+                StatusSummaryWidget(statuses: _agentStatuses),
+                Expanded(
+                  child: _currentView == 'board'
+                      ? _buildBoardView()
+                      : _currentView == 'roadmap'
+                          ? ProjectRoadmapView(
+                              projectId: _currentProject!.id,
+                              onCardTap: _openCardById,
+                            )
+                          : TimelineView(
+                              events: _timelineEvents,
+                              isLoading: _isLoadingTimeline,
+                              onRefresh: () {
+                                if (_currentProject != null) {
+                                  _loadTimeline(_currentProject!.id);
+                                }
+                              },
+                            ),
                 ),
               ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(AppConstants.space16),
-            child: Text(
-              'v1.2.0-alpha',
-              style: theme.textTheme.bodySmall,
-              textAlign: TextAlign.center,
             ),
           ),
         ],
@@ -811,32 +753,99 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildDrawerItem({required IconData icon, required String label, required String view}) {
-    final isSelected = _currentView == view;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return ListTile(
-      leading: Icon(icon, color: isSelected ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-      title: Text(label, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-      selected: isSelected,
-      selectedTileColor: colorScheme.primary.withOpacity(0.08),
-      onTap: () {
-        setState(() => _currentView = view);
-        Navigator.pop(context);
+  Widget _buildSidebar(ThemeData theme, ColorScheme colorScheme) {
+    return NavigationRail(
+      extended: _isSidebarExpanded,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      unselectedIconTheme: IconThemeData(color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+      selectedIconTheme: IconThemeData(color: colorScheme.primary),
+      unselectedLabelTextStyle: theme.textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+      ),
+      selectedLabelTextStyle: theme.textTheme.bodySmall?.copyWith(
+        color: colorScheme.primary,
+        fontWeight: FontWeight.bold,
+      ),
+      leading: Column(
+        children: [
+          const SizedBox(height: 8),
+          IconButton(
+            icon: Icon(_isSidebarExpanded ? Icons.menu_open_rounded : Icons.menu_rounded),
+            onPressed: () => setState(() => _isSidebarExpanded = !_isSidebarExpanded),
+            tooltip: _isSidebarExpanded ? 'Collapse Sidebar' : 'Expand Sidebar',
+          ),
+          if (_isSidebarExpanded) ...[
+            const SizedBox(height: 16),
+            Icon(Icons.psychology_rounded, size: 32, color: colorScheme.primary),
+            const SizedBox(height: 8),
+            Text('AI Kanban', 
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.bold,
+              )),
+            const SizedBox(height: 24),
+          ],
+        ],
+      ),
+      destinations: [
+        const NavigationRailDestination(
+          icon: Icon(Icons.dashboard_rounded),
+          selectedIcon: Icon(Icons.dashboard_rounded),
+          label: Text('Board'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.alt_route_rounded),
+          selectedIcon: Icon(Icons.alt_route_rounded),
+          label: Text('Roadmap'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.history_rounded),
+          selectedIcon: Icon(Icons.history_rounded),
+          label: Text('Timeline'),
+        ),
+        NavigationRailDestination(
+          icon: Stack(
+            children: [
+              const Icon(Icons.settings_outlined),
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: _getStatusDotColor(),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          label: const Text('Settings'),
+        ),
+      ],
+      selectedIndex: _viewToIndex(_currentView),
+      onDestinationSelected: (idx) {
+        if (idx == 3) {
+          _openConnectionSettings();
+        } else {
+          setState(() => _currentView = _indexToView(idx));
+        }
       },
+      trailing: Expanded(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (_isSidebarExpanded)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('v1.2.0', style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
-  }
-
-  IconData _getStatusIcon() {
-    if (_acpClient.activeMode == ConnectionPath.local) {
-      return Icons.home_rounded;
-    } else if (_acpClient.activeMode == ConnectionPath.relay) {
-      return Icons.cloud_sync_rounded;
-    } else if (_acpClient.activeMode == ConnectionPath.cloud) {
-      return Icons.public_rounded;
-    } else {
-      return Icons.cloud_off_rounded;
-    }
   }
 
   Color _getStatusDotColor() {
