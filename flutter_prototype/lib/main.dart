@@ -88,6 +88,7 @@ class _MainScreenState extends State<MainScreen> {
   // View state
   String _currentView = 'board';
   bool _isSidebarExpanded = false;
+  KanbanCard? _selectedCard;
 
   @override
   void initState() {
@@ -135,16 +136,9 @@ class _MainScreenState extends State<MainScreen> {
   void _openCardById(String cardId) {
     try {
       final card = _cards.firstWhere((c) => c.id == cardId);
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CardDetailScreen(
-            card: card,
-            projectId: _currentProject!.id,
-          ),
-        ),
-      ).then((_) {
-        KanbanRefreshService().markNeedsRefresh();
+      setState(() {
+        _selectedCard = card;
+        _currentView = 'card_detail';
       });
     } catch (e) {
       debugPrint('Card $cardId not found in local state: $e');
@@ -623,7 +617,7 @@ class _MainScreenState extends State<MainScreen> {
       case 'board': return 0;
       case 'roadmap': return 1;
       case 'timeline': return 2;
-      case 'settings': return 3;
+      case 'connection': return 3;
       default: return 0;
     }
   }
@@ -633,7 +627,7 @@ class _MainScreenState extends State<MainScreen> {
       case 0: return 'board';
       case 1: return 'roadmap';
       case 2: return 'timeline';
-      case 3: return 'settings';
+      case 3: return 'connection';
       default: return 'board';
     }
   }
@@ -642,6 +636,12 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+
+    // Determine if we should show the bottom navigation bar
+    // Hide it on desktop or when viewing card details on mobile
+    final showBottomNav = isMobile && _currentView != 'card_detail';
 
     return Scaffold(
       appBar: AppBar(
@@ -679,7 +679,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         actions: [
-          if (_currentProject != null) ...[
+          if (_currentProject != null && !isMobile) ...[
             IconButton(
               icon: const Icon(Icons.alt_route_rounded),
               tooltip: 'Project Roadmap',
@@ -707,49 +707,138 @@ class _MainScreenState extends State<MainScreen> {
       ),
       body: Row(
         children: [
-          _buildSidebar(theme, colorScheme),
-          const VerticalDivider(width: 1),
+          if (!isMobile) ...[
+            _buildSidebar(theme, colorScheme),
+            const VerticalDivider(width: 1),
+          ],
           Expanded(
-            child: Column(
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
-                    child: ProjectSelector(
-                      currentProject: _currentProject,
-                      projects: _projects,
-                      onProjectSelected: _switchProject,
-                      onCreateProject: _showCreateProjectDialog,
-                      onManageProjects: _showProjectManager,
-                      isLoading: _isLoadingProjects,
-                    ),
-                  ),
-                ),
-                StatusSummaryWidget(statuses: _agentStatuses),
-                Expanded(
-                  child: _currentView == 'board'
-                      ? _buildBoardView()
-                      : _currentView == 'roadmap'
-                          ? ProjectRoadmapView(
-                              projectId: _currentProject!.id,
-                              onCardTap: _openCardById,
-                            )
-                          : TimelineView(
-                              events: _timelineEvents,
-                              isLoading: _isLoadingTimeline,
-                              onRefresh: () {
-                                if (_currentProject != null) {
-                                  _loadTimeline(_currentProject!.id);
-                                }
-                              },
-                            ),
-                ),
-              ],
-            ),
+            child: _buildMainContent(theme, colorScheme),
           ),
         ],
       ),
+      bottomNavigationBar: showBottomNav ? _buildBottomNavigationBar(theme, colorScheme) : null,
+    );
+  }
+
+  Widget _buildBottomNavigationBar(ThemeData theme, ColorScheme colorScheme) {
+    return BottomNavigationBar(
+      type: BottomNavigationBarType.fixed,
+      currentIndex: _viewToIndex(_currentView),
+      onTap: (idx) {
+        setState(() {
+          _currentView = _indexToView(idx);
+          _selectedCard = null;
+        });
+      },
+      selectedItemColor: colorScheme.primary,
+      unselectedItemColor: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+      showUnselectedLabels: true,
+      selectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+      unselectedLabelStyle: const TextStyle(fontSize: 12),
+      items: [
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.dashboard_rounded),
+          label: 'Board',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.alt_route_rounded),
+          label: 'Roadmap',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.history_rounded),
+          label: 'Timeline',
+        ),
+        BottomNavigationBarItem(
+          icon: Stack(
+            children: [
+              const Icon(Icons.settings_outlined),
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: _getStatusDotColor(),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          label: 'Connection',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMainContent(ThemeData theme, ColorScheme colorScheme) {
+    if (_currentView == 'connection') {
+      return ConnectionSettingsView(
+        acpClient: _acpClient,
+        currentMode: _getCurrentConnectionMode(),
+        userId: _userId ?? 'test_user',
+        onConnectionChanged: (newMode, url) async {
+          final configManager = await ConnectionConfigManager.getInstance();
+          final savedConfig = await configManager.loadConfig();
+          if (mounted) {
+            setState(() {
+              _userId = savedConfig.userId;
+            });
+            _loadProjects();
+          }
+        },
+      );
+    }
+
+    if (_currentView == 'card_detail' && _selectedCard != null && _currentProject != null) {
+      return CardDetailView(
+        card: _selectedCard!,
+        projectId: _currentProject!.id,
+        onBack: () => setState(() {
+          _currentView = 'board';
+          _selectedCard = null;
+          KanbanRefreshService().markNeedsRefresh();
+        }),
+      );
+    }
+
+    return Column(
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+            child: ProjectSelector(
+              currentProject: _currentProject,
+              projects: _projects,
+              onProjectSelected: _switchProject,
+              onCreateProject: _showCreateProjectDialog,
+              onManageProjects: _showProjectManager,
+              isLoading: _isLoadingProjects,
+            ),
+          ),
+        ),
+        StatusSummaryWidget(statuses: _agentStatuses),
+        Expanded(
+          child: _currentView == 'board'
+              ? _buildBoardView()
+              : _currentView == 'roadmap'
+                  ? ProjectRoadmapView(
+                      projectId: _currentProject!.id,
+                      onCardTap: _openCardById,
+                    )
+                  : TimelineView(
+                      events: _timelineEvents,
+                      isLoading: _isLoadingTimeline,
+                      onRefresh: () {
+                        if (_currentProject != null) {
+                          _loadTimeline(_currentProject!.id);
+                        }
+                      },
+                    ),
+        ),
+      ],
     );
   }
 
@@ -821,16 +910,15 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
-          label: const Text('Settings'),
+          label: const Text('Connection'),
         ),
       ],
       selectedIndex: _viewToIndex(_currentView),
       onDestinationSelected: (idx) {
-        if (idx == 3) {
-          _openConnectionSettings();
-        } else {
-          setState(() => _currentView = _indexToView(idx));
-        }
+        setState(() {
+          _currentView = _indexToView(idx);
+          _selectedCard = null; // Clear card when navigating via sidebar
+        });
       },
       trailing: Expanded(
         child: Column(
@@ -859,29 +947,6 @@ class _MainScreenState extends State<MainScreen> {
     } else {
       return Theme.of(context).colorScheme.error;
     }
-  }
-
-  void _openConnectionSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ConnectionSettingsScreen(
-          acpClient: _acpClient,
-          currentMode: _getCurrentConnectionMode(),
-          userId: _userId ?? 'test_user',
-          onConnectionChanged: (newMode, url) async {
-            final configManager = await ConnectionConfigManager.getInstance();
-            final savedConfig = await configManager.loadConfig();
-            if (mounted) {
-              setState(() {
-                _userId = savedConfig.userId;
-              });
-              _loadProjects();
-            }
-          },
-        ),
-      ),
-    );
   }
 
   ConnectionMode _getCurrentConnectionMode() {
@@ -957,32 +1022,8 @@ class _MainScreenState extends State<MainScreen> {
             key: ValueKey(column.id),
             column: column,
             cards: columnCards,
-            onCardTap: (card) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => CardDetailScreen(
-                    card: card,
-                    projectId: _currentProject!.id,
-                  ),
-                ),
-              ).then((_) {
-                KanbanRefreshService().markNeedsRefresh();
-              });
-            },
-            onCardSessionTap: (card) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => CardDetailScreen(
-                    card: card,
-                    projectId: _currentProject!.id,
-                  ),
-                ),
-              ).then((_) {
-                KanbanRefreshService().markNeedsRefresh();
-              });
-            },
+            onCardTap: (card) => _openCardById(card.id),
+            onCardSessionTap: (card) => _openCardById(card.id),
             onAddCard: () => _addCard(column),
             onCardMoved: _onCardMoved,
             onCardComplete: (card) async {
