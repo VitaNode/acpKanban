@@ -6,13 +6,13 @@ import '../services/acp_client.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
-class ConnectionSettingsScreen extends StatefulWidget {
+class ConnectionSettingsView extends StatefulWidget {
   final ACPClient acpClient;
   final ConnectionMode currentMode;
   final String userId;
   final Function(ConnectionPath newMode, String? url)? onConnectionChanged;
 
-  const ConnectionSettingsScreen({
+  const ConnectionSettingsView({
     super.key,
     required this.acpClient,
     required this.currentMode,
@@ -21,11 +21,11 @@ class ConnectionSettingsScreen extends StatefulWidget {
   });
 
   @override
-  State<ConnectionSettingsScreen> createState() =>
-      _ConnectionSettingsScreenState();
+  State<ConnectionSettingsView> createState() =>
+      _ConnectionSettingsViewState();
 }
 
-class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
+class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   late ConnectionMode _selectedMode;
   late TextEditingController _localIpController;
   late TextEditingController _relayHostController;
@@ -76,6 +76,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   Future<void> _loadConfig() async {
     final configManager = await ConnectionConfigManager.getInstance();
     final config = await configManager.loadConfig();
+    if (!mounted) return;
     setState(() {
       _selectedMode = config.preferredMode;
       _localIpController.text = config.localIp ?? '';
@@ -124,20 +125,26 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
 
     try {
       final ip = await SmartConnect.discoverLocalMac();
-      setState(() {
-        _scannedIp = ip;
-        if (ip != null) {
-          _localIpController.text = ip;
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _scannedIp = ip;
+          if (ip != null) {
+            _localIpController.text = ip;
+          }
+        });
+      }
     } catch (e) {
-      setState(() {
-        _scannedIp = 'Scan failed';
-      });
+      if (mounted) {
+        setState(() {
+          _scannedIp = 'Scan failed';
+        });
+      }
     } finally {
-      setState(() {
-        _isScanning = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+      }
     }
   }
 
@@ -197,7 +204,6 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Connected successfully!')),
         );
-        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
@@ -228,56 +234,59 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Connection Settings'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppConstants.space16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'CONNECTION MODE',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const SizedBox(height: AppConstants.space12),
-            _buildModeSelector(),
-            const SizedBox(height: AppConstants.space24),
-            _buildModeSpecificFields(),
-            const SizedBox(height: AppConstants.space32),
-            Text(
-              'SYSTEM AGENT (LLM)',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const SizedBox(height: AppConstants.space12),
-            _buildSystemAgentFields(),
-            const SizedBox(height: AppConstants.space32),
-            _buildConnectionStatus(),
-            const SizedBox(height: AppConstants.space24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _isConnecting ? null : _saveAndConnect,
-                icon: _isConnecting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.power_settings_new_rounded),
-                label: Text(_isConnecting ? 'CONNECTING...' : 'SAVE & CONNECT'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppConstants.space16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'CONNECTION SETTINGS',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
+          ),
+          const SizedBox(height: AppConstants.space24),
+          Text(
+            'CONNECTION MODE',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: AppConstants.space12),
+          _buildModeSelector(),
+          const SizedBox(height: AppConstants.space24),
+          _buildModeSpecificFields(),
+          const SizedBox(height: AppConstants.space32),
+          Text(
+            'SYSTEM AGENT (LLM)',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: AppConstants.space12),
+          _buildSystemAgentFields(),
+          const SizedBox(height: AppConstants.space32),
+          _buildConnectionStatus(),
+          const SizedBox(height: AppConstants.space24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isConnecting ? null : _saveAndConnect,
+              icon: _isConnecting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.power_settings_new_rounded),
+              label: Text(_isConnecting ? 'CONNECTING...' : 'SAVE & CONNECT'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
               ),
             ),
-            const SizedBox(height: AppConstants.space32),
-          ],
-        ),
+          ),
+          const SizedBox(height: AppConstants.space32),
+        ],
       ),
     );
   }
@@ -313,6 +322,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
   }) {
     final isSelected = _selectedMode == mode;
     final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     
     return Expanded(
       child: Material(
@@ -328,7 +338,7 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
               border: Border.all(
-                color: isSelected ? colorScheme.primary : Theme.of(context).dividerTheme.color!,
+                color: isSelected ? colorScheme.primary : theme.dividerTheme.color!,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -355,8 +365,6 @@ class _ConnectionSettingsScreenState extends State<ConnectionSettingsScreen> {
       ),
     );
   }
-
-  ThemeData get theme => Theme.of(context);
 
   Widget _buildModeSpecificFields() {
     return Container(

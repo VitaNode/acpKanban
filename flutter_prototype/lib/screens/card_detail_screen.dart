@@ -17,16 +17,23 @@ import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
-class CardDetailScreen extends StatefulWidget {
+class CardDetailView extends StatefulWidget {
   final KanbanCard card;
   final String projectId;
-  const CardDetailScreen(
-      {super.key, required this.card, required this.projectId});
+  final VoidCallback? onBack;
+
+  const CardDetailView({
+    super.key,
+    required this.card,
+    required this.projectId,
+    this.onBack,
+  });
+
   @override
-  State<CardDetailScreen> createState() => _CardDetailScreenState();
+  State<CardDetailView> createState() => _CardDetailViewState();
 }
 
-class _CardDetailScreenState extends State<CardDetailScreen> {
+class _CardDetailViewState extends State<CardDetailView> {
   final _projectService = ProjectService();
   final _wsService = SessionWebSocketService();
   late TextEditingController _titleController;
@@ -662,68 +669,20 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: Text(_titleController.text),
-          actions: [
-            if (_isSavingCard || _isSavingSummary)
-              const Center(
-                  child: Padding(
-                      padding: EdgeInsets.all(AppConstants.space16),
-                      child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2)))),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              onSelected: (value) {
-                if (value == 'complete') _onComplete();
-                else if (value == 'delete') _onDelete();
-                else if (value == 'move') _onMove();
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'complete',
-                  child: Row(
-                    children: [
-                      Icon(_card.status == 'completed' ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 20),
-                      const SizedBox(width: AppConstants.space12),
-                      Text(_card.status == 'completed' ? 'Reactivate Card' : 'Complete Card'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'move',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.drive_file_move_outline, size: 20),
-                      const SizedBox(width: AppConstants.space12),
-                      const Text('Move to Column'),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline_rounded, size: 20, color: Theme.of(context).colorScheme.error),
-                      const SizedBox(width: AppConstants.space12),
-                      Text('Delete Card', style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ]),
-      body: SelectionArea(
-        child: Column(children: [
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return SelectionArea(
+      child: Column(
+        children: [
+          // Custom Header to replace AppBar
+          _buildViewHeader(theme, colorScheme),
           if (_isAgentConnected) ConfigOptionsBar(options: _configOptions),
           Expanded(
-              child: ListView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
-                  children: [
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
+              children: [
                 _buildHeader(),
                 if (_currentPlan != null) 
                   Padding(
@@ -732,21 +691,103 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
                   ),
                 _buildSummarySection(),
                 const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
-                    child: Divider()),
+                  padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+                  child: Divider(),
+                ),
                 if (_messages.isEmpty)
                   Center(
-                      child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
-                          child: Text('Start a conversation...',
-                              style: Theme.of(context).textTheme.bodySmall)))
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
+                      child: Text('Start a conversation...',
+                          style: theme.textTheme.bodySmall),
+                    ),
+                  )
                 else
                   ..._buildMessageList(),
                 if (_isAgentProcessing) _buildProcessingIndicator(),
                 const SizedBox(height: AppConstants.space24),
-              ])),
+              ],
+            ),
+          ),
           _buildInputArea(),
-        ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildViewHeader(ThemeData theme, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.appBarTheme.backgroundColor,
+        border: Border(bottom: BorderSide(color: theme.dividerTheme.color!)),
+      ),
+      child: Row(
+        children: [
+          if (widget.onBack != null)
+            IconButton(
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: widget.onBack,
+              tooltip: 'Back to Board',
+            ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _titleController.text,
+              style: theme.textTheme.titleLarge,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (_isSavingCard || _isSavingSummary)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(
+                width: 16, height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'complete') _onComplete();
+              else if (value == 'delete') _onDelete();
+              else if (value == 'move') _onMove();
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'complete',
+                child: Row(
+                  children: [
+                    Icon(_card.status == 'completed' ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 20),
+                    const SizedBox(width: AppConstants.space12),
+                    Text(_card.status == 'completed' ? 'Reactivate Card' : 'Complete Card'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'move',
+                child: Row(
+                  children: [
+                    const Icon(Icons.drive_file_move_outline, size: 20),
+                    const SizedBox(width: AppConstants.space12),
+                    const Text('Move to Column'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline_rounded, size: 20, color: theme.colorScheme.error),
+                    const SizedBox(width: AppConstants.space12),
+                    Text('Delete Card', style: TextStyle(color: theme.colorScheme.error)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
