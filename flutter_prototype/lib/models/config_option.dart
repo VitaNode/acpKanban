@@ -57,9 +57,9 @@ class ConfigOptionValue {
 
   factory ConfigOptionValue.fromJson(Map<String, dynamic> json) {
     return ConfigOptionValue(
-      value: json['value'] ?? '',
-      name: json['name'] ?? json['value'] ?? '',
-      description: json['description'],
+      value: (json['value'] ?? '').toString(),
+      name: (json['name'] ?? json['value'] ?? '').toString(),
+      description: json['description']?.toString(),
     );
   }
 }
