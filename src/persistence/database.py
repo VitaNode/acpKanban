@@ -540,10 +540,10 @@ class SummaryRepository(BaseRepository):
             return results[:limit]
 
 class SessionRepository(BaseRepository):
-    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None):
+    def add_message(self, card_id: str, role: str, content: str, metadata: Dict = None, is_milestone: bool = False):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now))
+            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0))
 
     def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = False):
         now = datetime.now().isoformat()
@@ -798,7 +798,7 @@ class KanbanDB:
 
     def get_summary(self, card_id): return self.summaries.get(card_id)
     def get_session_history(self, card_id, limit=50): return self.sessions.get_history(card_id, limit)
-    def add_session_message(self, card_id, role, content, metadata=None): return self.sessions.add_message(card_id, role, content, metadata)
+    def add_session_message(self, card_id, role, content, metadata=None, is_milestone=False): return self.sessions.add_message(card_id, role, content, metadata, is_milestone)
     def append_message(self, card_id, role, content_chunk, is_complete=False): return self.sessions.append_message(card_id, role, content_chunk, is_complete)
     def update_message_with_metadata(self, card_id, metadata_key, metadata_val, content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, metadata_key, metadata_val, content, is_complete)
     def add_thought(self, card_id, thought): pass
