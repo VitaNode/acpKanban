@@ -631,6 +631,7 @@ class _CardDetailScreenState extends State<CardDetailScreen> {
     final fullPrompt = "[SYSTEM CONTEXT]\n$contextText\n\nPlease acknowledge.";
     _wsService.sendMessage('user', fullPrompt);
     setState(() {
+      _contextController.clear(); // Clear text to hide the panel after sending
       _isShowingContext = false;
       _isAgentProcessing = true;
     });
