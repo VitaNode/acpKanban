@@ -139,7 +139,7 @@ class SessionEngine:
         Handles both legacy configOptions and explicit modes/models.
         Deduplicates by preferring explicit modes/models over configOptions items.
         """
-        raw_options = res.get("configOptions", [])
+        raw_options = res.get("configOptions") or res.get("availableOptions") or []
         
         # Deduplicate: remove any existing items with category 'mode' or 'model' (or corresponding IDs)
         # to prevent duplicates when explicit 'modes' or 'models' are also present.
@@ -149,10 +149,12 @@ class SessionEngine:
         ]
         
         # Handle explicit modes
-        if "modes" in res:
-            modes = res["modes"]
+        modes = res.get("modes") or (res if "currentModeId" in res else None)
+        if modes:
             available = modes.get("availableModes", [])
             if available:
+                # Remove any existing 'mode' from options if we found it in 'modes'
+                options = [o for o in options if o.get("id") != "mode"]
                 options.insert(0, { # Put mode at the beginning
                     "id": "mode",
                     "name": "Mode",
@@ -163,11 +165,13 @@ class SessionEngine:
                 })
 
         # Handle explicit models
-        if "models" in res:
-            models = res["models"]
+        models = res.get("models") or (res if "currentModelId" in res else None)
+        if models:
             available = models.get("availableModels", [])
             if available:
-                options.insert(1 if "modes" in res else 0, { # Put model after mode
+                # Remove any existing 'model' from options if we found it in 'models'
+                options = [o for o in options if o.get("id") != "model"]
+                options.insert(1 if modes else 0, { # Put model after mode
                     "id": "model",
                     "name": "Model",
                     "category": "model",
@@ -176,13 +180,12 @@ class SessionEngine:
                     "options": [{"value": m.get("modelId"), "name": m.get("name"), "description": m.get("description")} for m in available]
                 })
         
-        # If we removed them from raw_options but res didn't have top-level modes/models, 
-        # add them back (this handles engines that only use configOptions)
-        if "modes" not in res:
+        # If we didn't find them in the top-level keys or naked objects, check if they were in raw_options
+        if not modes:
             mode_opts = [opt for opt in raw_options if opt.get("category") == "mode" or opt.get("id") == "mode"]
             if mode_opts: options.extend(mode_opts)
             
-        if "models" not in res:
+        if not models:
             model_opts = [opt for opt in raw_options if opt.get("category") == "model" or opt.get("id") == "model"]
             if model_opts: options.extend(model_opts)
         
@@ -210,11 +213,25 @@ class SessionEngine:
 
             # Phase 5.3 FIX: Even if res is an empty dict (success with no data), 
             # we should update our local state to reflect the value we just set.
-            # Some providers return {} on success.
             if res is not None:
                 if isinstance(res, dict) and res:
-                    # Provider returned the full new state
-                    self.current_config_options = self._normalize_session_config(res)
+                    # Provider returned a state (might be full or partial)
+                    normalized = self._normalize_session_config(res)
+                    if normalized:
+                        # If we got a normalized list, we need to MERGE it with current_config_options
+                        # to avoid losing other options if the response was partial.
+                        new_ids = {opt["id"] for opt in normalized}
+                        self.current_config_options = normalized + [
+                            opt for opt in self.current_config_options if opt["id"] not in new_ids
+                        ]
+                        # Sort to keep mode and model at the top
+                        self.current_config_options.sort(key=lambda x: 0 if x["id"] == "mode" else (1 if x["id"] == "model" else 2))
+                    else:
+                        # Success but normalization yielded nothing, manually update
+                        for opt in self.current_config_options:
+                            if opt.get("id") == config_id:
+                                opt["currentValue"] = value
+                                break
                 else:
                     # Success but no data returned, manually update our local state
                     for opt in self.current_config_options:

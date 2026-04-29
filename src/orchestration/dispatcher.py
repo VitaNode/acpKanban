@@ -442,7 +442,19 @@ class MessageDispatcher:
         elif utype == "plan":
             bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
         elif utype == "config_option_update":
-            bus.publish(card_id, {"type": "config_options", "options": update.get("availableOptions", [])})
+            engine = self.engines.get(card_id)
+            if engine:
+                # Use engine's normalization logic on the full update dict
+                normalized = engine._normalize_session_config(update)
+                if normalized:
+                    engine.current_config_options = normalized
+                    engine._save_config_options_to_db()
+                    bus.publish(card_id, {"type": "config_options", "options": normalized})
+            else:
+                # Fallback if engine not found (less likely but possible)
+                new_opts = update.get("availableOptions", [])
+                if new_opts:
+                    bus.publish(card_id, {"type": "config_options", "options": new_opts})
         elif utype == "tool_call":
             tcid = update.get("toolCallId")
             status = update.get("status", "pending")
@@ -461,11 +473,8 @@ class MessageDispatcher:
                 await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
-            if status == "pending":
-                await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", f"🛠️ **{title}**", {"type": "tool_call", "toolCallId": tcid, "status": "pending"}, is_complete=False)
-            else:
-                is_complete = status in ["completed", "failed"]
-                await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, f"🛠️ **{title}**", is_complete)
+            # We no longer add a separate message for tool calls to avoid "message explosion"
+            # All tool lifecycle info is now in the thought trace.
             bus.publish(card_id, {"type": "refresh"})
         elif utype == "tool_call_update":
             tcid = update.get("toolCallId")
@@ -479,13 +488,18 @@ class MessageDispatcher:
             
             # Phase 5.3: Integrate summary of tool result into thought trace
             if output_text and status in ["completed", "failed"]:
-                preview = output_text[:2000] + ("..." if len(output_text) > 2000 else "")
-                trace_msg = f"\n> **Output:** {preview}\n"
+                # Deduplicate/Compact: If output is just "Success" or "OK", use a single line
+                clean_output = output_text.strip()
+                if clean_output in ["Success", "OK", "Success.", "{}"]:
+                    trace_msg = f"> Result: {clean_output}\n"
+                else:
+                    preview = clean_output[:1000] + ("..." if len(clean_output) > 1000 else "")
+                    trace_msg = f"\n> **Output:** {preview}\n"
+                
                 await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
-            is_complete = status in ["completed", "failed"]
-            await asyncio.to_thread(self.db.sessions.update_message_with_metadata, card_id, "toolCallId", tcid, output_text, is_complete)
+            # We no longer update the "message body" with tool output to avoid redundant info
             bus.publish(card_id, {"type": "refresh"})
         elif utype == "session_info_update":
             info = update.get("info", {})
@@ -504,7 +518,7 @@ class MessageDispatcher:
     async def handle_set_config_option(self, card_id: str, config_id: str, value: Any):
         engine, _ = await self._get_or_create_engine(card_id)
         new_options = await engine.set_config_option(config_id, value)
-        if new_options: bus.publish(card_id, {"type": "config_options", "options": new_options})
+        if new_options is not None: bus.publish(card_id, {"type": "config_options", "options": new_options})
         return new_options
 
     async def _handle_status_cmd(self, p, rid): return {"message": f"Engines active: {len(self.engines)}"}
