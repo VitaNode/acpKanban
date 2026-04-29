@@ -552,25 +552,43 @@ class SessionRepository(BaseRepository):
         now = datetime.now().isoformat()
         is_complete = kwargs.get('is_complete', 1)
         
-        logger.info(f"Adding message: card={card_id}, role={role}, is_milestone={is_milestone}")
-        
         with self.db.get_connection() as conn:
             conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone, is_complete) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                          (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0, 1 if is_complete else 0))
 
     def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = False):
         now = datetime.now().isoformat()
-        if content_chunk:
-            logger.debug(f"Appending chunk to card {card_id}: role={role}, chunk_len={len(content_chunk)}, is_complete={is_complete}")
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT id, content FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
+            # Check the last message for this card
+            cursor = conn.execute("SELECT id, role, content, is_complete FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
-            if row and is_complete is False:
+            
+            if row and row[1] == role and row[3] == 0:
+                # Append to existing incomplete message of the same role
                 msg_id = row[0]
-                new_content = (row[1] or "") + content_chunk
-                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?", (new_content, 0, msg_id))
-            else:
+                new_content = (row[2] or "") + content_chunk
+                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?", (new_content, 1 if is_complete else 0, msg_id))
+            elif content_chunk:
+                # Start a new message only if there is actual content
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete) VALUES (?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0))
+
+    def append_thought(self, card_id: str, thought_chunk: str):
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            # Look for the last assistant message
+            cursor = conn.execute("SELECT id, role, metadata, is_complete FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
+            row = cursor.fetchone()
+            
+            # If the last message is assistant and incomplete, append to its thought metadata
+            if row and row[1] == 'assistant' and row[3] == 0:
+                msg_id = row[0]
+                meta = json.loads(row[2]) if row[2] else {}
+                meta['thought'] = (meta.get('thought') or "") + thought_chunk
+                conn.execute("UPDATE card_sessions SET metadata = ? WHERE id = ?", (json.dumps(meta), msg_id))
+            else:
+                # Create a new assistant message for this thought
+                meta = {'thought': thought_chunk}
+                conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete) VALUES (?, 'assistant', '', ?, ?, 0)", (card_id, json.dumps(meta), now))
 
     def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True):
         with self.db.get_connection() as conn:
@@ -816,8 +834,8 @@ class KanbanDB:
     def add_session_message(self, card_id, role, content, metadata=None, is_milestone=False): return self.sessions.add_message(card_id, role, content, metadata, is_milestone)
     def append_message(self, card_id, role, content_chunk, is_complete=False): return self.sessions.append_message(card_id, role, content_chunk, is_complete)
     def update_message_with_metadata(self, card_id, metadata_key, metadata_val, content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, metadata_key, metadata_val, content, is_complete)
-    def add_thought(self, card_id, thought): pass
-    def append_thought(self, card_id, thought_chunk): pass
+    def add_thought(self, card_id, thought): return self.sessions.append_thought(card_id, thought)
+    def append_thought(self, card_id, thought_chunk): return self.sessions.append_thought(card_id, thought_chunk)
 
     def get_timeline(self, project_id, limit=100): return self.timeline.get_by_project(project_id, limit)
     def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)
