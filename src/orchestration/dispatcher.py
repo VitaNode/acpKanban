@@ -479,7 +479,7 @@ class MessageDispatcher:
             
             # Phase 5.3: Integrate summary of tool result into thought trace
             if output_text and status in ["completed", "failed"]:
-                preview = output_text[:200] + ("..." if len(output_text) > 200 else "")
+                preview = output_text[:2000] + ("..." if len(output_text) > 2000 else "")
                 trace_msg = f"\n> **Output:** {preview}\n"
                 await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
