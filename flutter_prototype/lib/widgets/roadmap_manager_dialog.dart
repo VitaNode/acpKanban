@@ -106,23 +106,29 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
   }
 
   @override
-  Widget build(BuildContext context) {
+    Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusLarge)),
       child: Container(
-        width: size.width * 0.8,
-        height: size.height * 0.8,
+        width: isMobile ? size.width * 0.95 : size.width * 0.8,
+        height: isMobile ? size.height * 0.9 : size.height * 0.8,
         padding: const EdgeInsets.all(AppConstants.space16),
         child: Column(
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Project Roadmap Planning', style: theme.textTheme.headlineSmall),
+                Expanded(
+                  child: Text('Roadmap Planning', 
+                    style: theme.textTheme.headlineSmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
               ],
             ),
@@ -130,102 +136,148 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
             Expanded(
               child: _isLoading 
                 ? const Center(child: CircularProgressIndicator())
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // L1: Milestones
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('Milestones', style: theme.textTheme.titleMedium),
-                                  IconButton(
-                                    icon: const Icon(Icons.add_circle_outline, size: 20),
-                                    onPressed: _addMilestone,
-                                    tooltip: 'Add Milestone',
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: ListView.builder(
-                                itemCount: _milestones.length,
-                                itemBuilder: (context, index) {
-                                  final m = _milestones[index];
-                                  final isSelected = _selectedMilestone?.id == m.id;
-                                  return ListTile(
-                                    title: Text(m.title, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : null)),
-                                    selected: isSelected,
-                                    selectedTileColor: colorScheme.primaryContainer.withOpacity(0.3),
-                                    onTap: () => setState(() => _selectedMilestone = m),
-                                    trailing: isSelected ? const Icon(Icons.chevron_right) : null,
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const VerticalDivider(),
-                      // L2: Features
-                      Expanded(
-                        flex: 3,
-                        child: _selectedMilestone == null
-                          ? const Center(child: Text('Select a milestone to manage features'))
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text('Features under ${_selectedMilestone!.title}', style: theme.textTheme.titleMedium),
-                                      IconButton(
-                                        icon: const Icon(Icons.add_circle_outline, size: 20),
-                                        onPressed: _addFeature,
-                                        tooltip: 'Add Feature',
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _selectedMilestone!.features.isEmpty
-                                    ? const Center(child: Text('No features defined for this milestone.'))
-                                    : ListView.builder(
-                                        itemCount: _selectedMilestone!.features.length,
-                                        itemBuilder: (context, index) {
-                                          final f = _selectedMilestone!.features[index];
-                                          return ListTile(
-                                            leading: const Icon(Icons.extension_outlined, size: 18),
-                                            title: Text(f.title),
-                                            subtitle: Text('Progress: ${f.progress.toStringAsFixed(1)}%'),
-                                            trailing: IconButton(
-                                              icon: const Icon(Icons.delete_outline, size: 18),
-                                              onPressed: () async {
-                                                await ACPClient().deleteFeature(f.id);
-                                                _loadData();
-                                              },
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                ),
-                              ],
-                            ),
-                      ),
-                    ],
-                  ),
+                : isMobile ? _buildMobileLayout(theme, colorScheme) : _buildDesktopLayout(theme, colorScheme),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDesktopLayout(ThemeData theme, ColorScheme colorScheme) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // L1: Milestones
+        Expanded(
+          flex: 2,
+          child: _buildMilestonesColumn(theme, colorScheme),
+        ),
+        const VerticalDivider(),
+        // L2: Features
+        Expanded(
+          flex: 3,
+          child: _buildFeaturesColumn(theme, colorScheme),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileLayout(ThemeData theme, ColorScheme colorScheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // L1: Milestones (Fixed height or flex)
+        SizedBox(
+          height: 200,
+          child: _buildMilestonesColumn(theme, colorScheme),
+        ),
+        const Divider(),
+        // L2: Features
+        Expanded(
+          child: _buildFeaturesColumn(theme, colorScheme),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMilestonesColumn(ThemeData theme, ColorScheme colorScheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Milestones', style: theme.textTheme.titleMedium),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline, size: 20),
+                onPressed: _addMilestone,
+                tooltip: 'Add Milestone',
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: _milestones.length,
+            itemBuilder: (context, index) {
+              final m = _milestones[index];
+              final isSelected = _selectedMilestone?.id == m.id;
+              return ListTile(
+                title: Text(m.title, 
+                  style: TextStyle(fontWeight: isSelected ? FontWeight.bold : null, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                selected: isSelected,
+                selectedTileColor: colorScheme.primaryContainer.withOpacity(0.3),
+                onTap: () => setState(() => _selectedMilestone = m),
+                trailing: isSelected ? const Icon(Icons.chevron_right, size: 16) : null,
+                dense: true,
+                visualDensity: VisualDensity.compact,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeaturesColumn(ThemeData theme, ColorScheme colorScheme) {
+    if (_selectedMilestone == null) {
+      return const Center(child: Text('Select a milestone to manage features'));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text('Features: ${_selectedMilestone!.title}', 
+                  style: theme.textTheme.titleMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline, size: 20),
+                onPressed: _addFeature,
+                tooltip: 'Add Feature',
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _selectedMilestone!.features.isEmpty
+            ? const Center(child: Text('No features defined for this milestone.'))
+            : ListView.builder(
+                itemCount: _selectedMilestone!.features.length,
+                itemBuilder: (context, index) {
+                  final f = _selectedMilestone!.features[index];
+                  return ListTile(
+                    leading: const Icon(Icons.extension_outlined, size: 16),
+                    title: Text(f.title, 
+                      style: const TextStyle(fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text('Progress: ${f.progress.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      onPressed: () async {
+                        await ACPClient().deleteFeature(f.id);
+                        _loadData();
+                      },
+                    ),
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                  );
+                },
+              ),
+        ),
+      ],
     );
   }
 }
