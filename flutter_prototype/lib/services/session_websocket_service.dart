@@ -324,6 +324,19 @@ class SessionWebSocketService {
                     .toList() ??
                 []);
           }
+          // Also emit card update with new session ID so the UI can set _isAgentConnected
+          if (m['sessionId'] != null) {
+            _cardUpdateController.add(KanbanCard(
+              id: _currentCardId ?? '',
+              title: '',
+              description: '',
+              columnId: '',
+              createdAt: '',
+              updatedAt: '',
+              acpSessionId: m['sessionId'],
+              acpProviderId: null,
+            ));
+          }
           break;
         case 'context_data':
           if (m['context'] != null) {
