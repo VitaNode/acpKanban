@@ -84,7 +84,16 @@ class EmbeddingService:
         return self._get_client() is not None
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
-...
+        client = self._get_client()
+        if not client: return None
+        model = os.getenv("EMBEDDING_MODEL", self.default_model)
+        try:
+            response = client.embeddings.create(model=model, input=text, dimensions=self.dimensions)
+            return response.data[0].embedding
+        except Exception as e:
+            logger.error(f"Embedding error with model {model}: {e}")
+            return None
+
     def completion(self, messages: List[Dict[str, str]], model: str = "gpt-4o-mini", temperature: float = 0.7) -> Optional[str]:
         client = self._get_client()
         if not client: return None
