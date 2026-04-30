@@ -80,14 +80,15 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
 
     return AlertDialog(
       title: const Text('Edit Column'),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 450,
-          maxHeight: size.height * 0.7,
+          maxWidth: isMobile ? size.width * 0.9 : 450,
+          maxHeight: size.height * 0.8,
         ),
         child: SizedBox(
           width: size.width * 0.9,
@@ -136,7 +137,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                     labelText: 'Prompt Template',
                     hintText: 'Instructions for AI in this column...',
                   ),
-                  maxLines: 4,
+                  maxLines: 6,
                 ),
                 const SizedBox(height: AppConstants.space8),
                 Text(
@@ -236,14 +237,15 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
 
     return AlertDialog(
       title: const Text('Add Column'),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 450,
-          maxHeight: size.height * 0.7,
+          maxWidth: isMobile ? size.width * 0.9 : 450,
+          maxHeight: size.height * 0.8,
         ),
         child: SizedBox(
           width: size.width * 0.9,
@@ -292,7 +294,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                     labelText: 'Prompt Template',
                     hintText: 'Instructions for AI...',
                   ),
-                  maxLines: 3,
+                  maxLines: 5,
                 ),
               ],
             ),
@@ -482,20 +484,21 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
 
     return AlertDialog(
       title: Row(
         children: [
           Icon(Icons.view_column_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('Manage Columns', style: theme.textTheme.headlineMedium),
+          Expanded(child: Text('Manage Columns', style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 450,
-          maxHeight: size.height * 0.7,
+          maxWidth: isMobile ? size.width * 0.95 : size.width * 0.8,
+          maxHeight: isMobile ? size.height * 0.9 : size.height * 0.8,
         ),
         child: SizedBox(
           width: size.width * 0.9,

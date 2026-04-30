@@ -177,13 +177,14 @@ class _MainScreenState extends State<MainScreen> {
       context: context,
       builder: (context) {
         final size = MediaQuery.of(context).size;
+        final isMobile = size.width < 600;
         return AlertDialog(
           title: Text('Add Card to ${column.name}'),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
           content: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: 450,
-              maxHeight: size.height * 0.7,
+              maxWidth: isMobile ? size.width * 0.95 : size.width * 0.8,
+              maxHeight: isMobile ? size.height * 0.9 : size.height * 0.8,
             ),
             child: SizedBox(
               width: size.width * 0.9,
@@ -201,15 +202,15 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                       maxLines: 1,
                     ),
-                    const SizedBox(height: AppConstants.space16),
+                    const SizedBox(height: AppConstants.space24),
                     TextField(
                       controller: descriptionController,
                       decoration: const InputDecoration(
                         labelText: 'Description',
                         hintText: 'Enter card description',
                       ),
-                      maxLines: 4,
-                      minLines: 2,
+                      maxLines: 8,
+                      minLines: 4,
                     ),
                   ],
                 ),
@@ -237,8 +238,9 @@ class _MainScreenState extends State<MainScreen> {
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
-                child: const Text('Add')),
+                child: const Text('Add Card')),
           ],
         );
       },

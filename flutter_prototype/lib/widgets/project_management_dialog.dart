@@ -46,20 +46,21 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
 
     return AlertDialog(
       title: Row(
         children: [
           Icon(Icons.settings_suggest_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('Manage Projects', style: theme.textTheme.headlineMedium),
+          Expanded(child: Text('Manage Projects', style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 500,
-          maxHeight: size.height * 0.7,
+          maxWidth: isMobile ? size.width * 0.95 : size.width * 0.8,
+          maxHeight: isMobile ? size.height * 0.9 : size.height * 0.8,
         ),
         child: SizedBox(
           width: size.width * 0.9,
@@ -354,6 +355,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
 
     return AlertDialog(
       title: Row(
@@ -366,8 +368,8 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 450,
-          maxHeight: size.height * 0.75,
+          maxWidth: isMobile ? size.width * 0.9 : 450,
+          maxHeight: size.height * 0.8,
         ),
         child: SizedBox(
           width: size.width * 0.9,
@@ -392,7 +394,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                     hintText: 'Brief description...',
                     prefixIcon: Icon(Icons.description_rounded),
                   ),
-                  maxLines: 3,
+                  maxLines: 6,
                 ),
                 const SizedBox(height: AppConstants.space8),
                 Text(
