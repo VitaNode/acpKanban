@@ -51,11 +51,14 @@ async def session_websocket(websocket: WebSocket, card_id: str):
             msg_type = message.get("type")
 
             if msg_type == "get_history":
+                card = db.get_card(card_id)
                 history = db.get_session_history(card_id)
                 config_opts = db.get_card_config_options(card_id)
                 response = {
                     "type": "history",
-                    "messages": [format_session_message(m) for m in history]
+                    "messages": [format_session_message(m) for m in history],
+                    "acp_session_id": card.get("acp_session_id") if card else None,
+                    "acp_provider_id": card.get("acp_provider_id") if card else None,
                 }
                 # Include config options if available from DB
                 if config_opts:

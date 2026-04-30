@@ -214,6 +214,21 @@ class SessionWebSocketService {
                   .toList() ??
               [];
           _messageController.add(_currentMessages);
+          
+          // Emit card update if session/provider info is included
+          if (m['acp_session_id'] != null || m['acp_provider_id'] != null) {
+            _cardUpdateController.add(KanbanCard(
+              id: _currentCardId ?? '',
+              title: '', // Not used by CardDetailView listener for this case
+              description: '',
+              columnId: '',
+              createdAt: '',
+              updatedAt: '',
+              acpSessionId: m['acp_session_id'],
+              acpProviderId: m['acp_provider_id'],
+            ));
+          }
+
           // Also handle config_options embedded in history response
           if (m['config_options'] != null) {
             _configController.add((m['config_options'] as List?)

@@ -488,6 +488,10 @@ class CardRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET config_options = ? WHERE id = ?", (config_options, card_id))
 
+    def update_embedding(self, card_id: str, embedding: List[float]):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET embedding = ? WHERE id = ?", (json.dumps(embedding), card_id))
+
     def get_config_options(self, card_id: str) -> Optional[str]:
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT config_options FROM cards WHERE id = ?", (card_id,))

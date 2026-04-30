@@ -293,7 +293,7 @@ class SummaryService:
             
     async def summarize_move(self, card_id: str, from_col: str, to_col: str):
         await self.generate_and_save_summary(card_id)
-        obj = await asyncio.to_thread(self.db.summaries.get_by_card_id, card_id)
+        obj = await asyncio.to_thread(self.db.summaries.get, card_id)
         if obj:
             wrapped = f"Transition: {from_col} -> {to_col}\nProgress: {obj['summary']}"
             await asyncio.to_thread(self.db.update_card_summary, card_id, wrapped)

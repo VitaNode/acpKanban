@@ -33,7 +33,8 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 return
                 
             # 3. Check if summary already exists
-            summary_obj = await asyncio.to_thread(db.summaries.get_by_card_id, card_id)
+            summary_obj = await asyncio.to_thread(db.summaries.get, card_id)
+
             if summary_obj:
                 summary = summary_obj['summary']
                 logger.info(f"Summary already exists for card {card_id}")

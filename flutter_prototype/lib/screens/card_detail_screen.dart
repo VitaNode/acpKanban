@@ -446,6 +446,19 @@ class _CardDetailViewState extends State<CardDetailView> {
         _card = _card.copyWith(description: updatedCard.description);
         _descriptionController.text = updatedCard.description;
       }
+
+      // Sync Agent Session state
+      if (updatedCard.acpSessionId == null) {
+        _isAgentConnected = false;
+        _configOptions = [];
+      } else {
+        _isAgentConnected = true;
+      }
+
+      if (updatedCard.acpProviderId != null &&
+          updatedCard.acpProviderId != _targetProviderId) {
+        _targetProviderId = updatedCard.acpProviderId;
+      }
     });
   }
 
