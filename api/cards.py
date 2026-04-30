@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional
 import os
 import json
-from src.logic.engine import SummaryService
+from src.logic.engine import SessionEngine, SummaryService
 from src.transport.bus import bus
 from api.models import (
     CardCreateRequest,
@@ -146,11 +146,12 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
         raise HTTPError(400, "Card and target column must belong to the same project")
 
     try:
-        # Check for provider change before moving
-        old_provider_id = card.get("acp_provider_id")
-        target_provider_id = target_column.get("acp_provider_id")
-        provider_changed = old_provider_id != target_provider_id
+        # Phase 5.3: Compare column providers directly as requested
+        old_column_provider = source_column.get("acp_provider_id")
+        target_column_provider = target_column.get("acp_provider_id")
+        provider_changed = old_column_provider != target_column_provider
 
+        # CRITICAL: Move the card first (must succeed)
         db.move_card(
             card_id=card_id,
             target_column_id=request.target_column_id,
@@ -158,29 +159,32 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
         )
 
         # Update card provider to match target column
-        db.update_card_provider(card_id, target_provider_id)
+        db.update_card_provider(card_id, target_column_provider)
 
-        if provider_changed:
-            # Clear session ID if provider changed to force re-initialization
-            db.update_card_session_id(card_id, None)
-            
-            # Record milestone message about the change
-            old_name = old_provider_id or "Default"
-            new_name = target_provider_id or "Default"
-            db.add_session_message(
-                card_id=card_id,
-                role="assistant",
-                content=f"🔄 **Agent switched** from `{old_name}` to `{new_name}` due to column move. Please re-initialize the session.",
-                is_milestone=True
-            )
-            
-        # Notify clients about the update
-        bus.publish(card_id, {"type": "refresh"})
+        # NON-CRITICAL: Session management - wrap in try/except so it doesn't break the move
+        try:
+            if provider_changed:
+                # Clear session ID if provider changed to force re-initialization
+                db.update_card_session_id(card_id, None)
+                
+                # Record milestone message about the change
+                old_name = old_column_provider or "Default"
+                new_name = target_column_provider or "Default"
+                db.add_session_message(
+                    card_id=card_id,
+                    role="assistant",
+                    content=f"🔄 **Agent switched** from `{old_name}` to `{new_name}` due to column move. Please re-initialize the session.",
+                    is_milestone=True
+                )
+                
+            # Notify clients about the update
+            bus.publish(card_id, {"type": "refresh"})
 
-        # Phase 3: Trigger summary generation with transition context
-        from src.logic.engine import SessionEngine
-        engine = SessionEngine(card_id, target_provider_id or "", "", target_column["id"], db=db)
-        background_tasks.add_task(engine.summarize_move, card_id, source_column["name"], target_column["name"])
+            # Phase 3: Trigger summary generation with transition context
+            engine = SessionEngine(card_id, target_column_provider or "", "", target_column["id"], db=db)
+            background_tasks.add_task(engine.summarize_move, card_id, source_column["name"], target_column["name"])
+        except Exception as e:
+            print(f"[WARN] Non-critical post-move operations failed: {e}")
 
         card = db.get_card(card_id)
         if not card:
@@ -188,7 +192,10 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
         return format_card_response(card)
     except HTTPException:
         raise
+    except HTTPError:
+        raise
     except Exception as e:
+        print(f"[ERROR] Card move failed: {e}")
         raise HTTPError(400, str(e))
 
 

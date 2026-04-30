@@ -239,7 +239,10 @@ class _CardDetailViewState extends State<CardDetailView> {
       if (mounted) {
         setState(() {
           _configOptions = options;
-          if (options.isNotEmpty) _isAgentConnected = true;
+          // Only auto-connect if we have an active session
+          if (options.isNotEmpty && _card.acpSessionId != null && _card.acpSessionId!.isNotEmpty) {
+            _isAgentConnected = true;
+          }
         });
       }
     });
@@ -353,6 +356,10 @@ class _CardDetailViewState extends State<CardDetailView> {
     try {
       final columns = await _projectService.getColumns(widget.projectId);
       if (!mounted) return;
+      
+      final oldColumn = columns.firstWhere((c) => c.id == _card.columnId, 
+          orElse: () => columns.first);
+      
       setState(() => _isSavingCard = false);
 
       final targetColumn = await showDialog<KanbanColumn>(
@@ -405,11 +412,22 @@ class _CardDetailViewState extends State<CardDetailView> {
       );
 
       if (targetColumn != null && mounted) {
+        final providerChanged = oldColumn.acpProviderId != targetColumn.acpProviderId;
+        
         setState(() => _isSavingCard = true);
         final success = await _projectService.moveCard(_card.id, targetColumn.id, null);
         if (success && mounted) {
           setState(() {
-            _card = _card.copyWith(columnId: targetColumn.id);
+            _card = _card.copyWith(
+              columnId: targetColumn.id,
+              acpSessionId: providerChanged ? null : _card.acpSessionId,
+              acpProviderId: targetColumn.acpProviderId,
+            );
+            _targetProviderId = targetColumn.acpProviderId;
+            if (providerChanged) {
+              _isAgentConnected = false;
+              _configOptions = [];
+            }
             _isSavingCard = false;
           });
           _loadEnvironmentInfo();
@@ -449,6 +467,11 @@ class _CardDetailViewState extends State<CardDetailView> {
 
       // Sync Agent Session state
       final sessionId = updatedCard.acpSessionId;
+      _card = _card.copyWith(
+        acpSessionId: sessionId,
+        acpProviderId: updatedCard.acpProviderId ?? _card.acpProviderId,
+      );
+
       if (sessionId == null || sessionId.isEmpty) {
         _isAgentConnected = false;
         _configOptions = [];
@@ -456,8 +479,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         _isAgentConnected = true;
       }
 
-      if (updatedCard.acpProviderId != null &&
-          updatedCard.acpProviderId != _targetProviderId) {
+      if (updatedCard.acpProviderId != null) {
         _targetProviderId = updatedCard.acpProviderId;
       }
     });

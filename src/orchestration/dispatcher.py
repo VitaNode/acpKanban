@@ -296,7 +296,7 @@ class MessageDispatcher:
                     return existing_engine, False
                 else:
                     # Provider mismatch! Stop the old engine to ensure isolation
-                    self.logger.info(f"[*] Provider changed ({existing_engine.provider_id} -> {target_provider_id}) for card {card_id}. Recreating engine...")
+                    logger.info(f"[*] Provider changed ({existing_engine.provider_id} -> {target_provider_id}) for card {card_id}. Recreating engine...")
                     await existing_engine.stop()
                     self.engines.pop(card_id, None)
 

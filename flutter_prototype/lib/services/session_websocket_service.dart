@@ -216,7 +216,7 @@ class SessionWebSocketService {
           _messageController.add(_currentMessages);
           
           // Emit card update if session/provider info is included
-          if (m['acp_session_id'] != null || m['acp_provider_id'] != null) {
+          if (m.containsKey('acp_session_id') || m.containsKey('acp_provider_id')) {
             _cardUpdateController.add(KanbanCard(
               id: _currentCardId ?? '',
               title: '', // Not used by CardDetailView listener for this case
