@@ -3,6 +3,7 @@ from typing import Optional
 import os
 import json
 from src.logic.engine import SummaryService
+from src.transport.bus import bus
 from api.models import (
     CardCreateRequest,
     CardUpdateRequest,
@@ -145,15 +146,36 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
         raise HTTPError(400, "Card and target column must belong to the same project")
 
     try:
+        # Check for provider change before moving
+        old_provider_id = card.get("acp_provider_id")
+        target_provider_id = target_column.get("acp_provider_id")
+        provider_changed = old_provider_id != target_provider_id
+
         db.move_card(
             card_id=card_id,
             target_column_id=request.target_column_id,
             target_position=request.target_position,
         )
 
-        # Phase 5.3 FIX: Update card provider to match target column
-        target_provider_id = target_column.get("acp_provider_id")
+        # Update card provider to match target column
         db.update_card_provider(card_id, target_provider_id)
+
+        if provider_changed:
+            # Clear session ID if provider changed to force re-initialization
+            db.update_card_session_id(card_id, None)
+            
+            # Record milestone message about the change
+            old_name = old_provider_id or "Default"
+            new_name = target_provider_id or "Default"
+            db.add_session_message(
+                card_id=card_id,
+                role="assistant",
+                content=f"🔄 **Agent switched** from `{old_name}` to `{new_name}` due to column move. Please re-initialize the session.",
+                is_milestone=True
+            )
+            
+        # Notify clients about the update
+        bus.publish(card_id, {"type": "refresh"})
 
         # Phase 3: Trigger summary generation in background
         summary_service = SummaryService(db)
