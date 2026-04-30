@@ -84,15 +84,35 @@ class EmbeddingService:
         return self._get_client() is not None
 
     def get_embedding(self, text: str) -> Optional[List[float]]:
+...
+    def completion(self, messages: List[Dict[str, str]], model: str = "gpt-4o-mini", temperature: float = 0.7) -> Optional[str]:
         client = self._get_client()
         if not client: return None
-        model = os.getenv("EMBEDDING_MODEL", self.default_model)
         try:
-            response = client.embeddings.create(model=model, input=text, dimensions=self.dimensions)
-            return response.data[0].embedding
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature
+            )
+            return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"Embedding error with model {model}: {e}")
+            logger.error(f"LLM Completion error with model {model}: {e}")
             return None
+
+    def generate_summary(self, title: str, messages: List[Dict[str, Any]], model: str = "gpt-4o-mini") -> Optional[str]:
+        """Summarizes a session history into a concise progress update."""
+        history_text = ""
+        for msg in messages[-20:]: # Last 20 messages for context
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            history_text += f"{role}: {content[:200]}\n"
+
+        prompt = f"Summarize the technical progress for the task: '{title}'.\n\nHistory:\n{history_text}\n\nProvide a one-paragraph summary of what was achieved or the current status."
+        
+        return self.completion([
+            {"role": "system", "content": "You are a senior technical lead summarizing task progress."},
+            {"role": "user", "content": prompt}
+        ], model=model)
 
     async def batch_generate_embeddings(self, texts: List[str], batch_size: int = 20) -> List[Optional[List[float]]]:
         """Batch embedding with error isolation. Returns list of embeddings (can contain None)."""

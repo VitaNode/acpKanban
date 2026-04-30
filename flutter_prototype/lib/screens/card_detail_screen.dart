@@ -448,7 +448,8 @@ class _CardDetailViewState extends State<CardDetailView> {
       }
 
       // Sync Agent Session state
-      if (updatedCard.acpSessionId == null) {
+      final sessionId = updatedCard.acpSessionId;
+      if (sessionId == null || sessionId.isEmpty) {
         _isAgentConnected = false;
         _configOptions = [];
       } else {

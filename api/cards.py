@@ -177,9 +177,10 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
         # Notify clients about the update
         bus.publish(card_id, {"type": "refresh"})
 
-        # Phase 3: Trigger summary generation in background
-        summary_service = SummaryService(db)
-        background_tasks.add_task(summary_service.generate_and_save_summary, card_id)
+        # Phase 3: Trigger summary generation with transition context
+        from src.logic.engine import SessionEngine
+        engine = SessionEngine(card_id, target_provider_id or "", "", target_column["id"], db=db)
+        background_tasks.add_task(engine.summarize_move, card_id, source_column["name"], target_column["name"])
 
         card = db.get_card(card_id)
         if not card:
