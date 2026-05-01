@@ -218,6 +218,35 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
+  Future<void> _generateSummary() async {
+    setState(() => _isSavingSummary = true);
+    try {
+      final result = await _projectService.generateCardSummary(_card.id);
+      if (mounted) {
+        if (result != null && result['summary'] != null && result['summary'].isNotEmpty) {
+          // Summary was generated successfully
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Summary generated successfully!')),
+          );
+          _loadSummary();
+        } else {
+          // No messages to summarize
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result?['message'] ?? 'No messages to summarize')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingSummary = false);
+    }
+  }
+
   void _setupWebSocket() {
     _wsService.connect(_card.id);
     _messageSub = _wsService.messages.listen((msgs) {
@@ -1071,10 +1100,21 @@ class _CardDetailViewState extends State<CardDetailView> {
                 style: Theme.of(context).textTheme.labelLarge),
             const Spacer(),
             if (!_isEditingSummary)
-              TextButton.icon(
-                onPressed: () => setState(() => _isEditingSummary = true),
-                icon: const Icon(Icons.edit_rounded, size: 14),
-                label: const Text('Edit', style: TextStyle(fontSize: 12)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton.icon(
+                    onPressed: _generateSummary,
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 14),
+                    label: const Text('Generate', style: TextStyle(fontSize: 12)),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: () => setState(() => _isEditingSummary = true),
+                    icon: const Icon(Icons.edit_rounded, size: 14),
+                    label: const Text('Edit', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
               )
             else
               Row(children: [

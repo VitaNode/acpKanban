@@ -181,8 +181,25 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
             bus.publish(card_id, {"type": "refresh"})
 
             # Phase 3: Trigger summary generation with transition context
-            engine = SessionEngine(card_id, target_column_provider or "", "", target_column["id"], db=db)
-            background_tasks.add_task(engine.summarize_move, card_id, source_column["name"], target_column["name"])
+            async def summarize_move_background(card_id: str, from_col: str, to_col: str):
+                try:
+                    await generate_card_summary_task(card_id)
+                    db = get_db()
+                    summary_obj = db.summaries.get(card_id)
+                    if summary_obj:
+                        wrapped_summary = f"Transition: {from_col} -> {to_col}\nProgress: {summary_obj['summary']}"
+                        db.update_card_summary(card_id, wrapped_summary)
+                    else:
+                        # If no summary was generated (maybe because there were no messages), create one from the card's basic info
+                        card = db.get_card(card_id)
+                        if card:
+                            basic_summary = f"Title: {card['title']}\nDescription: {card.get('description', '')}"
+                            wrapped_summary = f"Transition: {from_col} -> {to_col}\nProgress: {basic_summary}"
+                            db.update_card_summary(card_id, wrapped_summary)
+                except Exception as e:
+                    print(f"[ERROR] Failed to generate summary for moved card {card_id}: {e}")
+
+            background_tasks.add_task(summarize_move_background, card_id, source_column["name"], target_column["name"])
         except Exception as e:
             print(f"[WARN] Non-critical post-move operations failed: {e}")
 
@@ -318,6 +335,10 @@ async def complete_card(card_id: str, background_tasks: BackgroundTasks):
     """
     Mark a card as completed and trigger summary generation.
     """
+    import asyncio
+    from src.logger import setup_logger
+    logger = setup_logger("CompleteCard")
+    
     db = get_db()
     card = validate_card_exists(card_id, db)
 
@@ -327,7 +348,23 @@ async def complete_card(card_id: str, background_tasks: BackgroundTasks):
 
     try:
         db.complete_card(card_id)
-        background_tasks.add_task(generate_card_summary_task, card_id)
+        
+        # Trigger summary generation in background (non-blocking)
+        # Use asyncio.create_task to ensure it runs even in Bridge/Proxy mode
+        async def generate_summary_bg():
+            try:
+                logger.info(f"[Complete Card] Starting summary generation for card {card_id}")
+                await generate_card_summary_task(card_id, max_retries=2)
+                summary_obj = db.summaries.get(card_id)
+                if summary_obj:
+                    logger.info(f"[Complete Card] Summary generated for card {card_id}")
+                else:
+                    logger.warning(f"[Complete Card] No summary generated for card {card_id} (possibly no messages)")
+            except Exception as e:
+                logger.error(f"[Complete Card] Error generating summary for card {card_id}: {e}")
+        
+        # Schedule the task to run in the background
+        asyncio.create_task(generate_summary_bg())
 
         updated_card = db.get_card(card_id)
         return format_card_response(updated_card)
@@ -383,6 +420,45 @@ async def update_card_summary(card_id: str, request: dict):
         return {"card_id": card_id, "summary": summary_text}
     except Exception as e:
         raise HTTPError(400, str(e))
+
+
+@router.post("/cards/{card_id}/summary/generate", response_model=dict)
+async def generate_card_summary_manual(card_id: str):
+    """
+    Manually trigger summary generation for a card.
+    This endpoint waits for the summary generation to complete (with timeout).
+    """
+    import asyncio
+    from src.logger import setup_logger
+    logger = setup_logger("ManualSummary")
+    
+    db = get_db()
+    validate_card_exists(card_id, db)
+
+    try:
+        logger.info(f"[Manual Summary] Starting summary generation for card {card_id}")
+        
+        # Run the summary generation task with a timeout
+        await asyncio.wait_for(
+            generate_card_summary_task(card_id, max_retries=2),
+            timeout=60.0  # 60 second timeout
+        )
+        
+        # Check if summary was generated
+        summary_obj = db.summaries.get(card_id)
+        if summary_obj:
+            logger.info(f"[Manual Summary] Summary generated successfully for card {card_id}")
+            return {"message": "Summary generated successfully", "summary": summary_obj.get("summary", "")}
+        else:
+            logger.warning(f"[Manual Summary] No summary generated for card {card_id} (possibly no messages)")
+            return {"message": "No messages to summarize. Summary requires conversation history.", "summary": ""}
+            
+    except asyncio.TimeoutError:
+        logger.error(f"[Manual Summary] Timeout generating summary for card {card_id}")
+        raise HTTPError(504, "Summary generation timed out. Please try again.")
+    except Exception as e:
+        logger.error(f"[Manual Summary] Error generating summary for card {card_id}: {e}")
+        raise HTTPError(500, f"Failed to generate summary: {str(e)}")
 
 
 @router.get("/cards/{card_id}/related")

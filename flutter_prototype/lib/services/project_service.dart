@@ -493,6 +493,19 @@ class ProjectService {
     }
   }
 
+  Future<Map<String, dynamic>?> generateCardSummary(String cardId) async {
+    try {
+      final response = await _post('/api/cards/$cardId/summary/generate', {});
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      throw Exception('Failed to generate summary: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('generateCardSummary error: $e');
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>?> getProviders() async {
     try {
       final response = await _get('/api/providers');
