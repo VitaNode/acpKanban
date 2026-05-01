@@ -103,6 +103,32 @@ class ProjectRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
 
+    def update_stats(self, project_id: str, index_status: str = None, last_indexed_at: str = None, total_files: int = None, total_symbols: int = None, total_vectorized_symbols: int = None):
+        updates = []
+        params = []
+        if index_status is not None:
+            updates.append("index_status = ?")
+            params.append(index_status)
+        if last_indexed_at is not None:
+            updates.append("last_indexed_at = ?")
+            params.append(last_indexed_at)
+        if total_files is not None:
+            updates.append("total_files = ?")
+            params.append(total_files)
+        if total_symbols is not None:
+            updates.append("total_symbols = ?")
+            params.append(total_symbols)
+        if total_vectorized_symbols is not None:
+            updates.append("total_vectorized_symbols = ?")
+            params.append(total_vectorized_symbols)
+        
+        if not updates:
+            return
+
+        params.append(project_id)
+        with self.db.get_connection() as conn:
+            conn.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", params)
+
     def delete(self, project_id: str):
         with self.db.get_connection() as conn:
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
@@ -804,6 +830,7 @@ class KanbanDB:
     def create_project(self, name, workspace_path=None, description=None): return self.projects.create(name, workspace_path, description)
     def get_project(self, project_id): return self.projects.get_by_id(project_id)
     def update_project(self, project_id, name=None, workspace_path=None, description=None): return self.projects.update(project_id, name, workspace_path, description)
+    def update_project_stats(self, project_id, index_status=None, last_indexed_at=None, total_files=None, total_symbols=None, total_vectorized_symbols=None): return self.projects.update_stats(project_id, index_status, last_indexed_at, total_files, total_symbols, total_vectorized_symbols)
     def delete_project(self, project_id): return self.projects.delete(project_id)
 
     def get_milestones(self, project_id): return self.milestones.get_by_project(project_id)
