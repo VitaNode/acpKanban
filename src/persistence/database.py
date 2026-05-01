@@ -655,6 +655,10 @@ class CodeSymbolRepository(BaseRepository):
             cursor = conn.execute("SELECT * FROM code_symbols WHERE project_id = ?", (project_id,))
             return [dict(row) for row in cursor.fetchall()]
 
+    def delete_by_file(self, project_id: str, file_path: str):
+        with self.db.get_connection() as conn:
+            conn.execute("DELETE FROM code_symbols WHERE project_id = ? AND file_path = ?", (project_id, file_path))
+
     def search_semantic(self, query_vector: List[float], project_id: str, limit: int = 10) -> List[Dict]:
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT id, file_path, symbol_name, embedding FROM code_symbols WHERE project_id = ? AND embedding IS NOT NULL", (project_id,))
@@ -702,7 +706,18 @@ class AgentStatusRepository(BaseRepository):
             return [dict(row) for row in cursor.fetchall()]
 
 class FileIndexRepository(BaseRepository):
-    def update(self, project_id: str, file_path: str, file_hash: str, file_size: int):
+    def get(self, project_id: str, file_path: str) -> Optional[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM file_index WHERE project_id = ? AND file_path = ?", (project_id, file_path))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_by_project(self, project_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM file_index WHERE project_id = ?", (project_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def upsert(self, project_id: str, file_path: str, file_hash: str, file_size: int):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             conn.execute("""
@@ -712,10 +727,9 @@ class FileIndexRepository(BaseRepository):
                     file_hash=excluded.file_hash, file_size=excluded.file_size, indexed_at=excluded.indexed_at
             """, (project_id, file_path, file_hash, file_size, now))
 
-    def get_all(self, project_id: str) -> Dict[str, str]:
+    def delete(self, project_id: str, file_path: str):
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT file_path, file_hash FROM file_index WHERE project_id = ?", (project_id,))
-            return {row['file_path']: row['file_hash'] for row in cursor.fetchall()}
+            conn.execute("DELETE FROM file_index WHERE project_id = ? AND file_path = ?", (project_id, file_path))
 
 class KanbanDB:
     _instance = None
@@ -875,7 +889,21 @@ class KanbanDB:
     def update_project_agent_status(self, project_id, state, message=None): return self.agent_status.update(project_id, state, message)
 
     def get_file_index(self, project_id): return self.file_index.get_all(project_id)
-    def update_file_index(self, project_id, file_path, file_hash, file_size): return self.file_index.update(project_id, file_path, file_hash, file_size)
+    def get_file_index_entry(self, project_id, file_path): return self.file_index.get(project_id, file_path)
+    def update_file_index(self, project_id, file_path, file_hash, file_size): return self.file_index.upsert(project_id, file_path, file_hash, file_size)
+    def delete_file_index(self, project_id, file_path): return self.file_index.delete(project_id, file_path)
+    def get_project_file_count(self, project_id: int) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM file_index WHERE project_id = ?", (project_id,))
+            return cursor.fetchone()[0]
+    def get_project_symbol_count(self, project_id: int) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM code_symbols WHERE project_id = ?", (project_id,))
+            return cursor.fetchone()[0]
+    def get_project_vectorized_symbol_count(self, project_id: int) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM code_symbols WHERE project_id = ? AND embedding IS NOT NULL AND embedding != 'null' AND embedding != '[]'", (project_id,))
+            return cursor.fetchone()[0]
 
     def get_settings(self) -> Dict[str, Any]:
         with self.get_connection() as conn:
