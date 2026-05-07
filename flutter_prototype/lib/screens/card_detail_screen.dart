@@ -622,33 +622,61 @@ class _CardDetailViewState extends State<CardDetailView> {
     final size = renderBox.size;
     setState(() {
       _commandOverlay = OverlayEntry(
-          builder: (context) => Positioned(
-                bottom: 80,
-                left: 16,
-                width: size.width - 32,
-                child: Material(
-                    elevation: 8,
-                    borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                    color: Theme.of(context).cardTheme.color,
-                    child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: _availableCommands
-                            .map((c) => ListTile(
-                                  leading: Icon(Icons.flash_on,
-                                      size: 18, color: Theme.of(context).colorScheme.primary),
-                                  title: Text('/${c['name']}',
-                                      style: Theme.of(context).textTheme.bodyLarge),
-                                  subtitle: Text(c['description'] ?? '',
-                                      style: Theme.of(context).textTheme.bodySmall),
-                                  onTap: () {
-                                    _chatController.text = '/${c['name']} ';
-                                    _chatController.selection =
-                                        TextSelection.fromPosition(TextPosition(
-                                            offset: _chatController.text.length));
-                                    _hideCommandsOverlay();
-                                  },
-                                ))
-                            .toList())),
+          builder: (context) => Stack(
+                children: [
+                  // Full-screen transparent layer to catch outside clicks
+                  GestureDetector(
+                    onTap: _hideCommandsOverlay,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(color: Colors.transparent),
+                  ),
+                  Positioned(
+                    bottom: 80,
+                    left: 16,
+                    width: size.width - 32,
+                    child: Material(
+                        elevation: 12,
+                        shadowColor: Colors.black45,
+                        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                        color: Theme.of(context).cardTheme.color,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: _availableCommands
+                                      .map((c) => ListTile(
+                                            dense: true,
+                                            visualDensity: VisualDensity.compact,
+                                            leading: Icon(Icons.flash_on_rounded,
+                                                size: 16, color: Theme.of(context).colorScheme.primary),
+                                            title: Text('/${c['name']}',
+                                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'monospace',
+                                                )),
+                                            subtitle: Text(c['description'] ?? '',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11)),
+                                            onTap: () {
+                                              _chatController.text = '/${c['name']} ';
+                                              _chatController.selection =
+                                                  TextSelection.fromPosition(TextPosition(
+                                                      offset: _chatController.text.length));
+                                              _hideCommandsOverlay();
+                                              _chatFocusNode.requestFocus();
+                                            },
+                                          ))
+                                      .toList()),
+                            ),
+                          ),
+                        )),
+                  ),
+                ],
               ));
     });
     Overlay.of(context).insert(_commandOverlay!);
