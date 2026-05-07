@@ -161,29 +161,46 @@ class MessageDispatcher:
         asyncio.create_task(trigger())
         return {"status": "ok"}
 
-    def _get_available_commands(self):
-        return [
+    def _get_available_commands(self, card_id: Optional[str] = None):
+        system_cmds = [
             {"name": "summarize", "description": "Generate an immediate summary of progress."},
             {"name": "reset", "description": "Reset the AI session."},
             {"name": "status", "description": "Show AI engine status."},
             {"name": "help", "description": "List all commands."}
         ]
+        
+        if not card_id or card_id not in self.engines:
+            return system_cmds
+            
+        engine = self.engines[card_id]
+        agent_cmds = engine.available_commands if hasattr(engine, 'available_commands') else []
+        
+        # Merge and deduplicate by name
+        seen = {cmd['name'] for cmd in system_cmds}
+        merged = list(system_cmds)
+        for cmd in agent_cmds:
+            if cmd['name'] not in seen:
+                merged.append(cmd)
+                seen.add(cmd['name'])
+        
+        return merged
 
-    async def _advertise_commands(self, session_id: str, on_output: Callable):
+    async def _advertise_commands(self, session_id: str, on_output: Callable, card_id: Optional[str] = None):
         # Phase 5.1: Advertise to UI via standard notification
+        cmds = self._get_available_commands(card_id)
         notif = {
             "jsonrpc": "2.0", "method": "session/update",
             "params": {
                 "sessionId": session_id,
                 "update": {
                     "sessionUpdate": "available_commands_update",
-                    "availableCommands": self._get_available_commands()
+                    "availableCommands": cmds
                 }
             }
         }
         await on_output(notif)
         # Also publish via bus for API-level subscribers
-        bus.publish(session_id, {"type": "available_commands", "commands": self._get_available_commands()})
+        bus.publish(card_id or session_id, {"type": "available_commands", "commands": cmds})
 
     async def dispatch(self, data: Dict[str, Any], on_output: Callable) -> Optional[Dict[str, Any]]:
         method = data.get("method")
@@ -308,7 +325,7 @@ class MessageDispatcher:
                         existing_engine.set_on_request(on_nested_request)
                     if existing_engine.acp_session_id and on_output:
                         # Always advertise commands on connection to ensure UI is in sync
-                        await self._advertise_commands(existing_engine.acp_session_id, on_output)
+                        await self._advertise_commands(existing_engine.acp_session_id, on_output, card_id=card_id)
                         if existing_engine.current_config_options:
                             bus.publish(card_id, {"type": "config_options", "options": existing_engine.current_config_options})
                     return existing_engine, False
@@ -328,7 +345,7 @@ class MessageDispatcher:
             await engine.start(on_request=on_nested_request, is_quiet=is_quiet)
             self.engines[card_id] = engine
             if engine.acp_session_id and on_output:
-                await self._advertise_commands(engine.acp_session_id, on_output)
+                await self._advertise_commands(engine.acp_session_id, on_output, card_id=card_id)
                 if engine.current_config_options:
                     bus.publish(card_id, {"type": "config_options", "options": engine.current_config_options})
             return engine, True
