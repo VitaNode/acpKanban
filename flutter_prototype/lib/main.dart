@@ -403,6 +403,9 @@ class _MainScreenState extends State<MainScreen> {
         // Save last project ID
         final configManager = await ConnectionConfigManager.getInstance();
         await configManager.setLastProjectId(project.id);
+        
+        // 重新加载最新的项目数据，确保卡片状态是最新的
+        await _loadProjectData(project.id);
       } else {
         await _loadProjectData(project.id);
         

@@ -54,6 +54,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 card = db.get_card(card_id)
                 history = db.get_session_history(card_id)
                 config_opts = db.get_card_config_options(card_id)
+                avail_cmds = db.get_card_available_commands(card_id)
                 response = {
                     "type": "history",
                     "messages": [format_session_message(m) for m in history],
@@ -64,6 +65,12 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 if config_opts:
                     try:
                         response["config_options"] = json.loads(config_opts)
+                    except:
+                        pass
+                # Include available commands if available from DB
+                if avail_cmds:
+                    try:
+                        response["available_commands"] = json.loads(avail_cmds)
                     except:
                         pass
                 await websocket.send_text(json.dumps(response))

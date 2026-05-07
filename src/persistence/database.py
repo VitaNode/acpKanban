@@ -514,6 +514,10 @@ class CardRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET config_options = ? WHERE id = ?", (config_options, card_id))
 
+    def update_available_commands(self, card_id: str, available_commands: str):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET available_commands = ? WHERE id = ?", (available_commands, card_id))
+
     def update_card_embedding(self, card_id: str, embedding: List[float]):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET embedding = ? WHERE id = ?", (json.dumps(embedding), card_id))
@@ -521,6 +525,12 @@ class CardRepository(BaseRepository):
     def get_config_options(self, card_id: str) -> Optional[str]:
         with self.db.get_connection() as conn:
             cursor = conn.execute("SELECT config_options FROM cards WHERE id = ?", (card_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def get_available_commands(self, card_id: str) -> Optional[str]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("SELECT available_commands FROM cards WHERE id = ?", (card_id,))
             row = cursor.fetchone()
             return row[0] if row else None
 
@@ -923,6 +933,8 @@ class KanbanDB:
 
     def update_card_config_options(self, card_id: str, config_options: str): return self.cards.update_config_options(card_id, config_options)
     def get_card_config_options(self, card_id: str): return self.cards.get_config_options(card_id)
+    def update_card_available_commands(self, card_id: str, available_commands: str): return self.cards.update_available_commands(card_id, available_commands)
+    def get_card_available_commands(self, card_id: str): return self.cards.get_available_commands(card_id)
     def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
     def uncomplete_card(self, card_id): return self.cards.update(card_id, status='active')
     def update_card_summary(self, card_id, summary): return self.summaries.upsert(card_id, summary)

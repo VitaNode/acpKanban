@@ -499,7 +499,12 @@ class _CardDetailViewState extends State<CardDetailView> {
       _card = _card.copyWith(
         acpSessionId: sessionId,
         acpProviderId: updatedCard.acpProviderId ?? _card.acpProviderId,
+        availableCommands: updatedCard.availableCommands ?? _card.availableCommands,
       );
+
+      if (updatedCard.availableCommands != null) {
+        _availableCommands = updatedCard.availableCommands!;
+      }
 
       if (sessionId == null || sessionId.isEmpty) {
         _isAgentConnected = false;

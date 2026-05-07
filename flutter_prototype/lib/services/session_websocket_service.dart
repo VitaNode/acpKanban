@@ -236,6 +236,12 @@ class SessionWebSocketService {
                     .toList() ??
                 []);
           }
+          // Also handle available_commands embedded in history response
+          if (m['available_commands'] != null) {
+            _commandController.add((m['available_commands'] as List?)
+                    ?.cast<Map<String, dynamic>>() ??
+                []);
+          }
           break;
         case 'agent_plan':
           _planController

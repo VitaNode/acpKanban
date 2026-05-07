@@ -142,6 +142,18 @@ class SessionEngine:
             except Exception as e:
                 self.logger.error(f"Failed to save config options to DB: {e}")
 
+    def _save_available_commands_to_db(self):
+        """Persist available commands to database for recovery after reconnect."""
+        if self.db and self.card_id and self.available_commands:
+            import json
+            try:
+                self.db.update_card_available_commands(
+                    self.card_id, json.dumps(self.available_commands)
+                )
+                self.logger.debug(f"Saved {len(self.available_commands)} commands to DB")
+            except Exception as e:
+                self.logger.error(f"Failed to save commands to DB: {e}")
+
     def _normalize_session_config(self, res: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Normalize ACP session/new or session/load result to a flat configOptions list.
