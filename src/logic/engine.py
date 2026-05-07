@@ -57,7 +57,13 @@ class SessionEngine:
             self.adapter.on_request = on_request
         self.logger.debug(f"[*] on_request callback updated for card {self.card_id}")
 
-    async def start(self, fallback_command=None, on_request: Optional[Callable] = None, is_quiet: bool = False):
+    def set_on_notification(self, on_notification: Optional[Callable]):
+        """Update the global notification callback."""
+        if self.adapter:
+            self.adapter.on_notification = on_notification
+        self.logger.debug(f"[*] on_notification callback updated for card {self.card_id}")
+
+    async def start(self, fallback_command=None, on_request: Optional[Callable] = None, on_notification: Optional[Callable] = None, is_quiet: bool = False):
         async with self._lock:
             if self.is_alive: 
                 # If already alive, just return current session info if quiet
@@ -75,7 +81,7 @@ class SessionEngine:
 
                 self.acp_client = ACPClient(cfg["command"], self.workspace_path)
                 await self.acp_client.start()
-                self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path, provider_id=self.provider_id, on_request=on_request)
+                self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path, provider_id=self.provider_id, on_request=on_request, on_notification=on_notification)
 
                 # Try to restore previous session if we have a saved sessionId
                 if self.acp_session_id:

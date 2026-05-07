@@ -315,6 +315,16 @@ class MessageDispatcher:
         column = await asyncio.to_thread(self.db.columns.get_by_id, card["column_id"])
         target_provider_id = column.get("acp_provider_id") or card.get("acp_provider_id") or config.default_provider
 
+        # Define a persistent notification handler for this card
+        async def stable_notif_handler(n):
+            if "params" in n:
+                n["params"]["card_id"] = card_id
+            
+            # Use wrapped_output if available from dispatch context, otherwise fallback to on_output
+            # In persistent mode, we mostly care about _forward_notification logic
+            if on_output:
+                await self._forward_notification(card_id, n, on_output)
+
         # Phase 5.3 FIX: Check if cached engine exists and matches the target provider
         if card_id in self.engines:
             existing_engine = self.engines[card_id]
@@ -323,6 +333,9 @@ class MessageDispatcher:
                     # Provider matches, reuse engine
                     if on_nested_request:
                         existing_engine.set_on_request(on_nested_request)
+                    if on_output:
+                        existing_engine.set_on_notification(stable_notif_handler)
+                    
                     if existing_engine.acp_session_id and on_output:
                         # Always advertise commands on connection to ensure UI is in sync
                         await self._advertise_commands(existing_engine.acp_session_id, on_output, card_id=card_id)
@@ -342,7 +355,7 @@ class MessageDispatcher:
             if project and project.get("workspace_path"): workspace_path = project["workspace_path"]
             engine = SessionEngine(card_id, target_provider_id, workspace_path, card["column_id"], db=self.db)
             engine.acp_session_id = card.get("acp_session_id")
-            await engine.start(on_request=on_nested_request, is_quiet=is_quiet)
+            await engine.start(on_request=on_nested_request, on_notification=stable_notif_handler, is_quiet=is_quiet)
             self.engines[card_id] = engine
             if engine.acp_session_id and on_output:
                 await self._advertise_commands(engine.acp_session_id, on_output, card_id=card_id)
