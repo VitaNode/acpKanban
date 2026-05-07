@@ -1281,6 +1281,10 @@ class _CardDetailViewState extends State<CardDetailView> {
                       controller: _chatController,
                       focusNode: _chatFocusNode,
                       enabled: _isAgentConnected,
+                      maxLines: 5,
+                      minLines: 1,
+                      textInputAction: TextInputAction.newline,
+                      keyboardType: TextInputType.multiline,
                       decoration: InputDecoration(
                           hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
                           contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
