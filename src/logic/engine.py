@@ -35,6 +35,7 @@ class SessionEngine:
         self.column_prompt_template: Optional[str] = None
         self.column_approval_mode: Optional[str] = None
         self.current_config_options = [] # Phase 5.2: Store runtime options
+        self.available_commands = [] # Phase 6: Agent-specific slash commands
         self._lock = asyncio.Lock()
 
     @property
@@ -87,10 +88,11 @@ class SessionEngine:
                         }
                         load_res = await self.adapter.handle_request("session/load", load_params)
                         # session/load returns {modes, models, configOptions}, NOT sessionId
-                        if load_res and ("modes" in load_res or "configOptions" in load_res or "models" in load_res):
+                        if load_res and ("modes" in load_res or "configOptions" in load_res or "models" in load_res or "availableCommands" in load_res):
                             self.current_config_options = self._normalize_session_config(load_res)
+                            self.available_commands = load_res.get("availableCommands") or []
                             self._save_config_options_to_db()
-                            self.logger.info(f"Session restored successfully: {self.acp_session_id} (configOptions: {len(self.current_config_options)})")
+                            self.logger.info(f"Session restored successfully: {self.acp_session_id} (configOptions: {len(self.current_config_options)}, commands: {len(self.available_commands)})")
                             self.state = SessionState.IDLE
                             return self.acp_session_id
                         else:
@@ -102,6 +104,7 @@ class SessionEngine:
                 res = await self.adapter.handle_request("session/new", {"cwd": self.workspace_path})
                 self.acp_session_id = res.get("sessionId")
                 self.current_config_options = self._normalize_session_config(res)
+                self.available_commands = res.get("availableCommands") or []
                 self._save_config_options_to_db()
 
                 self.state = SessionState.IDLE
