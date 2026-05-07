@@ -42,7 +42,6 @@ class _CardDetailViewState extends State<CardDetailView> {
   final _chatController = TextEditingController();
   final _scrollController = ScrollController();
   final _chatFocusNode = FocusNode();
-  final _keyboardFocusNode = FocusNode();
 
   late KanbanCard _card;
   List<CardMessage> _messages = [];
@@ -87,6 +86,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   void initState() {
     super.initState();
     _card = widget.card;
+    _availableCommands = _card.availableCommands ?? [];
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
     _summaryController = TextEditingController();
@@ -98,6 +98,9 @@ class _CardDetailViewState extends State<CardDetailView> {
     _chatController.addListener(_onChatChanged);
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
+
+    // Setup Enter to send, Shift+Enter to newline
+    _chatFocusNode.onKeyEvent = _onChatKeyEvent;
   }
 
   Future<void> _loadRoadmapData() async {
@@ -614,13 +617,15 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
-  void _onChatKeyEvent(KeyEvent event) {
-    // 检测 Enter 键且没有 Shift 修饰符时发送消息
+  KeyEventResult _onChatKeyEvent(FocusNode node, KeyEvent event) {
+    // Detect Enter key without Shift modifier to send message
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.enter &&
         !HardwareKeyboard.instance.isShiftPressed) {
       _handleSend();
+      return KeyEventResult.handled;
     }
+    return KeyEventResult.ignored;
   }
 
   void _toggleCommandsOverlay() {
@@ -786,7 +791,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     _chatController.dispose();
     _scrollController.dispose();
     _chatFocusNode.dispose();
-    _keyboardFocusNode.dispose();
     _wsService.disconnect();
     super.dispose();
   }
@@ -1289,22 +1293,18 @@ class _CardDetailViewState extends State<CardDetailView> {
                   visualDensity: VisualDensity.compact,
                 ),
               Expanded(
-                  child: KeyboardListener(
-                    autofocus: true,
-                    focusNode: _keyboardFocusNode,
-                    onKeyEvent: _onChatKeyEvent,
-                    child: TextField(
-                        controller: _chatController,
-                        focusNode: _chatFocusNode,
-                        enabled: _isAgentConnected,
-                        maxLines: 5,
-                        minLines: 1,
-                        textInputAction: TextInputAction.newline,
-                        keyboardType: TextInputType.multiline,
-                        decoration: InputDecoration(
-                            hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
-                            contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
-                        onSubmitted: (_) => _handleSend()))),
+                  child: TextField(
+                      controller: _chatController,
+                      focusNode: _chatFocusNode,
+                      enabled: _isAgentConnected,
+                      maxLines: 5,
+                      minLines: 1,
+                      textInputAction: TextInputAction.newline,
+                      keyboardType: TextInputType.multiline,
+                      decoration: InputDecoration(
+                          hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
+                      onSubmitted: (_) => _handleSend())),
               const SizedBox(width: AppConstants.space8),
               IconButton.filled(
                 onPressed: _isAgentConnected ? _handleSend : null,
