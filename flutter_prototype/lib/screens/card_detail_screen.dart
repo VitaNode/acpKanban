@@ -607,46 +607,60 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
+  void _toggleCommandsOverlay() {
+    if (_commandOverlay != null) {
+      _hideCommandsOverlay();
+    } else {
+      _showCommandsOverlay();
+    }
+  }
+
   void _showCommandsOverlay() {
     _hideCommandsOverlay();
     if (_availableCommands.isEmpty) return;
     final renderBox = context.findRenderBox()!;
     final size = renderBox.size;
-    _commandOverlay = OverlayEntry(
-        builder: (context) => Positioned(
-              bottom: 80,
-              left: 16,
-              width: size.width - 32,
-              child: Material(
-                  elevation: 8,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                  color: Theme.of(context).cardTheme.color,
-                  child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: _availableCommands
-                          .map((c) => ListTile(
-                                leading: Icon(Icons.flash_on,
-                                    size: 18, color: Theme.of(context).colorScheme.primary),
-                                title: Text('/${c['name']}',
-                                    style: Theme.of(context).textTheme.bodyLarge),
-                                subtitle: Text(c['description'] ?? '',
-                                    style: Theme.of(context).textTheme.bodySmall),
-                                onTap: () {
-                                  _chatController.text = '/${c['name']} ';
-                                  _chatController.selection =
-                                      TextSelection.fromPosition(TextPosition(
-                                          offset: _chatController.text.length));
-                                  _hideCommandsOverlay();
-                                },
-                              ))
-                          .toList())),
-            ));
+    setState(() {
+      _commandOverlay = OverlayEntry(
+          builder: (context) => Positioned(
+                bottom: 80,
+                left: 16,
+                width: size.width - 32,
+                child: Material(
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                    color: Theme.of(context).cardTheme.color,
+                    child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: _availableCommands
+                            .map((c) => ListTile(
+                                  leading: Icon(Icons.flash_on,
+                                      size: 18, color: Theme.of(context).colorScheme.primary),
+                                  title: Text('/${c['name']}',
+                                      style: Theme.of(context).textTheme.bodyLarge),
+                                  subtitle: Text(c['description'] ?? '',
+                                      style: Theme.of(context).textTheme.bodySmall),
+                                  onTap: () {
+                                    _chatController.text = '/${c['name']} ';
+                                    _chatController.selection =
+                                        TextSelection.fromPosition(TextPosition(
+                                            offset: _chatController.text.length));
+                                    _hideCommandsOverlay();
+                                  },
+                                ))
+                            .toList())),
+              ));
+    });
     Overlay.of(context).insert(_commandOverlay!);
   }
 
   void _hideCommandsOverlay() {
-    _commandOverlay?.remove();
-    _commandOverlay = null;
+    if (_commandOverlay != null) {
+      _commandOverlay?.remove();
+      setState(() {
+        _commandOverlay = null;
+      });
+    }
   }
 
   void _onCardInfoChanged() {
@@ -1219,6 +1233,16 @@ class _CardDetailViewState extends State<CardDetailView> {
                 ),
               ),
             Row(children: [
+              if (_isAgentConnected)
+                IconButton(
+                  icon: Icon(Icons.bolt_rounded, 
+                    color: _commandOverlay != null 
+                      ? colorScheme.primary 
+                      : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                  onPressed: _toggleCommandsOverlay,
+                  tooltip: 'Slash Commands',
+                  visualDensity: VisualDensity.compact,
+                ),
               Expanded(
                   child: TextField(
                       controller: _chatController,
