@@ -612,16 +612,13 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
-  KeyEventResult _onChatKeyEvent(KeyEvent event) {
+  void _onChatKeyEvent(KeyEvent event) {
     // 检测 Enter 键且没有 Shift 修饰符时发送消息
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.enter &&
         !HardwareKeyboard.instance.isShiftPressed) {
       _handleSend();
-      return KeyEventResult.handled;
     }
-    // 其他情况（包括 Shift+Enter）允许默认行为（换行）
-    return KeyEventResult.ignored;
   }
 
   void _toggleCommandsOverlay() {
@@ -1289,19 +1286,22 @@ class _CardDetailViewState extends State<CardDetailView> {
                   visualDensity: VisualDensity.compact,
                 ),
               Expanded(
-                  child: TextField(
-                      controller: _chatController,
-                      focusNode: _chatFocusNode,
-                      enabled: _isAgentConnected,
-                      maxLines: 5,
-                      minLines: 1,
-                      textInputAction: TextInputAction.newline,
-                      keyboardType: TextInputType.multiline,
-                      decoration: InputDecoration(
-                          hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
-                      onKeyEvent: _onChatKeyEvent,
-                      onSubmitted: (_) => _handleSend())),
+                  child: KeyboardListener(
+                    autofocus: true,
+                    focusNode: _chatFocusNode,
+                    onKeyEvent: _onChatKeyEvent,
+                    child: TextField(
+                        controller: _chatController,
+                        focusNode: _chatFocusNode,
+                        enabled: _isAgentConnected,
+                        maxLines: 5,
+                        minLines: 1,
+                        textInputAction: TextInputAction.newline,
+                        keyboardType: TextInputType.multiline,
+                        decoration: InputDecoration(
+                            hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
+                            contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
+                        onSubmitted: (_) => _handleSend()))),
               const SizedBox(width: AppConstants.space8),
               IconButton.filled(
                 onPressed: _isAgentConnected ? _handleSend : null,
