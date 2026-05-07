@@ -612,6 +612,18 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
+  KeyEventResult _onChatKeyEvent(KeyEvent event) {
+    // 检测 Enter 键且没有 Shift 修饰符时发送消息
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.enter &&
+        !HardwareKeyboard.instance.isShiftPressed) {
+      _handleSend();
+      return KeyEventResult.handled;
+    }
+    // 其他情况（包括 Shift+Enter）允许默认行为（换行）
+    return KeyEventResult.ignored;
+  }
+
   void _toggleCommandsOverlay() {
     if (_commandOverlay != null) {
       _hideCommandsOverlay();
@@ -1288,6 +1300,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                       decoration: InputDecoration(
                           hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
                           contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
+                      onKeyEvent: _onChatKeyEvent,
                       onSubmitted: (_) => _handleSend())),
               const SizedBox(width: AppConstants.space8),
               IconButton.filled(
