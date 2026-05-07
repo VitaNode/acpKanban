@@ -490,6 +490,14 @@ class MessageDispatcher:
                 new_opts = update.get("availableOptions", [])
                 if new_opts:
                     bus.publish(card_id, {"type": "config_options", "options": new_opts})
+        elif utype == "available_commands_update":
+            engine = self.engines.get(card_id)
+            agent_cmds = update.get("availableCommands", [])
+            if engine and agent_cmds:
+                logger.info(f"[*] Received async command update for card {card_id}: {len(agent_cmds)} commands")
+                engine.available_commands = agent_cmds
+                # Re-advertise merged list
+                await self._advertise_commands(engine.acp_session_id, on_output, card_id=card_id)
         elif utype == "tool_call":
             tcid = update.get("toolCallId")
             status = update.get("status", "pending")
