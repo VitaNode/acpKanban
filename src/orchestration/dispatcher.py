@@ -185,7 +185,7 @@ class MessageDispatcher:
         
         return merged
 
-    async def _advertise_commands(self, session_id: str, on_output: Callable, card_id: Optional[str] = None):
+    async def _advertise_commands(self, session_id: str, on_output: Optional[Callable] = None, card_id: Optional[str] = None):
         # Phase 5.1: Advertise to UI via standard notification
         cmds = self._get_available_commands(card_id)
         notif = {
@@ -198,7 +198,15 @@ class MessageDispatcher:
                 }
             }
         }
-        await on_output(notif)
+        
+        if on_output:
+            try:
+                res = on_output(notif)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception:
+                pass
+                
         # Also publish via bus for API-level subscribers
         bus.publish(card_id or session_id, {"type": "available_commands", "commands": cmds})
 
@@ -320,10 +328,9 @@ class MessageDispatcher:
             if "params" in n:
                 n["params"]["card_id"] = card_id
             
-            # Use wrapped_output if available from dispatch context, otherwise fallback to on_output
-            # In persistent mode, we mostly care about _forward_notification logic
-            if on_output:
-                await self._forward_notification(card_id, n, on_output)
+            # ALWAYS forward to logic, even if on_output is None
+            # This ensures bus.publish is called for background events
+            await self._forward_notification(card_id, n, on_output)
 
         # Phase 5.3 FIX: Check if cached engine exists and matches the target provider
         if card_id in self.engines:
@@ -460,7 +467,7 @@ class MessageDispatcher:
             "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]
         }, on_notification=on_output)
 
-    async def _forward_notification(self, card_id, n, on_output):
+    async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None):
         """Shared notification forwarding logic for both user and system prompts."""
         method = n.get("method")
         params = n.get("params", {})
