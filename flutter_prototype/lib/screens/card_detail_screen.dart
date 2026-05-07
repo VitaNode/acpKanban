@@ -236,7 +236,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         setState(() {
           _contextController.text = context;
           _isShowingContext = true;
-          _isEditingContext = false;
+          _isEditingContext = true;
         });
       }
     });

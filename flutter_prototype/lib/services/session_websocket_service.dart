@@ -351,6 +351,8 @@ class SessionWebSocketService {
               acpSessionId: m['sessionId'],
               acpProviderId: null,
             ));
+            // Auto-fetch context after session is ready
+            getContext();
           }
           break;
         case 'context_data':
