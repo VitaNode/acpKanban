@@ -42,6 +42,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   final _chatController = TextEditingController();
   final _scrollController = ScrollController();
   final _chatFocusNode = FocusNode();
+  final _keyboardFocusNode = FocusNode();
 
   late KanbanCard _card;
   List<CardMessage> _messages = [];
@@ -785,6 +786,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     _chatController.dispose();
     _scrollController.dispose();
     _chatFocusNode.dispose();
+    _keyboardFocusNode.dispose();
     _wsService.disconnect();
     super.dispose();
   }
@@ -1289,7 +1291,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               Expanded(
                   child: KeyboardListener(
                     autofocus: true,
-                    focusNode: _chatFocusNode,
+                    focusNode: _keyboardFocusNode,
                     onKeyEvent: _onChatKeyEvent,
                     child: TextField(
                         controller: _chatController,
