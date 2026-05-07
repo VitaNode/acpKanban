@@ -518,6 +518,10 @@ class CardRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET available_commands = ? WHERE id = ?", (available_commands, card_id))
 
+    def update_token_usage(self, card_id: str, input_tokens: int, output_tokens: int):
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE cards SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ? WHERE id = ?", (input_tokens, output_tokens, card_id))
+
     def update_card_embedding(self, card_id: str, embedding: List[float]):
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET embedding = ? WHERE id = ?", (json.dumps(embedding), card_id))
@@ -935,6 +939,7 @@ class KanbanDB:
     def get_card_config_options(self, card_id: str): return self.cards.get_config_options(card_id)
     def update_card_available_commands(self, card_id: str, available_commands: str): return self.cards.update_available_commands(card_id, available_commands)
     def get_card_available_commands(self, card_id: str): return self.cards.get_available_commands(card_id)
+    def update_card_token_usage(self, card_id: str, input_tokens: int, output_tokens: int): return self.cards.update_token_usage(card_id, input_tokens, output_tokens)
     def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
     def uncomplete_card(self, card_id): return self.cards.update(card_id, status='active')
     def update_card_summary(self, card_id, summary): return self.summaries.upsert(card_id, summary)

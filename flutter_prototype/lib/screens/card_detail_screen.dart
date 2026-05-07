@@ -48,6 +48,8 @@ class _CardDetailViewState extends State<CardDetailView> {
   AgentPlan? _currentPlan;
   List<ConfigOption> _configOptions = [];
   List<Map<String, dynamic>> _availableCommands = [];
+  int _inputTokens = 0;
+  int _outputTokens = 0;
   
   String? _summary;
   late TextEditingController _summaryController;
@@ -87,6 +89,8 @@ class _CardDetailViewState extends State<CardDetailView> {
     super.initState();
     _card = widget.card;
     _availableCommands = _card.availableCommands ?? [];
+    _inputTokens = _card.inputTokens;
+    _outputTokens = _card.outputTokens;
     _titleController = TextEditingController(text: _card.title);
     _descriptionController = TextEditingController(text: _card.description);
     _summaryController = TextEditingController();
@@ -120,7 +124,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               break;
             }
           }
-          if (foundMilestone != null) break;
+          if (foundFeature != null) break;
         }
       }
 
@@ -136,380 +140,127 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
-  Future<void> _onFeatureSelected(ProjectFeature? feature) async {
-    if (feature?.id == _card.featureId) return;
-    
-    setState(() {
-      _selectedFeature = feature;
-      _isSavingCard = true;
-    });
-
-    try {
-      await ACPClient().updateCard(_card.id, featureId: feature?.id);
-      _card = _card.copyWith(featureId: feature?.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Card category updated'), duration: Duration(seconds: 1)),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error updating card feature: $e');
-    } finally {
-      if (mounted) setState(() => _isSavingCard = false);
-    }
-  }
-
   Future<void> _loadEnvironmentInfo() async {
     try {
-      final providerData = await _projectService.getProviders();
-      if (providerData != null && mounted) {
-        final providers = providerData['providers'] as List? ?? [];
-        for (final p in providers) {
-          _providerNameMap[p['id']] = p['name'];
+      final providers = await ACPClient().listProviders();
+      final Map<String, String> nameMap = {};
+      for (var p in providers) {
+        if (p is Map<String, dynamic>) {
+          final idValue = p['id'];
+          final nameValue = p['name'];
+          String? id;
+          String? name;
+          if (idValue is String) {
+            id = idValue;
+          }
+          if (nameValue is String) {
+            name = nameValue;
+          }
+          if (id != null && name != null) {
+            nameMap[id] = name;
+          }
+        }
+      }
+      
+      final columns = await ProjectService().getColumns(widget.projectId);
+      String? targetProviderId;
+      for (var col in columns) {
+        if (col.id == _card.columnId) {
+          targetProviderId = col.acpProviderId;
+          break;
         }
       }
 
-      final columns = await _projectService.getColumns(widget.projectId);
-      final myColumn = columns.firstWhere((c) => c.id == _card.columnId);
       if (mounted) {
         setState(() {
-          _targetProviderId = myColumn.acpProviderId;
+          _providerNameMap.addAll(nameMap);
+          _targetProviderId = targetProviderId;
         });
       }
     } catch (e) {
-      debugPrint('Load environment info error: $e');
+      debugPrint('Error loading env info: $e');
     }
   }
 
   String get _providerDisplayName {
-    if (_targetProviderId != null && _providerNameMap.containsKey(_targetProviderId)) {
-      return _providerNameMap[_targetProviderId]!;
-    }
-    return 'AI Agent';
-  }
-
-  Future<void> _loadSummary() async {
-    try {
-      final summaryObj = await _projectService.getCardSummary(_card.id);
-      if (mounted) {
-        setState(() {
-          _summary = summaryObj?['summary'];
-          _summaryController.text = _summary ?? '';
-        });
-      }
-    } catch (e) {
-      debugPrint('Load summary error: $e');
-    }
-  }
-
-  Future<void> _saveSummary() async {
-    final s = _summaryController.text.trim();
-    if (s == _summary) {
-      setState(() => _isEditingSummary = false);
-      return;
-    }
-    setState(() => _isSavingSummary = true);
-    try {
-      final success = await _projectService.updateCardSummary(_card.id, s);
-      if (success && mounted) {
-        setState(() {
-          _summary = s;
-          _isEditingSummary = false;
-          _isSavingSummary = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isSavingSummary = false);
-    }
-  }
-
-  Future<void> _generateSummary() async {
-    setState(() => _isSavingSummary = true);
-    try {
-      final result = await _projectService.generateCardSummary(_card.id);
-      if (mounted) {
-        if (result != null && result['summary'] != null && result['summary'].isNotEmpty) {
-          // Summary was generated successfully
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Summary generated successfully!')),
-          );
-          _loadSummary();
-        } else {
-          // No messages to summarize
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result?['message'] ?? 'No messages to summarize')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSavingSummary = false);
-    }
+    if (_card.acpProviderId != null) return _providerNameMap[_card.acpProviderId] ?? _card.acpProviderId!;
+    if (_targetProviderId != null) return _providerNameMap[_targetProviderId] ?? _targetProviderId!;
+    return 'Agent';
   }
 
   void _setupWebSocket() {
     _wsService.connect(_card.id);
     _messageSub = _wsService.messages.listen((msgs) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _messages = msgs;
-          _isAgentProcessing = msgs.isNotEmpty &&
-              msgs.last.role == 'assistant' &&
-              !msgs.last.isComplete &&
-              (msgs.last.id.startsWith('streaming-') || msgs.last.id.startsWith('thought-'));
+          _isAgentProcessing = msgs.isNotEmpty && !msgs.last.isComplete && msgs.last.role == 'assistant';
         });
-      _scrollToBottom();
-    });
-    _planSub = _wsService.plan.listen((p) {
-      if (mounted) setState(() => _currentPlan = p);
-    });
-
-    _configSub = _wsService.configOptions.listen((options) {
-      if (mounted) {
-        setState(() {
-          _configOptions = options;
-          // Only auto-connect if we have an active session
-          if (options.isNotEmpty && _card.acpSessionId != null && _card.acpSessionId!.isNotEmpty) {
-            _isAgentConnected = true;
-          }
-        });
+        _scrollToBottom();
       }
     });
 
-    _commandSub = _wsService.availableCommands.listen((c) {
-      if (mounted) setState(() => _availableCommands = c);
+    _planSub = _wsService.plan.listen((plan) {
+      if (mounted) setState(() => _currentPlan = plan);
     });
+
+    _configSub = _wsService.configOptions.listen((opts) {
+      if (mounted) setState(() => _configOptions = opts);
+    });
+
+    _commandSub = _wsService.availableCommands.listen((cmds) {
+      if (mounted) setState(() => _availableCommands = cmds);
+    });
+
     _cardSub = _wsService.cardUpdates.listen(_onCardUpdate);
-    
-    _errorSub = _wsService.errors.listen((error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    });
-
-    _initializingSub = _wsService.isInitializing.listen((init) {
-      if (mounted) setState(() => _isInitializing = init);
-    });
-
-    _contextSub = _wsService.contextData.listen((contextText) {
-      if (mounted) {
-        setState(() {
-          _contextController.text = contextText;
-          _isShowingContext = true;
-        });
-      }
-    });
 
     _requestSub = _wsService.requests.listen((req) {
-      if (req['method'] == 'session/request_permission') {
-        _showPermissionDialog(req['params'], req['id']);
-      } else if (req['type'] == 'session_info') {
-        if (mounted) {
-          setState(() {
-            _isInitializing = false;
-            _isAgentConnected = true;
-            _configOptions = (req['config_options'] as List?)
-                ?.map((x) => ConfigOption.fromJson(x))
-                .toList() ?? [];
-          });
-        }
+      if (mounted) _handleUIRequest(req);
+    });
+
+    _errorSub = _wsService.errors.listen((err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(err),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ));
       }
     });
-  }
 
-  Future<void> _initializeAgent() async {
-    if (_isInitializing) return;
-    setState(() => _isInitializing = true);
-    _wsService.sendInit();
-    _wsService.getContext();
-  }
+    _initializingSub = _wsService.isInitializing.listen((loading) {
+      if (mounted) setState(() => _isInitializing = loading);
+    });
 
-  Future<void> _onComplete() async {
-    if (_card.status == 'completed') {
-      final updated = await _projectService.uncompleteCard(_card.id);
-      if (updated != null && mounted) {
-        setState(() => _card = updated);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Card "${_card.title}" reactivated')),
-        );
-      }
-    } else {
-      final updated = await _projectService.completeCard(_card.id);
-      if (updated != null && mounted) {
-        setState(() => _card = updated);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Card "${_card.title}" completed')),
-        );
-        Future.delayed(const Duration(seconds: 2), () => _loadSummary());
-      }
-    }
-  }
-
-  Future<void> _onDelete() async {
-    final customColors = Theme.of(context).extension<CustomColors>()!;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Card'),
-        content: Text('Are you sure you want to delete "${_card.title}"?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      final success = await _projectService.deleteCard(_card.id);
-      if (success && mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Card "${_card.title}" deleted')),
-        );
-      }
-    }
-  }
-
-  Future<void> _onMove() async {
-    setState(() => _isSavingCard = true);
-    try {
-      final columns = await _projectService.getColumns(widget.projectId);
-      if (!mounted) return;
-      
-      final oldColumn = columns.firstWhere((c) => c.id == _card.columnId, 
-          orElse: () => columns.first);
-      
-      setState(() => _isSavingCard = false);
-
-      final targetColumn = await showDialog<KanbanColumn>(
-        context: context,
-        builder: (context) {
-          final size = MediaQuery.of(context).size;
-          return AlertDialog(
-            title: const Text('Move to Column'),
-            content: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 400,
-                maxHeight: size.height * 0.6,
-              ),
-              child: SizedBox(
-                width: size.width * 0.8,
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: columns.length,
-                  separatorBuilder: (context, index) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final col = columns[index];
-                    final isCurrent = col.id == _card.columnId;
-                    return ListTile(
-                      title: Text(col.name,
-                          style: TextStyle(
-                            fontWeight:
-                                isCurrent ? FontWeight.bold : FontWeight.normal,
-                            color: isCurrent
-                                ? Theme.of(context).colorScheme.primary
-                                : Theme.of(context).colorScheme.onSurface,
-                          )),
-                      trailing: isCurrent
-                          ? Icon(Icons.check_rounded,
-                              color: Theme.of(context).colorScheme.primary)
-                          : null,
-                      onTap: isCurrent ? null : () => Navigator.pop(context, col),
-                    );
-                  },
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-            ],
-          );
-        },
-      );
-
-      if (targetColumn != null && mounted) {
-        final providerChanged = oldColumn.acpProviderId != targetColumn.acpProviderId;
-        
-        setState(() => _isSavingCard = true);
-        final success = await _projectService.moveCard(_card.id, targetColumn.id, null);
-        if (success && mounted) {
-          setState(() {
-            _card = _card.copyWith(
-              columnId: targetColumn.id,
-              acpSessionId: providerChanged ? null : _card.acpSessionId,
-              acpProviderId: targetColumn.acpProviderId,
-            );
-            _targetProviderId = targetColumn.acpProviderId;
-            if (providerChanged) {
-              _isAgentConnected = false;
-              _configOptions = [];
-            }
-            _isSavingCard = false;
-          });
-          _loadEnvironmentInfo();
-          _loadSummary();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Moved to ${targetColumn.name}')),
-          );
-        } else if (mounted) {
-          setState(() => _isSavingCard = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to move card')),
-          );
-        }
-      }
-    } catch (e) {
+    _contextSub = _wsService.contextData.listen((context) {
       if (mounted) {
-        setState(() => _isSavingCard = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        setState(() {
+          _contextController.text = context;
+          _isShowingContext = true;
+          _isEditingContext = false;
+        });
       }
-    }
+    });
   }
 
   void _onCardUpdate(KanbanCard updatedCard) {
     if (!mounted) return;
     setState(() {
-      if (updatedCard.title.isNotEmpty && updatedCard.title != _card.title) {
-        _card = _card.copyWith(title: updatedCard.title);
-        _titleController.text = updatedCard.title;
-      }
-      if (updatedCard.description.isNotEmpty &&
-          updatedCard.description != _card.description) {
-        _card = _card.copyWith(description: updatedCard.description);
-        _descriptionController.text = updatedCard.description;
-      }
-
       // Sync Agent Session state
       final sessionId = updatedCard.acpSessionId;
       _card = _card.copyWith(
         acpSessionId: sessionId,
         acpProviderId: updatedCard.acpProviderId ?? _card.acpProviderId,
         availableCommands: updatedCard.availableCommands ?? _card.availableCommands,
+        inputTokens: updatedCard.inputTokens > 0 ? updatedCard.inputTokens : _card.inputTokens,
+        outputTokens: updatedCard.outputTokens > 0 ? updatedCard.outputTokens : _card.outputTokens,
       );
 
       if (updatedCard.availableCommands != null) {
         _availableCommands = updatedCard.availableCommands!;
       }
+
+      if (updatedCard.inputTokens > 0) _inputTokens = updatedCard.inputTokens;
+      if (updatedCard.outputTokens > 0) _outputTokens = updatedCard.outputTokens;
 
       if (sessionId == null || sessionId.isEmpty) {
         _isAgentConnected = false;
@@ -517,56 +268,113 @@ class _CardDetailViewState extends State<CardDetailView> {
       } else {
         _isAgentConnected = true;
       }
-
-      if (updatedCard.acpProviderId != null) {
-        _targetProviderId = updatedCard.acpProviderId;
+      
+      // Update local card info if title/desc changed via session_info_update
+      if (updatedCard.title.isNotEmpty) {
+        _titleController.text = updatedCard.title;
+      }
+      if (updatedCard.description.isNotEmpty) {
+        _descriptionController.text = updatedCard.description;
       }
     });
   }
 
-  Future<void> _showPermissionDialog(
-      Map<String, dynamic> params, String requestId) async {
-    final toolCall = params['toolCall'] as Map<String, dynamic>?;
-    final options =
-        (params['options'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    if (toolCall == null || options.isEmpty) return;
-
-    String toolName = toolCall['name'] ?? toolCall['title'] ?? 'Unknown Tool';
-    String arguments = toolCall['arguments'] ?? '';
-    final customColors = Theme.of(context).extension<CustomColors>()!;
-
-    if (toolCall['content'] != null && toolCall['content'] is List) {
-      final contentList = toolCall['content'] as List;
-      for (var block in contentList) {
-        if (block is Map && block['type'] == 'content') {
-          final innerContent = block['content'];
-          if (innerContent is Map && innerContent['type'] == 'text') {
-            arguments += (arguments.isNotEmpty ? '\n' : '') +
-                innerContent['text'].toString();
-          }
-        }
+  Future<void> _loadSummary() async {
+    try {
+      final summaryData = await _projectService.getCardSummary(_card.id);
+      final summaryText = summaryData?['summary'] as String?;
+      if (mounted) {
+        setState(() {
+          _summary = summaryText;
+          _summaryController.text = summaryText ?? '';
+        });
       }
+    } catch (e) {
+      debugPrint('Error loading summary: $e');
     }
+  }
+
+  void _onCardInfoChanged() {
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 1000), _saveCardInfo);
+  }
+
+  Future<void> _saveCardInfo() async {
+    if (_titleController.text == _card.title && _descriptionController.text == _card.description) return;
+    
+    setState(() => _isSavingCard = true);
+    try {
+      await _projectService.updateCard(
+        _card.id,
+        title: _titleController.text,
+        description: _descriptionController.text,
+      );
+      if (mounted) {
+        setState(() {
+          _card = _card.copyWith(
+            title: _titleController.text,
+            description: _descriptionController.text,
+          );
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingCard = false);
+    }
+  }
+
+  Future<void> _initializeAgent() async {
+    if (_isAgentConnected) return;
+    await _wsService.sendInit();
+  }
+
+  void _handleUIRequest(Map<String, dynamic> request) {
+    final method = request['method'];
+    final params = request['params'] ?? {};
+    final requestId = request['id'];
+
+    if (method == 'session/request_permission') {
+      _showPermissionDialog(requestId, params);
+    }
+  }
+
+  void _showPermissionDialog(String requestId, Map<String, dynamic> params) {
+    final title = params['title'] ?? 'Permission Request';
+    final message = params['message'] ?? 'The agent needs your permission to continue.';
+    final options = params['options'] as List? ?? [];
+    final arguments = params['arguments']?.toString() ?? '';
+    final customColors = Theme.of(context).extension<CustomColors>()!;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Permission Request'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
+        title: Row(
+          children: [
+            const Icon(Icons.security_rounded, color: Colors.orange),
+            const SizedBox(width: 8),
+            Text(title),
+          ],
+        ),
+        content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Agent requesting: $toolName',
-                  style: Theme.of(context).textTheme.bodyLarge),
-              const SizedBox(height: AppConstants.space12),
+              Text(message),
+              if (arguments.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text('Details:', style: Theme.of(context).textTheme.labelSmall),
+                ),
               if (arguments.isNotEmpty)
                 Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
                   width: double.infinity,
-                  padding: const EdgeInsets.all(AppConstants.space8),
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surfaceContainer,
                     borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
@@ -671,25 +479,17 @@ class _CardDetailViewState extends State<CardDetailView> {
                                   children: _availableCommands
                                       .map((c) => ListTile(
                                             dense: true,
-                                            visualDensity: VisualDensity.compact,
-                                            leading: Icon(Icons.flash_on_rounded,
-                                                size: 16, color: Theme.of(context).colorScheme.primary),
+                                            leading: const Icon(Icons.bolt, size: 18),
                                             title: Text('/${c['name']}',
-                                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontFamily: 'monospace',
-                                                )),
-                                            subtitle: Text(c['description'] ?? '',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11)),
+                                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                                            subtitle: Text(c['description'] ?? ''),
                                             onTap: () {
-                                              _chatController.text = '/${c['name']} ';
-                                              _chatController.selection =
-                                                  TextSelection.fromPosition(TextPosition(
-                                                      offset: _chatController.text.length));
-                                              _hideCommandsOverlay();
+                                              final cmd = '/${c['name']} ';
+                                              _chatController.text = cmd;
+                                              _chatController.selection = TextSelection.fromPosition(
+                                                  TextPosition(offset: cmd.length));
                                               _chatFocusNode.requestFocus();
+                                              _hideCommandsOverlay();
                                             },
                                           ))
                                       .toList()),
@@ -699,49 +499,23 @@ class _CardDetailViewState extends State<CardDetailView> {
                   ),
                 ],
               ));
+      Overlay.of(context).insert(_commandOverlay!);
     });
-    Overlay.of(context).insert(_commandOverlay!);
   }
 
   void _hideCommandsOverlay() {
     if (_commandOverlay != null) {
-      _commandOverlay?.remove();
-      setState(() {
-        _commandOverlay = null;
-      });
-    }
-  }
-
-  void _onCardInfoChanged() {
-    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer =
-        Timer(AppConstants.autoSaveDebounce, () => _autoSaveCard());
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _autoSaveCard() async {
-    final t = _titleController.text.trim();
-    final d = _descriptionController.text.trim();
-    if (t.isEmpty || (t == _card.title && d == _card.description)) return;
-    setState(() => _isSavingCard = true);
-    try {
-      final updated =
-          await _projectService.updateCard(_card.id, title: t, description: d);
-      if (updated != null && mounted)
-        setState(() {
-          _card = updated;
-          _isSavingCard = false;
-        });
-    } catch (e) {
-      if (mounted) setState(() => _isSavingCard = false);
+      _commandOverlay!.remove();
+      _commandOverlay = null;
     }
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients)
+      if (_scrollController.hasClients) {
         _scrollController.animateTo(_scrollController.position.maxScrollExtent,
             duration: AppConstants.animationDuration, curve: Curves.easeOut);
+      }
     });
   }
 
@@ -812,7 +586,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
               children: [
                 _buildHeader(),
-                if (_currentPlan != null) 
+                if (_currentPlan != null)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
                     child: PlanPanel(plan: _currentPlan!),
@@ -845,354 +619,206 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   Widget _buildViewHeader(ThemeData theme, ColorScheme colorScheme) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
-        color: theme.appBarTheme.backgroundColor,
-        border: Border(bottom: BorderSide(color: theme.dividerTheme.color!)),
+        color: theme.scaffoldBackgroundColor,
+        border: Border(bottom: BorderSide(color: theme.dividerColor.withOpacity(0.05))),
       ),
-      child: Row(
-        children: [
-          if (widget.onBack != null)
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
             IconButton(
-              icon: const Icon(Icons.arrow_back_rounded),
-              onPressed: widget.onBack,
-              tooltip: 'Back to Board',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: widget.onBack ?? () => Navigator.pop(context),
             ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _titleController.text,
-              style: theme.textTheme.titleLarge,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (_isSavingCard || _isSavingSummary)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: SizedBox(
-                width: 16, height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _card.shortId.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.primary,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _card.columnName ?? 'Detail',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _card.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ],
               ),
             ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'complete') _onComplete();
-              else if (value == 'delete') _onDelete();
-              else if (value == 'move') _onMove();
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'complete',
-                child: Row(
-                  children: [
-                    Icon(_card.status == 'completed' ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 20),
-                    const SizedBox(width: AppConstants.space12),
-                    Text(_card.status == 'completed' ? 'Reactivate Card' : 'Complete Card'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'move',
-                child: Row(
-                  children: [
-                    const Icon(Icons.drive_file_move_outline, size: 20),
-                    const SizedBox(width: AppConstants.space12),
-                    const Text('Move to Column'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline_rounded, size: 20, color: theme.colorScheme.error),
-                    const SizedBox(width: AppConstants.space12),
-                    Text('Delete Card', style: TextStyle(color: theme.colorScheme.error)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildMessageList() {
-    final List<Widget> list = [];
-    List<CardMessage> currentBlock = [];
-    
-    for (var m in _messages) {
-      if (m.metadata?['is_milestone'] == 1 || m.metadata?['is_milestone'] == true) {
-        if (currentBlock.isNotEmpty) {
-          list.add(_buildFoldedHistory(currentBlock));
-          currentBlock = [];
-        }
-        list.add(MessageBubble(message: m, providerName: 'System'));
-      } else {
-        currentBlock.add(m);
-      }
-    }
-    
-    for (var m in currentBlock) {
-      list.add(MessageBubble(message: m, providerName: _providerDisplayName));
-    }
-    
-    return list;
-  }
-
-  Widget _buildFoldedHistory(List<CardMessage> messages) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        border: Border.all(color: Theme.of(context).dividerTheme.color!),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          title: Text('Previous Stage (${messages.length} messages)', 
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
-          leading: const Icon(Icons.history_rounded, size: 18),
-          children: messages.map((m) => MessageBubble(message: m, providerName: _providerDisplayName)).toList(),
+            if (_isSavingCard)
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+            const SizedBox(width: 8),
+            _buildActionMenu(colorScheme),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildRoadmapSelector(ThemeData theme, ColorScheme colorScheme) {
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.space12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
+  Widget _buildActionMenu(ColorScheme colorScheme) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert),
+      onSelected: (val) {
+        if (val == 'delete') _onDelete();
+        if (val == 'complete') _onToggleComplete();
+        if (val == 'roadmap') _showRoadmapPicker();
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'roadmap',
+          child: Row(
+            children: [
+              const Icon(Icons.alt_route_rounded, size: 18),
+              const SizedBox(width: 12),
+              Text(_selectedFeature != null ? 'Change Feature' : 'Link to Feature'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'complete',
+          child: Row(
+            children: [
+              Icon(_card.isCompleted ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 18),
+              const SizedBox(width: 12),
+              Text(_card.isCompleted ? 'Mark Active' : 'Mark Completed'),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
+              const SizedBox(width: 12),
+              Text('Delete Card', style: TextStyle(color: Colors.red)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          TextField(
+            controller: _titleController,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            decoration: const InputDecoration(
+              hintText: 'Card Title',
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const SizedBox(height: AppConstants.space8),
           Row(
             children: [
-              Icon(Icons.alt_route_rounded, size: 16, color: colorScheme.primary),
-              const SizedBox(width: 8),
-              Text('Project Roadmap', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline, size: 18),
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => RoadmapManagerDialog(projectId: widget.projectId),
-                  ).then((_) => _loadRoadmapData());
-                },
-                tooltip: 'Manage Roadmap',
+              Icon(Icons.access_time, size: 14, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 4),
+              Text(
+                'Created ${DateFormatter.formatRelative(_card.createdAt)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              // Milestone Dropdown
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<ProjectMilestone>(
-                    value: _selectedMilestone,
-                    isDense: true,
-                    hint: const Text('Milestone', style: TextStyle(fontSize: 12)),
-                    style: theme.textTheme.bodySmall,
-                    items: [
-                      const DropdownMenuItem<ProjectMilestone>(
-                        value: null,
-                        child: Text('Uncategorized', style: TextStyle(fontSize: 12)),
+          if (_selectedMilestone != null && _selectedFeature != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: InkWell(
+                onTap: _showRoadmapPicker,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: colorScheme.secondaryContainer.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: colorScheme.secondary.withOpacity(0.1)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.flag_rounded, size: 12, color: colorScheme.secondary),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_selectedMilestone!.title} > ${_selectedFeature!.title}',
+                        style: TextStyle(fontSize: 11, color: colorScheme.onSecondaryContainer, fontWeight: FontWeight.w500),
                       ),
-                      ..._milestones.map((m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(m.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                          )),
                     ],
-                    onChanged: (m) {
-                      setState(() {
-                        _selectedMilestone = m;
-                        _selectedFeature = null;
-                      });
-                      if (m == null) _onFeatureSelected(null);
-                    },
                   ),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
-              ),
-              // Feature Dropdown
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<ProjectFeature>(
-                    value: _selectedFeature,
-                    isDense: true,
-                    hint: const Text('Feature', style: TextStyle(fontSize: 12)),
-                    style: theme.textTheme.bodySmall,
-                    disabledHint: const Text('Select Milestone', style: TextStyle(fontSize: 12)),
-                    items: _selectedMilestone == null
-                        ? []
-                        : [
-                            const DropdownMenuItem<ProjectFeature>(
-                              value: null,
-                              child: Text('None', style: TextStyle(fontSize: 12)),
-                            ),
-                            ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
-                                  value: f,
-                                  child: Text(f.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                )),
-                          ],
-                    onChanged: _selectedMilestone == null ? null : (f) => _onFeatureSelected(f),
-                  ),
-                ),
-              ),
-            ],
+            ),
+          const SizedBox(height: AppConstants.space16),
+          TextField(
+            controller: _descriptionController,
+            maxLines: null,
+            style: Theme.of(context).textTheme.bodyMedium,
+            decoration: const InputDecoration(
+              hintText: 'Add a description...',
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader() {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    
-    return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Level 1: Title (High Emphasis)
-          TextField(
-              controller: _titleController,
-              style: theme.textTheme.headlineLarge?.copyWith(
-                fontSize: 26,
-                letterSpacing: -0.5,
-              ),
-              decoration: const InputDecoration(
-                  border: InputBorder.none, 
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  hintText: 'Card Title',
-                  filled: false,
-                  contentPadding: EdgeInsets.zero),
-              maxLines: null),
-          
-          const SizedBox(height: AppConstants.space8),
-          
-          // Level 2: Description (Medium Emphasis, with leading icon)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Icon(Icons.notes_rounded, 
-                    size: 16, 
-                    color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-              ),
-              const SizedBox(width: AppConstants.space8),
-              Expanded(
-                child: TextField(
-                    controller: _descriptionController,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
-                      height: 1.5,
-                    ),
-                    decoration: const InputDecoration(
-                        border: InputBorder.none, 
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        hintText: 'Add a detailed description...',
-                        filled: false,
-                        contentPadding: EdgeInsets.zero),
-                    maxLines: null),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: AppConstants.space16),
-          
-          _buildRoadmapSelector(theme, colorScheme),
-          
-          const SizedBox(height: AppConstants.space16),
-          
-          // Level 3: Metadata (Disabled/Low Emphasis, chip style)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainer,
-              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.access_time_rounded, 
-                    size: 12, 
-                    color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
-                const SizedBox(width: 6),
-                Text(
-                  'Created ${DateFormatter.formatFull(_card.createdAt)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppConstants.space16),
-        ]));
-  }
-
   Widget _buildSummarySection() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+        padding: const EdgeInsets.all(AppConstants.space16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Icon(Icons.handshake_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: AppConstants.space8),
-            Text('CONTEXT FOR NEXT AGENT',
-                style: Theme.of(context).textTheme.labelLarge),
-            const Spacer(),
-            if (!_isEditingSummary)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextButton.icon(
-                    onPressed: _generateSummary,
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 14),
-                    label: const Text('Generate', style: TextStyle(fontSize: 12)),
-                  ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    onPressed: () => setState(() => _isEditingSummary = true),
-                    icon: const Icon(Icons.edit_rounded, size: 14),
-                    label: const Text('Edit', style: TextStyle(fontSize: 12)),
-                  ),
-                ],
-              )
-            else
-              Row(children: [
-                TextButton(
-                  onPressed: () => setState(() {
-                    _isEditingSummary = false;
-                    _summaryController.text = _summary ?? '';
-                  }),
-                  child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text('PROGRESS SUMMARY', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            Row(children: [
+              if (_isSavingSummary)
+                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                IconButton(
+                  icon: Icon(_isEditingSummary ? Icons.check_rounded : Icons.edit_outlined, size: 18),
+                  onPressed: () {
+                    if (_isEditingSummary) {
+                      _saveSummary();
+                    } else {
+                      setState(() => _isEditingSummary = true);
+                    }
+                  },
                 ),
-                TextButton(
-                  onPressed: _saveSummary,
-                  child: const Text('Save', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-              ]),
+            ]),
           ]),
           const SizedBox(height: AppConstants.space4),
           Text('Confirm or edit the progress summary before initializing the agent.', 
@@ -1232,16 +858,20 @@ class _CardDetailViewState extends State<CardDetailView> {
     return Padding(
         padding: const EdgeInsets.all(AppConstants.space16),
         child: Row(children: [
-          const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: AppConstants.space12),
-          Text('Agent is working...', style: Theme.of(context).textTheme.bodySmall),
+          Text('Agent is thinking...', style: Theme.of(context).textTheme.bodySmall),
         ]));
+  }
+
+  List<Widget> _buildMessageList() {
+    return _messages.map((m) => MessageBubble(message: m)).toList();
   }
 
   Widget _buildInputArea() {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
-        padding: const EdgeInsets.all(AppConstants.space12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         decoration: BoxDecoration(
             color: Theme.of(context).scaffoldBackgroundColor,
             border: Border(top: BorderSide(color: Theme.of(context).dividerTheme.color!))),
@@ -1281,42 +911,82 @@ class _CardDetailViewState extends State<CardDetailView> {
                   ],
                 ),
               ),
-            Row(children: [
-              if (_isAgentConnected)
-                IconButton(
-                  icon: Icon(Icons.bolt_rounded, 
-                    color: _commandOverlay != null 
-                      ? colorScheme.primary 
-                      : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-                  onPressed: _toggleCommandsOverlay,
-                  tooltip: 'Slash Commands',
-                  visualDensity: VisualDensity.compact,
-                ),
-              Expanded(
-                  child: TextField(
-                      controller: _chatController,
-                      focusNode: _chatFocusNode,
-                      enabled: _isAgentConnected,
-                      maxLines: 5,
-                      minLines: 1,
-                      textInputAction: TextInputAction.newline,
-                      keyboardType: TextInputType.multiline,
-                      decoration: InputDecoration(
-                          hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8)),
-                      onSubmitted: (_) => _handleSend())),
-              const SizedBox(width: AppConstants.space8),
-              IconButton.filled(
-                onPressed: _isAgentConnected ? _handleSend : null,
-                icon: const Icon(Icons.arrow_upward_rounded),
-                style: IconButton.styleFrom(
-                  backgroundColor: _isAgentConnected ? colorScheme.primary : colorScheme.surfaceContainerHigh,
-                  foregroundColor: colorScheme.onPrimary,
-                ),
-              ),
-            ]),
+            Stack(
+              children: [
+                Row(children: [
+                  if (_isAgentConnected)
+                    IconButton(
+                      icon: Icon(Icons.bolt_rounded, 
+                        color: _commandOverlay != null 
+                          ? colorScheme.primary 
+                          : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                      onPressed: _toggleCommandsOverlay,
+                      tooltip: 'Slash Commands',
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  Expanded(
+                      child: TextField(
+                          controller: _chatController,
+                          focusNode: _chatFocusNode,
+                          enabled: _isAgentConnected,
+                          maxLines: 5,
+                          minLines: 1,
+                          textInputAction: TextInputAction.newline,
+                          keyboardType: TextInputType.multiline,
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                              hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
+                              contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8)),
+                          onSubmitted: (_) => _handleSend())),
+                  const SizedBox(width: AppConstants.space8),
+                  IconButton.filled(
+                    onPressed: _isAgentConnected ? _handleSend : null,
+                    icon: const Icon(Icons.arrow_upward_rounded),
+                    style: IconButton.styleFrom(
+                      backgroundColor: _isAgentConnected ? colorScheme.primary : colorScheme.surfaceContainerHigh,
+                      foregroundColor: colorScheme.onPrimary,
+                    ),
+                  ),
+                ]),
+                if (_isAgentConnected && (_inputTokens > 0 || _outputTokens > 0))
+                  Positioned(
+                    top: 4,
+                    right: 60,
+                    child: _buildTokenUsage(colorScheme),
+                  ),
+              ],
+            ),
           ],
         )));
+  }
+
+  Widget _buildTokenUsage(ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainer.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('↑${_formatTokenCount(_inputTokens)}', 
+            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.4), fontWeight: FontWeight.w500)),
+          const SizedBox(width: 4),
+          Text('↓${_formatTokenCount(_outputTokens)}', 
+            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.4), fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  String _formatTokenCount(int count) {
+    if (count >= 1000000) {
+      return '${(count / 1000000).toStringAsFixed(1)}M';
+    } else if (count >= 1000) {
+      return '${(count / 1000).toStringAsFixed(1)}k';
+    }
+    return count.toString();
   }
 
   Widget _buildContextPanel() {
@@ -1328,60 +998,185 @@ class _CardDetailViewState extends State<CardDetailView> {
         border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(
-            dense: true,
-            visualDensity: VisualDensity.compact,
-            leading: Icon(Icons.psychology_outlined, size: 20, color: Theme.of(context).colorScheme.primary),
-            title: const Text('Agent Context', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(AppConstants.radiusMedium)),
+            ),
+            child: Row(
               children: [
+                Icon(Icons.psychology_outlined, size: 14, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Text('CONTEXT INJECTION', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
+                const Spacer(),
                 IconButton(
-                  icon: Icon(_isEditingContext ? Icons.check_rounded : Icons.edit_outlined, size: 18),
-                  onPressed: () => setState(() => _isEditingContext = !_isEditingContext),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
+                  icon: const Icon(Icons.close, size: 14),
                   onPressed: () => setState(() => _contextController.clear()),
-                ),
-                IconButton(
-                  icon: Icon(_isShowingContext ? Icons.expand_less : Icons.expand_more, size: 20),
-                  onPressed: () => setState(() => _isShowingContext = !_isShowingContext),
-                ),
-                const SizedBox(width: AppConstants.space4),
-                ElevatedButton(
-                  onPressed: _sendContextPrompt,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    minimumSize: const Size(0, 32),
-                  ),
-                  child: const Text('SEND', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
           ),
-          if (_isShowingContext)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 200),
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: _isEditingContext
-                  ? TextField(
-                      controller: _contextController,
-                      maxLines: null,
-                      style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                    )
-                  : SingleChildScrollView(
-                      child: SelectableText(
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                if (_isEditingContext)
+                  TextField(
+                    controller: _contextController,
+                    maxLines: 10,
+                    minLines: 3,
+                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                    decoration: const InputDecoration(
+                      hintText: 'Edit context details...',
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 150),
+                    child: SingleChildScrollView(
+                      child: Text(
                         _contextController.text,
-                        style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.4),
                       ),
                     ),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => setState(() => _isEditingContext = !_isEditingContext),
+                      child: Text(_isEditingContext ? 'PREVIEW' : 'EDIT'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _sendContextPrompt,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      child: const Text('SEND TO AGENT'),
+                    ),
+                  ],
+                ),
+              ],
             ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _saveSummary() async {
+    setState(() => _isSavingSummary = true);
+    try {
+      await _projectService.updateCardSummary(_card.id, _summaryController.text);
+      if (mounted) {
+        setState(() {
+          _summary = _summaryController.text;
+          _isEditingSummary = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save summary: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingSummary = false);
+    }
+  }
+
+  Future<void> _onToggleComplete() async {
+    try {
+      if (_card.isCompleted) {
+        await _projectService.uncompleteCard(_card.id);
+      } else {
+        await _projectService.completeCard(_card.id);
+      }
+      // Re-load card data
+      final updated = await _projectService.getCard(_card.id);
+      if (mounted && updated != null) {
+        setState(() => _card = updated);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Card "${_card.title}" ${_card.isCompleted ? 'completed' : 'active'}')),
+        );
+        if (_card.isCompleted) {
+          Future.delayed(const Duration(seconds: 2), () => _loadSummary());
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to reload card data')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _onDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Card'),
+        content: Text('Are you sure you want to delete "${_card.title}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _projectService.deleteCard(_card.id);
+        if (mounted && widget.onBack != null) {
+          widget.onBack!();
+        } else if (mounted) {
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        }
+      }
+    }
+  }
+
+  void _showRoadmapPicker() {
+    showDialog(
+      context: context,
+      builder: (context) => RoadmapManagerDialog(
+        projectId: widget.projectId,
+        initialFeatureId: _card.featureId,
+        onFeatureSelected: (milestone, feature) async {
+          try {
+            await _projectService.updateCard(
+              _card.id,
+              featureId: feature?.id,
+            );
+            if (mounted) {
+              setState(() {
+                _selectedMilestone = milestone;
+                _selectedFeature = feature;
+                _card = _card.copyWith(featureId: feature?.id);
+              });
+            }
+          } catch (e) {
+             if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+            }
+          }
+        },
       ),
     );
   }

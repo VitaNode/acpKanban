@@ -51,6 +51,8 @@ class CardResponse(BaseModel):
     acp_provider_id: Optional[str] = None
     config_options: Optional[List[Dict[str, Any]]] = None
     available_commands: Optional[List[Dict[str, Any]]] = None
+    input_tokens: int = 0
+    output_tokens: int = 0
     summary: Optional[str] = None
     created_at: str
     updated_at: str

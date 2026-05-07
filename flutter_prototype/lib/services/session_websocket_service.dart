@@ -136,7 +136,7 @@ class SessionWebSocketService {
     } catch (e) {
       _isConnected = false;
       if (retryCount < 3) {
-        await Future.delayed(Duration(seconds: 2));
+        await Future.delayed(const Duration(seconds: 2));
         return connect(cardId, retryCount: retryCount + 1);
       }
       return false;
@@ -199,7 +199,7 @@ class SessionWebSocketService {
         m = data;
       } else {
         final errorMsg = 'WS: Unexpected message type: ${data.runtimeType}';
-        print(errorMsg);
+        if (kDebugMode) print(errorMsg);
         _errorController.add(errorMsg);
         return;
       }
@@ -215,8 +215,8 @@ class SessionWebSocketService {
               [];
           _messageController.add(_currentMessages);
           
-          // Emit card update if session/provider info is included
-          if (m.containsKey('acp_session_id') || m.containsKey('acp_provider_id')) {
+          // Emit card update if session/provider/tokens info is included
+          if (m.containsKey('acp_session_id') || m.containsKey('acp_provider_id') || m.containsKey('input_tokens')) {
             _cardUpdateController.add(KanbanCard(
               id: _currentCardId ?? '',
               title: '', // Not used by CardDetailView listener for this case
@@ -226,6 +226,9 @@ class SessionWebSocketService {
               updatedAt: '',
               acpSessionId: m['acp_session_id'],
               acpProviderId: m['acp_provider_id'],
+              availableCommands: (m['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
+              inputTokens: m['input_tokens'] ?? 0,
+              outputTokens: m['output_tokens'] ?? 0,
             ));
           }
 
@@ -259,6 +262,9 @@ class SessionWebSocketService {
           break;
         case 'agent_message_chunk':
           final chunk = m['content']?['text'] ?? '';
+          if (m['_meta'] != null || m['usage'] != null) {
+            _requestHistory(); // Refresh to get cumulative tokens from DB
+          }
           if (chunk.isNotEmpty) {
             if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
               final last = _currentMessages.last;
@@ -280,6 +286,9 @@ class SessionWebSocketService {
           break;
         case 'agent_thought_chunk':
           final thought = m['content']?['text'] ?? '';
+          if (m['_meta'] != null || m['usage'] != null) {
+            _requestHistory(); // Refresh to get cumulative tokens from DB
+          }
           if (thought.isNotEmpty) {
              if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
               final last = _currentMessages.last;
@@ -356,7 +365,7 @@ class SessionWebSocketService {
       }
     } catch (e) {
       _initializingController.add(false);
-      print('WS Parse Error: $e');
+      if (kDebugMode) print('WS Parse Error: $e');
       _errorController.add('Failed to process message: $e');
     }
   }
@@ -375,9 +384,10 @@ class SessionWebSocketService {
   }
 
   Future<void> setConfigOption(String configId, String value) async {
-    if (_isConnected)
+    if (_isConnected) {
       await _send(
           {'type': 'set_config_option', 'name': configId, 'value': value});
+    }
   }
 
   Future<void> sendMessage(String role, String content) async {

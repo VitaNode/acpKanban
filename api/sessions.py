@@ -60,6 +60,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                     "messages": [format_session_message(m) for m in history],
                     "acp_session_id": card.get("acp_session_id") if card else None,
                     "acp_provider_id": card.get("acp_provider_id") if card else None,
+                    "input_tokens": card.get("input_tokens", 0) if card else 0,
+                    "output_tokens": card.get("output_tokens", 0) if card else 0,
                 }
                 # Include config options if available from DB
                 if config_opts:

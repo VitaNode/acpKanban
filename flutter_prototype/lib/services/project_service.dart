@@ -589,11 +589,12 @@ class ProjectService {
   }
 
   Future<KanbanCard?> updateCard(String cardId,
-      {String? title, String? description}) async {
+      {String? title, String? description, String? featureId}) async {
     try {
       final body = <String, dynamic>{};
       if (title != null) body['title'] = title;
       if (description != null) body['description'] = description;
+      if (featureId != null) body['feature_id'] = featureId;
 
       // Debug logging
       debugPrint('[ProjectService] updateCard request:');
@@ -601,6 +602,7 @@ class ProjectService {
       debugPrint('  - body: $body');
       debugPrint('  - title: "$title"');
       debugPrint('  - description: "$description"');
+      debugPrint('  - featureId: "$featureId"');
 
       final response = await _put('/api/cards/$cardId', body);
 

@@ -5,10 +5,14 @@ import '../constants/app_constants.dart';
 
 class RoadmapManagerDialog extends StatefulWidget {
   final String projectId;
+  final String? initialFeatureId;
+  final Function(ProjectMilestone milestone, ProjectFeature? feature)? onFeatureSelected;
 
   const RoadmapManagerDialog({
     Key? key,
     required this.projectId,
+    this.initialFeatureId,
+    this.onFeatureSelected,
   }) : super(key: key);
 
   @override
@@ -31,16 +35,26 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
     try {
       final data = await ACPClient().getProjectProgress(widget.projectId, depth: 2);
       final milestones = data.map((m) => ProjectMilestone.fromJson(m)).toList();
+      
+      ProjectMilestone? foundMilestone;
+      ProjectFeature? foundFeature;
+
+      if (widget.initialFeatureId != null) {
+        for (var m in milestones) {
+          for (var f in m.features) {
+            if (f.id == widget.initialFeatureId) {
+              foundMilestone = m;
+              foundFeature = f;
+              break;
+            }
+          }
+          if (foundFeature != null) break;
+        }
+      }
+
       setState(() {
         _milestones = milestones;
-        if (_selectedMilestone != null) {
-          _selectedMilestone = milestones.firstWhere(
-            (m) => m.id == _selectedMilestone!.id,
-            orElse: () => milestones.isNotEmpty ? milestones.first : null!,
-          );
-        } else if (milestones.isNotEmpty) {
-          _selectedMilestone = milestones.first;
-        }
+        _selectedMilestone = foundMilestone ?? (milestones.isNotEmpty ? milestones.first : null);
         _isLoading = false;
       });
     } catch (e) {
@@ -271,6 +285,11 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
                         _loadData();
                       },
                     ),
+                    onTap: () {
+                      if (widget.onFeatureSelected != null) {
+                        widget.onFeatureSelected!(_selectedMilestone!, f);
+                      }
+                    },
                     dense: true,
                     visualDensity: VisualDensity.compact,
                   );

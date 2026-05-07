@@ -211,6 +211,46 @@ class MessageDispatcher:
         # Also publish via bus for API-level subscribers
         bus.publish(card_id or session_id, {"type": "available_commands", "commands": cmds})
 
+    def _extract_and_update_tokens(self, data: Dict[str, Any], card_id: str):
+        """Extract tokens from various agent formats and update the database."""
+        if not card_id or not isinstance(data, dict):
+            return
+
+        input_tokens = 0
+        output_tokens = 0
+
+        # Check in result (RPC response)
+        result = data.get("result") if isinstance(data.get("result"), dict) else {}
+        usage = result.get("usage") or data.get("usage") or {}
+        meta = result.get("_meta") or data.get("_meta") or {}
+
+        # 1. OpenCode/Common format: usage.inputTokens / usage.outputTokens
+        if usage:
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+        
+        # 2. Gemini/Qwen format in meta
+        if meta:
+            # Gemini quota
+            quota = meta.get("quota", {})
+            tc = quota.get("token_count", {})
+            if tc:
+                input_tokens = max(input_tokens, tc.get("input_tokens", 0))
+                output_tokens = max(output_tokens, tc.get("output_tokens", 0))
+            
+            # Qwen/Common usage in meta
+            q_usage = meta.get("usage", {})
+            if q_usage:
+                input_tokens = max(input_tokens, q_usage.get("inputTokens", 0))
+                output_tokens = max(output_tokens, q_usage.get("outputTokens", 0))
+
+        if input_tokens > 0 or output_tokens > 0:
+            logger.info(f"[*] Token Usage for {card_id}: ↑{input_tokens} ↓{output_tokens}")
+            try:
+                self.db.update_card_token_usage(card_id, input_tokens, output_tokens)
+            except Exception as e:
+                logger.error(f"Failed to update token usage: {e}")
+
     async def dispatch(self, data: Dict[str, Any], on_output: Callable) -> Optional[Dict[str, Any]]:
         method = data.get("method")
         params = data.get("params", {})
@@ -440,6 +480,10 @@ class MessageDispatcher:
                 await self._forward_notification(card_id, n, on_output)
 
             await engine.process_prompt(method, params, on_notification=forward_notif)
+            
+            # Extract tokens from the prompt result if the engine provides it (some adapters do)
+            # engine.process_prompt doesn't return the result directly usually, but we check if we can get it.
+            
             if engine.acp_session_id != params.get("acp_session_id"): await asyncio.to_thread(self.db.update_card_session_id, card_id, engine.acp_session_id)
             # Mark assistant response as complete so Flutter stops showing "AI is thinking..."
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
@@ -470,6 +514,13 @@ class MessageDispatcher:
 
     async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None):
         """Shared notification forwarding logic for both user and system prompts."""
+        if isinstance(n, dict):
+            self._extract_and_update_tokens(n, card_id)
+            if "params" in n and isinstance(n["params"], dict):
+                self._extract_and_update_tokens(n["params"], card_id)
+                if "update" in n["params"] and isinstance(n["params"]["update"], dict):
+                    self._extract_and_update_tokens(n["params"]["update"], card_id)
+
         method = n.get("method")
         params = n.get("params", {})
         update = params.get("update", {})

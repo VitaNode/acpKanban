@@ -343,6 +343,14 @@ class ACPClient {
     }
   }
 
+  Future<List<Map<String, dynamic>>> listProviders() async {
+    final response = await sendRequest('provider/list', {});
+    if (response.containsKey('result')) {
+      return List<Map<String, dynamic>>.from(response['result']);
+    }
+    return [];
+  }
+
   Future<List<Map<String, dynamic>>> getProjectProgress(String projectId,
       {int depth = 3}) async {
     final response = await sendRequest(

@@ -18,6 +18,8 @@ class KanbanCard {
   final String? summary;
   final String? sessionMode;
   final List<Map<String, dynamic>>? availableCommands;
+  final int inputTokens;
+  final int outputTokens;
 
   KanbanCard({
     required this.id,
@@ -39,6 +41,8 @@ class KanbanCard {
     this.summary,
     this.sessionMode,
     this.availableCommands,
+    this.inputTokens = 0,
+    this.outputTokens = 0,
   });
 
   String get shortId => id.length >= 8 ? id.substring(0, 8) : id;
@@ -65,6 +69,8 @@ class KanbanCard {
       summary: json['summary'],
       sessionMode: json['session_mode'],
       availableCommands: (json['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
+      inputTokens: json['input_tokens'] ?? 0,
+      outputTokens: json['output_tokens'] ?? 0,
     );
   }
 
@@ -88,6 +94,8 @@ class KanbanCard {
       if (summary != null) 'summary': summary,
       if (sessionMode != null) 'session_mode': sessionMode,
       if (availableCommands != null) 'available_commands': availableCommands,
+      'input_tokens': inputTokens,
+      'output_tokens': outputTokens,
     };
   }
 
@@ -106,6 +114,8 @@ class KanbanCard {
     String? acpProviderId,
     String? sessionMode,
     List<Map<String, dynamic>>? availableCommands,
+    int? inputTokens,
+    int? outputTokens,
   }) {
     return KanbanCard(
       id: id,
@@ -125,6 +135,8 @@ class KanbanCard {
       acpProviderId: acpProviderId ?? this.acpProviderId,
       sessionMode: sessionMode ?? this.sessionMode,
       availableCommands: availableCommands ?? this.availableCommands,
+      inputTokens: inputTokens ?? this.inputTokens,
+      outputTokens: outputTokens ?? this.outputTokens,
     );
   }
 }
