@@ -254,10 +254,25 @@ class MessageDispatcher:
                     except: pass
 
             handler = self.commands.get_handler(prompt_text)
-            if handler: return await handler(params, request_id)
+            if handler:
+                logger.info(f"[*] Executing local command: {prompt_text} (rid: {request_id})")
+                card_id = params.get("card_id")
+                if card_id:
+                    # Record the command in history
+                    await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text)
+                
+                result = await handler(params, request_id)
+                
+                if card_id and isinstance(result, dict) and "message" in result:
+                    # Record the response in history and trigger UI refresh to clear "Agent is working"
+                    await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", result["message"], is_complete=True)
+                    bus.publish(card_id, {"type": "refresh"})
+                
+                return result
 
         card_id = params.get("card_id")
         if card_id and method in ("chat/message", "session/prompt"):
+            logger.info(f"[*] Processing AI prompt for card {card_id} (rid: {request_id})")
             session_id = params.get("sessionId")
             is_internal = session_id in self._internal_sessions
             if not is_internal:
@@ -291,8 +306,11 @@ class MessageDispatcher:
                     # Provider matches, reuse engine
                     if on_nested_request:
                         existing_engine.set_on_request(on_nested_request)
-                    if existing_engine.acp_session_id and existing_engine.current_config_options and on_output:
-                        bus.publish(card_id, {"type": "config_options", "options": existing_engine.current_config_options})
+                    if existing_engine.acp_session_id and on_output:
+                        # Always advertise commands on connection to ensure UI is in sync
+                        await self._advertise_commands(existing_engine.acp_session_id, on_output)
+                        if existing_engine.current_config_options:
+                            bus.publish(card_id, {"type": "config_options", "options": existing_engine.current_config_options})
                     return existing_engine, False
                 else:
                     # Provider mismatch! Stop the old engine to ensure isolation
@@ -521,19 +539,30 @@ class MessageDispatcher:
         if new_options is not None: bus.publish(card_id, {"type": "config_options", "options": new_options})
         return new_options
 
-    async def _handle_status_cmd(self, p, rid): return {"message": f"Engines active: {len(self.engines)}"}
+    async def _handle_status_cmd(self, p, rid):
+        msg = f"Engines active: {len(self.engines)}"
+        logger.info(f"[*] Command /status: {msg}")
+        return {"message": msg}
+
     async def _handle_summarize_cmd(self, p, rid):
         cid = p.get("card_id")
         if not cid: return {"error": "Missing card_id"}
+        logger.info(f"[*] Command /summarize for card {cid}")
         asyncio.create_task(self.summary_service.summarize_move(cid, "Manual", "Current"))
         return {"message": "Summary task started."}
+
     async def _handle_reset_cmd(self, p, rid):
         cid = p.get("card_id")
+        logger.info(f"[*] Command /reset for card {cid}")
         if cid in self.engines: await self.engines[cid].stop(); del self.engines[cid]
         await asyncio.to_thread(self.db.update_card_session_id, cid, None)
         return {"message": "Reset complete."}
+
     async def _handle_help_cmd(self, p, rid):
-        return {"message": "Available:\n" + "\n".join([f"- `/{c['name']}`: {c['description']}" for c in self._get_available_commands()])}
+        msg = "Available:\n" + "\n".join([f"- `/{c['name']}`: {c['description']}" for c in self._get_available_commands()])
+        logger.info(f"[*] Command /help")
+        return {"message": msg}
+
     async def shutdown(self):
         await self.tasks.cancel_all()
         await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)
