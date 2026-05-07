@@ -807,7 +807,13 @@ class _CardDetailViewState extends State<CardDetailView> {
             Row(children: [
               if (_isSavingSummary)
                 const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              else
+              else ...[
+                if (!_isEditingSummary)
+                  IconButton(
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                    onPressed: _generateSummary,
+                    tooltip: 'Auto-generate summary',
+                  ),
                 IconButton(
                   icon: Icon(_isEditingSummary ? Icons.check_rounded : Icons.edit_outlined, size: 18),
                   onPressed: () {
@@ -818,6 +824,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                     }
                   },
                 ),
+              ],
             ]),
           ]),
           const SizedBox(height: AppConstants.space4),
@@ -1069,6 +1076,31 @@ class _CardDetailViewState extends State<CardDetailView> {
         ],
       ),
     );
+  }
+
+  Future<void> _generateSummary() async {
+    setState(() => _isSavingSummary = true);
+    try {
+      final result = await _projectService.generateCardSummary(_card.id);
+      if (mounted) {
+        if (result != null && result['summary'] != null && result['summary'].isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Summary generated successfully!')),
+          );
+          _loadSummary();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result?['message'] ?? 'No messages to summarize')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingSummary = false);
+    }
   }
 
   Future<void> _saveSummary() async {
