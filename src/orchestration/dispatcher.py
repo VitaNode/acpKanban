@@ -188,6 +188,7 @@ class MessageDispatcher:
     async def _advertise_commands(self, session_id: str, on_output: Optional[Callable] = None, card_id: Optional[str] = None):
         # Phase 5.1: Advertise to UI via standard notification
         cmds = self._get_available_commands(card_id)
+        logger.info(f"[*] Advertising {len(cmds)} commands for card {card_id or 'N/A'} (session: {session_id[:8]})")
         notif = {
             "jsonrpc": "2.0", "method": "session/update",
             "params": {
