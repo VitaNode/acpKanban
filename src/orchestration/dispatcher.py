@@ -51,6 +51,17 @@ class MessageDispatcher:
         self._internal_sessions: Set[str] = set()
         self._pending_ui_requests = ui_requests if ui_requests is not None else {}
         self._current_turn_usage: Dict[str, Dict[str, int]] = {} # card_id -> {"input": 0, "output": 0}
+        
+        # AG-UI Buffer Layer (Phase 1)
+        self._seq_counters: Dict[str, int] = {}  # card_id -> next seqId
+        self._chunk_buffers: Dict[str, list] = {}  # card_id -> list of chunks
+        self._flush_timers: Dict[str, asyncio.TimerHandle] = {}  # card_id -> timer handle
+        self._flush_locks: Dict[str, asyncio.Lock] = {}  # card_id -> flush lock
+        self._card_ui_formats: Dict[str, str] = {}  # card_id -> "acp" or "ag_ui"
+        
+        # AG-UI Configuration
+        self._ag_ui_flush_interval_ms = 500  # Time-based flush trigger
+        self._ag_ui_buffer_capacity = 20  # Capacity-based flush trigger (chunks)
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -308,6 +319,11 @@ class MessageDispatcher:
             return await self._handlers[method](params, request_id)
 
         ui_format = params.get("ui_format", "acp")
+        
+        # Store ui_format for this card (for use in _forward_notification)
+        card_id_for_format = params.get("card_id")
+        if card_id_for_format:
+            self._card_ui_formats[card_id_for_format] = ui_format
 
         async def wrapped_notification(notif_data):
             """Send notification via on_output WITHOUT waiting for a response."""
@@ -416,9 +432,12 @@ class MessageDispatcher:
             if "params" in n:
                 n["params"]["card_id"] = card_id
             
+            # Get ui_format for this card (default to "acp")
+            card_ui_format = self._card_ui_formats.get(card_id, "acp")
+            
             # ALWAYS forward to logic, even if on_output is None
             # This ensures bus.publish is called for background events
-            await self._forward_notification(card_id, n, on_output)
+            await self._forward_notification(card_id, n, on_output, ui_format=card_ui_format)
 
         # Phase 5.3 FIX: Check if cached engine exists and matches the target provider
         if card_id in self.engines:
@@ -524,7 +543,8 @@ class MessageDispatcher:
             async def forward_notif(n):
                 if "params" in n: n["params"]["card_id"] = card_id
                 if is_internal: await on_output(n); return
-                await self._forward_notification(card_id, n, on_output)
+                card_ui_format = self._card_ui_formats.get(card_id, "acp")
+                await self._forward_notification(card_id, n, on_output, ui_format=card_ui_format)
 
             res = await engine.process_prompt(method, params, on_notification=forward_notif)
 
@@ -562,7 +582,7 @@ class MessageDispatcher:
             "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]
         }, on_notification=on_output)
 
-    async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None):
+    async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None, ui_format: str = "acp"):
         """Shared notification forwarding logic for both user and system prompts."""
         if isinstance(n, dict):
             self._extract_and_update_tokens(n, card_id)
@@ -592,6 +612,16 @@ class MessageDispatcher:
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
         elif method == "_qwencode/slash_command":
             chunk_text = params.get("message", "")
+
+        # AG-UI Buffer Layer: Buffer chunks instead of immediate dispatch
+        if ui_format == "ag_ui" and chunk_text:
+            # Map to AG-UI event and buffer
+            ag_event = AGUIMapper.map_notification(n)
+            if ag_event:
+                await self._buffer_chunk(card_id, ag_event, on_output)
+                # Also persist to DB for history
+                await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False)
+            return
 
         if chunk_text:
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False)
@@ -674,12 +704,185 @@ class MessageDispatcher:
                 bus.publish(card_id, {"type": "refresh"})
         elif utype == "stop":
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
+            # AG-UI: Flush buffer on session stop
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                await self._flush_on_event(card_id, "session_stop")
             bus.publish(card_id, {"type": "refresh"})
 
         # NOTE: Do NOT await on_output(n) here. Notifications are fire-and-forget.
         # Blocking here causes the notification pipeline to stall, as on_output
         # eventually calls on_ui_request which waits up to 300s for a UI response.
         # Actual UI requests (permissions, fs access) are handled via wrapped_request.
+
+    # ==================== AG-UI Buffer Layer (Phase 1) ====================
+    
+    def _get_next_seq(self, card_id: str) -> int:
+        """
+        Generate next sequence ID for a session.
+        Each card_id maintains its own independent counter.
+        
+        Args:
+            card_id: The card/session identifier
+            
+        Returns:
+            Next sequential ID (1-indexed)
+        """
+        if card_id not in self._seq_counters:
+            self._seq_counters[card_id] = 0
+        self._seq_counters[card_id] += 1
+        return self._seq_counters[card_id]
+    
+    def set_ui_format(self, card_id: str, ui_format: str):
+        """
+        Explicitly set the UI format for a session.
+        
+        Args:
+            card_id: The card/session identifier
+            ui_format: "acp" or "ag_ui"
+        """
+        logger.info(f"[AG-UI] Setting UI format to {ui_format} for card {card_id}")
+        self._card_ui_formats[card_id] = ui_format
+    
+    async def _buffer_chunk(self, card_id: str, chunk: Dict[str, Any], on_output: Optional[Callable] = None):
+        """
+        Buffer a chunk and schedule flush based on time/capacity triggers.
+        
+        Args:
+            card_id: The card/session identifier
+            chunk: The chunk data to buffer
+            on_output: Optional callback for immediate dispatch
+        """
+        if card_id not in self._chunk_buffers:
+            self._chunk_buffers[card_id] = []
+            self._flush_locks[card_id] = asyncio.Lock()
+        
+        # Add seqId to chunk
+        chunk["seqId"] = self._get_next_seq(card_id)
+        self._chunk_buffers[card_id].append(chunk)
+        
+        logger.debug(f"[AG-UI] Buffered chunk for {card_id}: seqId={chunk['seqId']}, buffer_size={len(self._chunk_buffers[card_id])}")
+        
+        # Check capacity trigger (immediate flush if buffer is full)
+        if len(self._chunk_buffers[card_id]) >= self._ag_ui_buffer_capacity:
+            await self._trigger_flush(card_id, "capacity")
+            return
+        
+        # Schedule time-based flush if not already scheduled
+        if card_id not in self._flush_timers or self._flush_timers[card_id].cancelled():
+            self._flush_timers[card_id] = asyncio.get_event_loop().call_later(
+                self._ag_ui_flush_interval_ms / 1000.0,
+                lambda: asyncio.create_task(self._trigger_flush(card_id, "timeout"))
+            )
+    
+    async def _trigger_flush(self, card_id: str, reason: str = "manual"):
+        """
+        Trigger a buffer flush for the given card.
+        
+        Args:
+            card_id: The card/session identifier
+            reason: Reason for flush (timeout, capacity, event, manual)
+        """
+        # Cancel pending timer
+        if card_id in self._flush_timers and not self._flush_timers[card_id].cancelled():
+            self._flush_timers[card_id].cancel()
+        
+        await self._flush_buffer(card_id, reason)
+    
+    async def _flush_buffer(self, card_id: str, reason: str = "manual"):
+        """
+        Flush buffered chunks to persistent storage.
+        
+        Args:
+            card_id: The card/session identifier
+            reason: Reason for flush
+        """
+        if card_id not in self._flush_locks:
+            self._flush_locks[card_id] = asyncio.Lock()
+        
+        async with self._flush_locks[card_id]:
+            buffer = self._chunk_buffers.get(card_id, [])
+            if not buffer:
+                logger.debug(f"[AG-UI] No chunks to flush for {card_id}")
+                return
+            
+            logger.info(f"[AG-UI] Flushing {len(buffer)} chunks for {card_id} (reason: {reason})")
+            
+            try:
+                # Persist chunks to database
+                # TODO: Implement actual persistence logic based on your storage schema
+                # For now, we'll just log and clear the buffer
+                for chunk in buffer:
+                    # Example: self.db.sessions.add_ag_ui_chunk(card_id, chunk)
+                    pass
+                
+                # Clear buffer after successful flush
+                self._chunk_buffers[card_id] = []
+                logger.debug(f"[AG-UI] Flush complete for {card_id}")
+                
+            except Exception as e:
+                logger.error(f"[AG-UI] Flush failed for {card_id}: {e}")
+                # Keep buffer on failure for retry
+    
+    async def _flush_on_event(self, card_id: str, event_type: str):
+        """
+        Flush buffer on specific events (message_end, session_stop).
+        
+        Args:
+            card_id: The card/session identifier
+            event_type: Type of event triggering the flush
+        """
+        if event_type in ("message_end", "session_stop", "stop"):
+            logger.info(f"[AG-UI] Event-triggered flush for {card_id} (event: {event_type})")
+            await self._trigger_flush(card_id, f"event:{event_type}")
+    
+    async def recover_incomplete_messages(self, card_id: str):
+        """
+        Recover incomplete messages from previous session (crash recovery).
+        Scans for is_complete=0 records and marks them as interrupted.
+        
+        Args:
+            card_id: The card/session identifier
+        """
+        logger.info(f"[AG-UI] Recovering incomplete messages for {card_id}")
+        
+        # Get incomplete messages from DB
+        incomplete = await asyncio.to_thread(self.db.sessions.get_incomplete_messages, card_id)
+        
+        for msg in incomplete:
+            # Mark as interrupted in metadata
+            metadata = msg.get("metadata") or {}
+            metadata["is_interrupted"] = True
+            metadata["interrupted_at"] = asyncio.get_event_loop().time()
+            
+            # Update in database
+            await asyncio.to_thread(
+                self.db.sessions.update_message_metadata,
+                msg["id"],
+                metadata
+            )
+            
+            logger.debug(f"[AG-UI] Marked message {msg['id']} as interrupted")
+        
+        logger.info(f"[AG-UI] Recovery complete: {len(incomplete)} messages marked")
+    
+    async def shutdown_ag_ui_buffers(self):
+        """
+        Flush all pending buffers during shutdown.
+        """
+        logger.info("[AG-UI] Flushing all pending buffers on shutdown")
+        
+        for card_id in list(self._chunk_buffers.keys()):
+            await self._trigger_flush(card_id, "shutdown")
+        
+        # Cancel all pending timers
+        for timer in self._flush_timers.values():
+            if not timer.cancelled():
+                timer.cancel()
+        
+        self._chunk_buffers.clear()
+        self._flush_timers.clear()
+    
+    # ==================== End AG-UI Buffer Layer ====================
 
     async def handle_set_config_option(self, card_id: str, config_id: str, value: Any):
         engine, _ = await self._get_or_create_engine(card_id)
@@ -712,5 +915,8 @@ class MessageDispatcher:
         return {"message": msg}
 
     async def shutdown(self):
+        # Flush AG-UI buffers before shutdown
+        await self.shutdown_ag_ui_buffers()
+        
         await self.tasks.cancel_all()
         await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)

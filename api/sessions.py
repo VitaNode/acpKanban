@@ -80,7 +80,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
             elif msg_type == "send_message":
                 role = message.get("role", "user")
                 content = message.get("content", "")
-                print(f"DEBUG: Received message for card {card_id}: {content[:30]}...")
+                ui_format = message.get("ui_format", "acp")
+                print(f"DEBUG: Received message for card {card_id}: {content[:30]}... (format: {ui_format})")
                 
                 # We no longer add message to DB here, Dispatcher will handle it
                 # to avoid duplication.
@@ -98,6 +99,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "params": {
                                 "card_id": card_id,
                                 "message": content,
+                                "ui_format": ui_format
                             }
                         }
                         # Run in background task
@@ -174,6 +176,10 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 bridge_instance = run_bridge.bridge_instance
                 if bridge_instance:
                     try:
+                        # Extract ui_format from init message
+                        ui_format = message.get("ui_format", "acp")
+                        bridge_instance.dispatcher.set_ui_format(card_id, ui_format)
+                        
                         # 1. Start engine in Quiet mode (discovery only)
                         # Phase 5.3 FIX: Must pass is_quiet=True to the creation method as well
                         engine, _ = await bridge_instance.dispatcher._get_or_create_engine(card_id, is_quiet=True)
@@ -184,7 +190,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "type": "session_info",
                             "sessionId": engine.acp_session_id,
                             "config_options": engine.current_config_options,
-                            "is_alive": True
+                            "is_alive": True,
+                            "ui_format": ui_format # Confirm format to client
                         }))
                     except Exception as e:
                         print(f"ERROR in session_init: {e}")

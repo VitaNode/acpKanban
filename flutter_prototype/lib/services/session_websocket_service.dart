@@ -387,7 +387,10 @@ class SessionWebSocketService {
   Future<void> sendInit() async {
     if (_isConnected) {
       _initializingController.add(true);
-      await _send({'type': 'session_init'});
+      await _send({
+        'type': 'session_init',
+        'ui_format': 'ag_ui',
+      });
     }
   }
 
@@ -407,7 +410,7 @@ class SessionWebSocketService {
   Future<void> sendMessage(String role, String content) async {
     if (!_isConnected) throw Exception('Not connected');
     await _send(
-        {'type': 'send_message', 'role': role, 'content': content});
+        {'type': 'send_message', 'role': role, 'content': content, 'ui_format': 'ag_ui'});
   }
 
   Future<void> sendResponse(String id, Map<String, dynamic> result) async {

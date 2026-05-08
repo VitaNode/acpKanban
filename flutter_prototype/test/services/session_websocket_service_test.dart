@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_prototype/services/session_websocket_service.dart';
+import 'package:kanban_app/services/session_websocket_service.dart';
 
 void main() {
   group('SessionWebsocketService AG-UI Tests', () {
