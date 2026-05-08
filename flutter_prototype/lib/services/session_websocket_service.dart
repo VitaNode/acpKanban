@@ -6,6 +6,7 @@ import '../models/card_message.dart';
 import '../models/agent_plan.dart';
 import '../models/config_option.dart';
 import '../models/kanban_card.dart';
+import '../models/ag_ui_event.dart';
 import 'acp_client.dart';
 import 'smart_connect.dart';
 
@@ -43,6 +44,10 @@ class SessionWebSocketService {
 
   // Local cache to support streaming updates
   List<CardMessage> _currentMessages = [];
+  
+  // AG-UI Buffer for out-of-order event reordering
+  final Map<int, AgUiEvent> _eventBuffer = {};
+  int _lastContiguousSeqId = 0;
 
   Stream<List<CardMessage>> get messages => _messageController.stream;
   Stream<String> get status => _statusController.stream;
@@ -207,6 +212,29 @@ class SessionWebSocketService {
         _requestController.add(m);
         return;
       }
+      // Handle AG-UI events (when ui_format is 'ag_ui')
+      if (m['type'] == 'ag_ui_event') {
+        final agUiEvent = AgUiEvent.fromMessage(CardMessage(
+          id: '',
+          cardId: _currentCardId ?? '',
+          role: 'assistant',
+          content: jsonEncode(m),
+          createdAt: '',
+        ));
+
+        // Buffer the event by its seqId if present
+        if (agUiEvent.seqId != null) {
+          _eventBuffer[agUiEvent.seqId!] = agUiEvent;
+          
+          // Try to deliver any contiguous events we now have
+          _tryDeliverBufferedEvents();
+        } else {
+          // No seqId, deliver immediately (e.g., heartbeat, session info)
+          _deliverAgUiEvent(agUiEvent);
+        }
+        return; // Important: don't fall through to other handlers
+      }
+
       switch (m['type']) {
         case 'history':
           _currentMessages = (m['messages'] as List?)
@@ -381,6 +409,109 @@ class SessionWebSocketService {
       _initializingController.add(false);
       if (kDebugMode) print('WS Parse Error: $e');
       _errorController.add('Failed to process message: $e');
+    }
+  }
+
+  void _deliverAgUiEvent(AgUiEvent event) {
+    // Convert AgUiEvent back to CardMessage for UI consumption
+    // This maintains compatibility with existing UI while enabling AG-UI features
+    final Map<String, dynamic> agEventMap = {};
+    if (event.eventType != null) agEventMap['event'] = event.eventType;
+    if (event.text != null) agEventMap['text'] = event.text;
+    if (event.reasoning != null) agEventMap['reasoning'] = event.reasoning;
+    if (event.seqId != null) agEventMap['seqId'] = event.seqId;
+    if (event.isComplete != null) agEventMap['is_complete'] = event.isComplete;
+    if (event.sessionId != null) agEventMap['session_id'] = event.sessionId;
+    if (event.toolCalls != null) {
+      agEventMap['tool_calls'] = event.toolCalls!.map((tc) => {
+        'tool_id': tc.toolId,
+        'name': tc.name,
+        'status': tc.status,
+        'args': tc.args,
+        'result': tc.result,
+      }).toList();
+    }
+
+    final agUiMessage = CardMessage(
+      id: '${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
+      cardId: _currentCardId ?? '',
+      role: 'assistant',
+      content: jsonEncode(agEventMap),
+      createdAt: DateTime.now().toIso8601String(),
+      isComplete: event.isComplete ?? false,
+    );
+
+    // Handle different event types for UI rendering
+    if (event.eventType == 'agent_message_chunk' && event.text != null) {
+      final chunk = event.text!;
+      if (_currentMessages.isNotEmpty && 
+          _currentMessages.last.role == 'assistant' && 
+          !_currentMessages.last.isComplete) {
+        final last = _currentMessages.last;
+        _currentMessages[_currentMessages.length - 1] = last.copyWith(
+          content: last.content + chunk
+        );
+      } else {
+        _currentMessages.add(CardMessage(
+          id: 'streaming-${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
+          cardId: _currentCardId ?? '',
+          role: 'assistant',
+          content: chunk,
+          createdAt: DateTime.now().toIso8601String(),
+          isComplete: false
+        ));
+      }
+      _messageController.add(List.from(_currentMessages));
+    } 
+    else if (event.eventType == 'agent_thought_chunk' && event.text != null) {
+      final thought = event.text!;
+      if (_currentMessages.isNotEmpty && 
+          _currentMessages.last.role == 'assistant' && 
+          !_currentMessages.last.isComplete) {
+        final last = _currentMessages.last;
+        final metadata = Map<String, dynamic>.from(last.metadata ?? {});
+        metadata['thought'] = (metadata['thought'] ?? '') + thought;
+        _currentMessages[_currentMessages.length - 1] = last.copyWith(
+          metadata: metadata
+        );
+      } else {
+        _currentMessages.add(CardMessage(
+          id: 'thought-${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
+          cardId: _currentCardId ?? '',
+          role: 'assistant',
+          content: '',
+          createdAt: DateTime.now().toIso8601String(),
+          isComplete: false,
+          metadata: {'thought': thought}
+        ));
+      }
+      _messageController.add(List.from(_currentMessages));
+    }
+    else if (event.eventType == 'tool_call_start' || event.eventType == 'tool_call_result') {
+      // Tool events trigger a history refresh to get latest state
+      _requestHistory();
+    }
+    else {
+      // For other event types, just add the raw message for now
+      _currentMessages.add(agUiMessage);
+      _messageController.add(List.from(_currentMessages));
+    }
+  }
+
+  void _tryDeliverBufferedEvents() {
+    // Continuously deliver events from buffer as long as we have the next seqId
+    while (_eventBuffer.containsKey(_lastContiguousSeqId + 1)) {
+      final nextSeqId = _lastContiguousSeqId + 1;
+      final event = _eventBuffer.remove(nextSeqId)!;
+      _lastContiguousSeqId = nextSeqId;
+      
+      _deliverAgUiEvent(event);
+      
+      // If this event marks completion, we can consider the message complete
+      if (event.isComplete == true) {
+        // Optionally reset buffer if we want to start fresh for next message
+        // But we keep buffering to handle potential overlaps
+      }
     }
   }
 

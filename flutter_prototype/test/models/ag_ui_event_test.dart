@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_prototype/models/card_message.dart';
-import 'package:flutter_prototype/models/ag_ui_event.dart';
+import 'package:kanban_app/models/card_message.dart';
+import 'package:kanban_app/models/ag_ui_event.dart';
 
 void main() {
   group('AgUiEvent Model & Logic Tests (Expanded)', () {

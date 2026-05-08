@@ -1,10 +1,77 @@
 from typing import Dict, Any, Optional
+import re
 
 class AGUIMapper:
     """
     Maps standard ACP notifications to AG-UI events.
     Ensures semantic continuity across different UI protocols.
     """
+    
+    # Regex pattern for extracting tool call markers from legacy content
+    # Matches: 🛠️ tool_name(args): result
+    TOOL_MARKER_PATTERN = re.compile(r'🛠️\s+(\w+)\(([^)]*)\):\s*(.+)')
+    
+    @staticmethod
+    def map_history_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Maps legacy history message format to AG-UI bundled event.
+        
+        Supports:
+        - Plain text messages
+        - Messages with thought metadata
+        - Smart extraction of tool call markers from content
+        
+        Args:
+            msg: Legacy message dict with keys: role, content, metadata, created_at, is_complete
+            
+        Returns:
+            AG-UI bundled event dict
+        """
+        role = msg.get("role", "assistant")
+        content = msg.get("content", "")
+        metadata = msg.get("metadata") or {}
+        created_at = msg.get("created_at", "")
+        is_complete = msg.get("is_complete", True)
+        
+        # Base event structure
+        ag_event = {
+            "event": "message_bundled",
+            "role": role,
+            "text": content,
+            "timestamp": created_at,
+            "is_complete": is_complete
+        }
+        
+        # Extract thought from metadata if present
+        thought = metadata.get("thought")
+        if thought:
+            ag_event["reasoning"] = thought
+        
+        # Smart tool extraction from content (Scheme B: Intelligent parsing)
+        tool_calls = []
+        clean_text = content
+        
+        for match in AGUIMapper.TOOL_MARKER_PATTERN.finditer(content):
+            tool_name = match.group(1)
+            tool_args = match.group(2)
+            tool_result = match.group(3)
+            
+            tool_calls.append({
+                "tool": tool_name,
+                "args": tool_args,
+                "result": tool_result,
+                "status": "completed"  # Historical messages are always completed
+            })
+            
+            # Remove the tool marker from clean text
+            clean_text = clean_text.replace(match.group(0), f"[{tool_name} completed]")
+        
+        if tool_calls:
+            ag_event["tool_calls"] = tool_calls
+            ag_event["text"] = clean_text
+        
+        return ag_event
+    
     @staticmethod
     def map_notification(acp_notif: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         method = acp_notif.get("method")
