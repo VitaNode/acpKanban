@@ -83,6 +83,10 @@ class _CardDetailViewState extends State<CardDetailView> {
   StreamSubscription? _initializingSub;
   StreamSubscription? _contextSub;
   Timer? _debounceTimer;
+  
+  // AG-UI Rendering Throttle
+  Timer? _renderThrottleTimer;
+  List<CardMessage> _pendingMessages = [];
 
   @override
   void initState() {
@@ -191,12 +195,12 @@ class _CardDetailViewState extends State<CardDetailView> {
   void _setupWebSocket() {
     _wsService.connect(_card.id);
     _messageSub = _wsService.messages.listen((msgs) {
-      if (mounted) {
-        setState(() {
-          _messages = msgs;
-          _isAgentProcessing = msgs.isNotEmpty && !msgs.last.isComplete && msgs.last.role == 'assistant';
-        });
-        _scrollToBottom();
+      if (!mounted) return;
+
+      // AG-UI Throttle: Buffer updates and flush every 60ms
+      _pendingMessages = msgs;
+      if (_renderThrottleTimer == null || !_renderThrottleTimer!.isActive) {
+        _renderThrottleTimer = Timer(AppConstants.streamThrottleMs, _flushMessages);
       }
     });
 
@@ -240,6 +244,15 @@ class _CardDetailViewState extends State<CardDetailView> {
         });
       }
     });
+  }
+
+  void _flushMessages() {
+    if (!mounted) return;
+    setState(() {
+      _messages = _pendingMessages;
+      _isAgentProcessing = _messages.isNotEmpty && !_messages.last.isComplete && _messages.last.role == 'assistant';
+    });
+    _scrollToBottom();
   }
 
   void _onCardUpdate(KanbanCard updatedCard) {
@@ -563,6 +576,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     _errorSub?.cancel();
     _initializingSub?.cancel();
     _debounceTimer?.cancel();
+    _renderThrottleTimer?.cancel();
     _titleController.dispose();
     _descriptionController.dispose();
     _summaryController.dispose();

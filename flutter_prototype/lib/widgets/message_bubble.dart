@@ -8,6 +8,8 @@ import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ag_ui/thinking_block.dart';
+import '../widgets/ag_ui/tool_pill.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
@@ -190,80 +192,14 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildThoughtSection(BuildContext context) {
-    final thought = message.metadata!['thought'].toString();
-    if (thought.isEmpty || thought == "...") return const SizedBox.shrink();
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final customColors = theme.extension<CustomColors>()!;
-    final isDark = theme.brightness == Brightness.dark;
+    final thought = message.metadata?['thought']?.toString();
+    if (thought == null || thought.isEmpty || thought == "...") return const SizedBox.shrink();
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppConstants.space12),
-      decoration: BoxDecoration(
-        color: isDark
-            ? customColors.codeBackground 
-            : Colors.amber.shade50.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.1)
-                : Colors.amber.shade100),
-      ),
-      child: Theme(
-        data: theme.copyWith(
-          dividerColor: Colors.transparent,
-          colorScheme: colorScheme.copyWith(surface: Colors.transparent),
-        ),
-        child: ExpansionTile(
-          dense: true,
-          visualDensity: VisualDensity.compact,
-          initiallyExpanded: false,
-          backgroundColor: Colors.transparent,
-          collapsedBackgroundColor: Colors.transparent,
-          leading: Icon(Icons.lightbulb_outline_rounded, 
-              size: 16, 
-              color: isDark ? Colors.amber.shade200 : Colors.amber.shade700),
-          title: Text(
-            'THOUGHT PROCESS',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-              color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
-            ),
-          ),
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(AppConstants.space12, 0,
-                  AppConstants.space12, AppConstants.space12),
-              child: MarkdownBody(
-                data: thought,
-                selectable: true,
-                styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-                  p: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? customColors.codeText : Colors.grey.shade800,
-                    fontStyle: FontStyle.italic,
-                    height: 1.4,
-                    fontFamily: 'monospace',
-                  ),
-                  code: TextStyle(
-                    backgroundColor: isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.1),
-                    color: customColors.codeText,
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                  ),
-                  codeblockDecoration: BoxDecoration(
-                    color: isDark ? Colors.black.withOpacity(0.3) : Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.space12),
+      child: ThinkingBlock(
+        text: thought,
+        isCollapsed: false, // 默认展开
       ),
     );
   }
@@ -280,6 +216,8 @@ class MessageBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final toolName = message.metadata?['name']?.toString() ?? "UNKNOWN";
+    final toolStatus = message.metadata?['status']?.toString() ?? "pending";
     
     return Container(
       margin: const EdgeInsets.symmetric(
@@ -296,11 +234,9 @@ class MessageBubble extends StatelessWidget {
         child: ExpansionTile(
           dense: true,
           visualDensity: VisualDensity.compact,
-          leading: Icon(Icons.terminal_rounded,
-              size: 16,
-              color: isDark ? colorScheme.primary : Colors.blueGrey),
+          leading: ToolPill(name: toolName, status: toolStatus),
           title: Text(
-            'TOOL: ${message.metadata?['name']?.toString().toUpperCase() ?? "UNKNOWN"}',
+            'TOOL LOG',
             style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
