@@ -519,6 +519,7 @@ class CardRepository(BaseRepository):
             conn.execute("UPDATE cards SET available_commands = ? WHERE id = ?", (available_commands, card_id))
 
     def update_token_usage(self, card_id: str, input_tokens: int, output_tokens: int):
+        logger.info(f"[DB] Updating token usage for {card_id}: +↑{input_tokens} +↓{output_tokens}")
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ? WHERE id = ?", (input_tokens, output_tokens, card_id))
 
@@ -799,7 +800,7 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS milestones (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, target_date DATETIME, status TEXT DEFAULT 'active', order_index INTEGER DEFAULT 0, created_at DATETIME, deleted_at DATETIME, FOREIGN KEY (project_id) REFERENCES projects(id))")
             cursor.execute("CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, milestone_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'active', order_index INTEGER DEFAULT 0, created_at DATETIME, deleted_at DATETIME, FOREIGN KEY (milestone_id) REFERENCES milestones(id))")
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', plan_status TEXT DEFAULT 'plan', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT, feature_id TEXT, deleted_at DATETIME)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', plan_status TEXT DEFAULT 'plan', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT, feature_id TEXT, deleted_at DATETIME, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0)")
             cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, card_id TEXT, event_type TEXT, content TEXT, metadata TEXT, timestamp DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_agent_status (project_id TEXT PRIMARY KEY, state TEXT, start_time DATETIME, last_message TEXT, updated_at DATETIME)")
@@ -829,6 +830,8 @@ class KanbanDB:
                 ("cards", "plan_status", "TEXT DEFAULT 'plan'"),
                 ("cards", "feature_id", "TEXT"),
                 ("cards", "deleted_at", "DATETIME"),
+                ("cards", "input_tokens", "INTEGER DEFAULT 0"),
+                ("cards", "output_tokens", "INTEGER DEFAULT 0"),
                 ("summaries", "embedding", "TEXT"), 
                 ("card_sessions", "is_milestone", "INTEGER DEFAULT 0")
             ]

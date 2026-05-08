@@ -50,6 +50,7 @@ class MessageDispatcher:
         self._engine_creation_locks: Dict[str, asyncio.Lock] = {}
         self._internal_sessions: Set[str] = set()
         self._pending_ui_requests = ui_requests if ui_requests is not None else {}
+        self._current_turn_usage: Dict[str, Dict[str, int]] = {} # card_id -> {"input": 0, "output": 0}
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -216,8 +217,11 @@ class MessageDispatcher:
         if not card_id or not isinstance(data, dict):
             return
 
-        input_tokens = 0
-        output_tokens = 0
+        # VERY LOUD DEBUG
+        logger.info(f"[TOKEN DEBUG] Analyzing data for {card_id}: keys={list(data.keys())}")
+
+        in_val = 0
+        out_val = 0
 
         # Check in result (RPC response)
         result = data.get("result") if isinstance(data.get("result"), dict) else {}
@@ -226,8 +230,19 @@ class MessageDispatcher:
 
         # 1. OpenCode/Common format: usage.inputTokens / usage.outputTokens
         if usage:
-            input_tokens = usage.get("inputTokens", 0)
-            output_tokens = usage.get("outputTokens", 0)
+            in_val = usage.get("inputTokens", 0) or usage.get("input_tokens", 0)
+            out_val = usage.get("outputTokens", 0) or usage.get("output_tokens", 0)
+            # Add support for 'used' field seen in some adapters/logs
+            if in_val == 0 and "used" in usage:
+                in_val = usage.get("used", 0)
+        
+        # Check direct fields (for usage_update notifications or flat results)
+        if in_val == 0 and "used" in data:
+            in_val = data.get("used", 0)
+        if in_val == 0 and "inputTokens" in data:
+            in_val = data.get("inputTokens", 0)
+        if out_val == 0 and "outputTokens" in data:
+            out_val = data.get("outputTokens", 0)
         
         # 2. Gemini/Qwen format in meta
         if meta:
@@ -235,26 +250,58 @@ class MessageDispatcher:
             quota = meta.get("quota", {})
             tc = quota.get("token_count", {})
             if tc:
-                input_tokens = max(input_tokens, tc.get("input_tokens", 0))
-                output_tokens = max(output_tokens, tc.get("output_tokens", 0))
+                in_val = max(in_val, tc.get("input_tokens", 0))
+                out_val = max(out_val, tc.get("output_tokens", 0))
             
             # Qwen/Common usage in meta
             q_usage = meta.get("usage", {})
             if q_usage:
-                input_tokens = max(input_tokens, q_usage.get("inputTokens", 0))
-                output_tokens = max(output_tokens, q_usage.get("outputTokens", 0))
+                in_val = max(in_val, q_usage.get("inputTokens", 0) or q_usage.get("input_tokens", 0))
+                out_val = max(out_val, q_usage.get("outputTokens", 0) or q_usage.get("output_tokens", 0))
 
-        if input_tokens > 0 or output_tokens > 0:
-            logger.info(f"[*] Token Usage for {card_id}: ↑{input_tokens} ↓{output_tokens}")
-            try:
-                self.db.update_card_token_usage(card_id, input_tokens, output_tokens)
-            except Exception as e:
-                logger.error(f"Failed to update token usage: {e}")
+        if in_val > 0 or out_val > 0:
+            # Use delta-based updates to handle cumulative usage reporting in chunks
+            if not hasattr(self, '_current_turn_usage'):
+                self._current_turn_usage = {}
+            
+            turn_usage = self._current_turn_usage.get(card_id, {"input": 0, "output": 0})
+            delta_in = max(0, in_val - turn_usage["input"])
+            delta_out = max(0, out_val - turn_usage["output"])
+
+            if delta_in > 0 or delta_out > 0:
+                logger.info(f"[*] Token Usage Update for {card_id}: +↑{delta_in} +↓{delta_out} (Current turn: ↑{in_val} ↓{out_val})")
+                try:
+                    self.db.update_card_token_usage(card_id, delta_in, delta_out)
+                    # Update turn state
+                    self._current_turn_usage[card_id] = {"input": in_val, "output": out_val}
+                    
+                    # Publish latest totals to bus
+                    card = self.db.get_card(card_id)
+                    if card:
+                        bus.publish(card_id, {
+                            "type": "token_update",
+                            "input_tokens": card.get("input_tokens", 0),
+                            "output_tokens": card.get("output_tokens", 0)
+                        })
+                except Exception as e:
+                    logger.error(f"Failed to update token usage: {e}")
+        else:
+            # Debug: what did we see?
+            if any(k in data for k in ["used", "usage", "_meta", "inputTokens"]):
+                logger.debug(f"DEBUG: Found possible usage data but values are zero: {data}")
 
     async def dispatch(self, data: Dict[str, Any], on_output: Callable) -> Optional[Dict[str, Any]]:
         method = data.get("method")
         params = data.get("params", {})
         request_id = data.get("id")
+
+        # Reset turn usage on new prompt to avoid double counting across turns
+        if method == "session/prompt":
+            card_id = params.get("card_id")
+            if card_id:
+                if not hasattr(self, '_current_turn_usage'):
+                    self._current_turn_usage = {}
+                self._current_turn_usage[card_id] = {"input": 0, "output": 0}
 
         # Use registered handlers first
         if method in self._handlers:
@@ -479,12 +526,15 @@ class MessageDispatcher:
                 if is_internal: await on_output(n); return
                 await self._forward_notification(card_id, n, on_output)
 
-            await engine.process_prompt(method, params, on_notification=forward_notif)
+            res = await engine.process_prompt(method, params, on_notification=forward_notif)
+
+            # Extract tokens from the final prompt result
+            if isinstance(res, dict):
+                self._extract_and_update_tokens(res, card_id)
+
+            if engine.acp_session_id != params.get("acp_session_id"):
+                await asyncio.to_thread(self.db.update_card_session_id, card_id, engine.acp_session_id)
             
-            # Extract tokens from the prompt result if the engine provides it (some adapters do)
-            # engine.process_prompt doesn't return the result directly usually, but we check if we can get it.
-            
-            if engine.acp_session_id != params.get("acp_session_id"): await asyncio.to_thread(self.db.update_card_session_id, card_id, engine.acp_session_id)
             # Mark assistant response as complete so Flutter stops showing "AI is thinking..."
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
             bus.publish(card_id, {"type": "refresh"})

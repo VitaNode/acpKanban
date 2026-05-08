@@ -247,26 +247,31 @@ class _CardDetailViewState extends State<CardDetailView> {
     setState(() {
       // Sync Agent Session state
       final sessionId = updatedCard.acpSessionId;
+      
+      // Update tokens if they are non-zero (delta-based or absolute totals)
+      if (updatedCard.inputTokens > 0) _inputTokens = updatedCard.inputTokens;
+      if (updatedCard.outputTokens > 0) _outputTokens = updatedCard.outputTokens;
+
       _card = _card.copyWith(
-        acpSessionId: sessionId,
+        acpSessionId: sessionId ?? _card.acpSessionId,
         acpProviderId: updatedCard.acpProviderId ?? _card.acpProviderId,
         availableCommands: updatedCard.availableCommands ?? _card.availableCommands,
-        inputTokens: updatedCard.inputTokens > 0 ? updatedCard.inputTokens : _card.inputTokens,
-        outputTokens: updatedCard.outputTokens > 0 ? updatedCard.outputTokens : _card.outputTokens,
+        inputTokens: _inputTokens,
+        outputTokens: _outputTokens,
       );
 
       if (updatedCard.availableCommands != null) {
         _availableCommands = updatedCard.availableCommands!;
       }
 
-      if (updatedCard.inputTokens > 0) _inputTokens = updatedCard.inputTokens;
-      if (updatedCard.outputTokens > 0) _outputTokens = updatedCard.outputTokens;
-
-      if (sessionId == null || sessionId.isEmpty) {
-        _isAgentConnected = false;
-        _configOptions = [];
-      } else {
-        _isAgentConnected = true;
+      // Only change connection status if sessionId was explicitly part of this update
+      if (sessionId != null) {
+        if (sessionId.isEmpty) {
+          _isAgentConnected = false;
+          _configOptions = [];
+        } else {
+          _isAgentConnected = true;
+        }
       }
       
       // Update local card info if title/desc changed via session_info_update
@@ -786,10 +791,19 @@ class _CardDetailViewState extends State<CardDetailView> {
             controller: _descriptionController,
             maxLines: null,
             style: Theme.of(context).textTheme.bodyMedium,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Add a description...',
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.zero,
+              contentPadding: const EdgeInsets.all(AppConstants.space12),
+              filled: true,
+              fillColor: colorScheme.surfaceContainer.withOpacity(0.3),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                borderSide: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.05)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                borderSide: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.05)),
+              ),
             ),
           ),
         ],
@@ -872,7 +886,11 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   List<Widget> _buildMessageList() {
-    return _messages.map((m) => MessageBubble(message: m)).toList();
+    return _messages.map((m) => MessageBubble(
+      message: m,
+      providerName: _providerDisplayName,
+      providerId: _card.acpProviderId,
+    )).toList();
   }
 
   Widget _buildInputArea() {
@@ -978,10 +996,10 @@ class _CardDetailViewState extends State<CardDetailView> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text('↑${_formatTokenCount(_inputTokens)}', 
-            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.4), fontWeight: FontWeight.w500)),
+            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.6), fontWeight: FontWeight.w500)),
           const SizedBox(width: 4),
           Text('↓${_formatTokenCount(_outputTokens)}', 
-            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.4), fontWeight: FontWeight.w500)),
+            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.6), fontWeight: FontWeight.w500)),
         ],
       ),
     );

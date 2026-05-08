@@ -5,6 +5,7 @@ class AppConstants {
   static const autoSaveDebounce = Duration(milliseconds: 500);
   static const animationDuration = Duration(milliseconds: 300);
   static const retryDelayBase = Duration(milliseconds: 500);
+  static const streamThrottleMs = Duration(milliseconds: 60);
 
   // Spacing (Strict 8px Base System)
   static const double space4 = 4.0;

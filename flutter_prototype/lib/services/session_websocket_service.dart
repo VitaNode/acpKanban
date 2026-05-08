@@ -360,6 +360,18 @@ class SessionWebSocketService {
             _contextController.add(m['context']);
           }
           break;
+        case 'token_update':
+          _cardUpdateController.add(KanbanCard(
+            id: _currentCardId ?? '',
+            title: '',
+            description: '',
+            columnId: '',
+            createdAt: '',
+            updatedAt: '',
+            inputTokens: m['input_tokens'] ?? 0,
+            outputTokens: m['output_tokens'] ?? 0,
+          ));
+          break;
         case 'error':
           _initializingController.add(false);
           _errorController.add(m['message'] ?? 'Unknown agent error');

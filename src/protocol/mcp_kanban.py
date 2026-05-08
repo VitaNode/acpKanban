@@ -75,8 +75,12 @@ class MCPKanbanServer:
                 title = arguments.get("title")
                 desc = arguments.get("description", "")
                 provider = arguments.get("acp_provider_id")
-                
-                card_id = self.db.cards.create(col_id, title, description=desc, acp_provider_id=provider)
+
+                # Only pass acp_provider_id if it's provided
+                if provider:
+                    card_id = self.db.cards.create(col_id, title, description=desc, acp_provider_id=provider)
+                else:
+                    card_id = self.db.cards.create(col_id, title, description=desc)
                 if card_id:
                     return {"content": [{"type": "text", "text": f"Successfully created card '{title}' (ID: {card_id}) in column {col_id}"}]}
                 return {"content": [{"type": "text", "text": "Failed to create card."}], "isError": True}
