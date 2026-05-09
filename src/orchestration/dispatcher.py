@@ -628,8 +628,12 @@ class MessageDispatcher:
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False, seq_id=seq_id)
             bus.publish(card_id, {"type": "agent_message_chunk", "content": {"text": chunk_text}})
         elif utype == "plan":
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                await self._flush_on_event(card_id, "message_end")
             bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
         elif utype == "config_option_update":
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                await self._flush_on_event(card_id, "message_end")
             engine = self.engines.get(card_id)
             if engine:
                 # Use engine's normalization logic on the full update dict
@@ -644,6 +648,8 @@ class MessageDispatcher:
                 if new_opts:
                     bus.publish(card_id, {"type": "config_options", "options": new_opts})
         elif utype == "available_commands_update":
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                await self._flush_on_event(card_id, "message_end")
             engine = self.engines.get(card_id)
             agent_cmds = update.get("availableCommands", [])
             if engine and agent_cmds:
@@ -701,6 +707,8 @@ class MessageDispatcher:
             # We no longer update the "message body" with tool output to avoid redundant info
             bus.publish(card_id, {"type": "refresh"})
         elif utype == "session_info_update":
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                await self._flush_on_event(card_id, "message_end")
             info = update.get("info", {})
             if info:
                 await asyncio.to_thread(self.db.cards.update_card, card_id, title=info.get("title"), description=info.get("description"))
