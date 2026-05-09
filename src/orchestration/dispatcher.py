@@ -638,10 +638,13 @@ class MessageDispatcher:
         elif method == "_qwencode/slash_command":
             chunk_text = params.get("message", "")
 
+        logger.info(f"[FLOW] Notification for {card_id}: utype={utype}, method={method}, ui_format={ui_format}")
+
         # AG-UI Path: Try to map ANY notification to AG-UI event
         if ui_format == "ag_ui":
             ag_event = AGUIMapper.map_notification(n)
             if ag_event:
+                logger.info(f"[FLOW] AG-UI Path SUCCESS for {card_id}: event={ag_event.get('event')}")
                 # Buffer all AG-UI events for consistent sequencing and persistence
                 await self._buffer_chunk(card_id, ag_event, on_output)
                 
@@ -650,16 +653,34 @@ class MessageDispatcher:
                     await self._flush_on_event(card_id, "session_stop")
                 
                 return
+            else:
+                logger.info(f"[FLOW] AG-UI Path FAILED for {card_id}, trying fallback")
 
         # Fallback/ACP Path (Non-AG-UI or non-mappable)
         if utype == "agent_thought_chunk":
             # Forward thought chunks for display (debugging/transparency)
             thought_text = update.get("content", {}).get("text", "")
             if thought_text:
-                await asyncio.to_thread(self.db.append_thought, card_id, thought_text)
-                bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
+                logger.info(f"[FLOW] Fallback Thought Path for {card_id}")
+                # Assign seqId for consistency even in fallback
+                seq_id = await self._get_next_seq(card_id)
+                await asyncio.to_thread(self.db.append_thought, card_id, thought_text, seq_id=seq_id)
+                
+                # If we are in AG-UI mode, publish as AG-UI event to avoid frontend logic mismatch
+                if ui_format == "ag_ui":
+                    bus.publish(card_id, {
+                        "type": "ag_ui_event",
+                        "card_id": card_id,
+                        "event": "reasoning_message",
+                        "role": "assistant",
+                        "reasoning": thought_text,
+                        "seqId": seq_id
+                    })
+                else:
+                    bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
         
         if chunk_text:
+            logger.info(f"[FLOW] Fallback Chunk Path for {card_id}: text={chunk_text[:20]}...")
             seq_id = await self._get_next_seq(card_id)
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False, seq_id=seq_id)
             bus.publish(card_id, {"type": "agent_message_chunk", "content": {"text": chunk_text}})
@@ -811,7 +832,7 @@ class MessageDispatcher:
         chunk["seqId"] = await self._get_next_seq(card_id)
         self._chunk_buffers[card_id].append(chunk)
         
-        logger.debug(f"[AG-UI] Buffered chunk for {card_id}: seqId={chunk['seqId']}, buffer_size={len(self._chunk_buffers[card_id])}")
+        logger.info(f"[DB-WRITE-BUFFER] Buffering for {card_id}: seqId={chunk['seqId']}, event={chunk.get('event')}")
         
         # Real-time dispatch: Even if buffered for DB, we MUST publish to bus and on_output
         # This fixes Defect #1, #2, and #3.
@@ -871,7 +892,7 @@ class MessageDispatcher:
                 logger.debug(f"[AG-UI] No chunks to flush for {card_id}")
                 return
             
-            logger.info(f"[AG-UI] Flushing {len(buffer)} chunks for {card_id} (reason: {reason})")
+            logger.info(f"[DB-WRITE-FLUSH] Flushing {len(buffer)} chunks for {card_id} (reason: {reason})")
             
             is_terminal = "session_stop" in reason or "stop" in reason or "message_end" in reason
             
@@ -885,6 +906,7 @@ class MessageDispatcher:
                     if event_type in ("message_chunk", "message_bundled"):
                         text = chunk.get("text", "")
                         if text:
+                            logger.info(f"[DB-WRITE-EXEC] Writing message_chunk seqId={seq_id} to DB for {card_id}")
                             # Use is_complete=False for chunks to allow merging into a single row
                             await asyncio.to_thread(
                                 self.db.sessions.append_message,
@@ -895,6 +917,7 @@ class MessageDispatcher:
                     elif event_type == "tool_call_start":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         trace_msg = f"\n\n🛠️ **Calling tool:** `{name}`\n"
+                        logger.info(f"[DB-WRITE-EXEC] Writing tool_call_start seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, trace_msg, seq_id=seq_id
@@ -911,6 +934,7 @@ class MessageDispatcher:
                             trace_msg = ""
                             
                         if trace_msg:
+                            logger.info(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
                             await asyncio.to_thread(
                                 self.db.append_thought,
                                 card_id, trace_msg, seq_id=seq_id
@@ -919,6 +943,7 @@ class MessageDispatcher:
                     # Persist reasoning/thought if present
                     reasoning = chunk.get("reasoning")
                     if reasoning:
+                        logger.info(f"[DB-WRITE-EXEC] Writing reasoning seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, reasoning, seq_id=seq_id
@@ -930,6 +955,7 @@ class MessageDispatcher:
                         status = tc.get("status", "success")
                         marker = "✅" if status == "success" else "❌"
                         trace_msg = f"\n{marker} **Tool:** `{tc.get('name', 'unknown')}` - {status}\n"
+                        logger.info(f"[DB-WRITE-EXEC] Writing bundled tool_call seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, trace_msg, seq_id=seq_id
@@ -942,7 +968,7 @@ class MessageDispatcher:
                 
                 # Clear buffer after successful flush
                 self._chunk_buffers[card_id] = []
-                logger.debug(f"[AG-UI] Flush complete for {card_id}")
+                logger.info(f"[DB-WRITE-FLUSH] Flush complete for {card_id}")
                 
             except Exception as e:
                 logger.error(f"[AG-UI] Flush failed for {card_id}: {e}")
@@ -1003,22 +1029,23 @@ class MessageDispatcher:
         
         logger.info(f"[AG-UI] Recovery complete: {len(incomplete)} messages marked")
     
-    async def shutdown_ag_ui_buffers(self):
+    async def force_flush_session(self, card_id: str):
         """
-        Flush all pending buffers during shutdown.
+        Explicitly flush all pending buffers and notify end of session.
+        Typically called during WebSocket disconnection.
         """
-        logger.info("[AG-UI] Flushing all pending buffers on shutdown")
+        logger.info(f"[AG-UI] Force flushing session {card_id} due to disconnection")
+        await self._trigger_flush(card_id, "disconnect")
         
-        for card_id in list(self._chunk_buffers.keys()):
-            await self._trigger_flush(card_id, "shutdown")
-        
-        # Cancel all pending timers
-        for timer in self._flush_timers.values():
-            if not timer.cancelled():
-                timer.cancel()
-        
-        self._chunk_buffers.clear()
-        self._flush_timers.clear()
+        # Publish explicit session_stop event to clear "Agent is thinking..." in UI
+        seq_id = await self._get_next_seq(card_id)
+        bus.publish(card_id, {
+            "type": "ag_ui_event",
+            "card_id": card_id,
+            "event": "session_stop",
+            "seqId": seq_id,
+            "is_complete": True
+        })
     
     # ==================== End AG-UI Buffer Layer ====================
 

@@ -241,6 +241,12 @@ class AGUIMapper:
                 "args": args_text,
                 "result": result_text
             })
+        elif utype == "agent_thought_chunk":
+            ag_event.update({
+                "event": "reasoning_message",
+                "role": "assistant",
+                "reasoning": update.get("content", {}).get("text", ""),
+            })
         elif utype == "session_info_update":
             info = update.get("info", {})
             ag_event.update({
