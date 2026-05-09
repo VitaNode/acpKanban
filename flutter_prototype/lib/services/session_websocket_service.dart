@@ -202,6 +202,35 @@ class SessionWebSocketService {
     }
   }
 
+  List<CardMessage> _mergeMessages(List<CardMessage> messages) {
+    if (messages.isEmpty) return [];
+    
+    List<CardMessage> merged = [];
+    CardMessage? current = messages[0];
+    
+    for (int i = 1; i < messages.length; i++) {
+      final next = messages[i];
+      
+      if (current != null && 
+          current.role == 'assistant' && 
+          next.role == 'assistant' && 
+          (!current.isComplete || !next.isComplete)) {
+        
+        // Merge next into current
+        current = current.copyWith(
+          content: current.content + next.content,
+          isComplete: next.isComplete,
+          metadata: next.metadata != null ? next.metadata : current.metadata,
+        );
+      } else {
+        merged.add(current!);
+        current = next;
+      }
+    }
+    merged.add(current!);
+    return merged;
+  }
+
   void _handleMessage(dynamic data) {
     try {
       Map<String, dynamic> m;
@@ -258,7 +287,7 @@ class SessionWebSocketService {
 
           if (_lastContiguousSeqId == 0) {
             // Full sync or first load
-            _currentMessages = newMessages;
+            _currentMessages = _mergeMessages(newMessages);
           } else {
             // Merge delta update
             for (var msg in newMessages) {
@@ -280,6 +309,9 @@ class SessionWebSocketService {
               if (a.seqId != null && b.seqId != null) return a.seqId!.compareTo(b.seqId!);
               return a.createdAt.compareTo(b.createdAt);
             });
+            
+            // After merging delta, we should also ensure the final list is merged
+            _currentMessages = _mergeMessages(_currentMessages);
           }
           
           // Update _lastContiguousSeqId based on the highest seqId in history

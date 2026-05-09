@@ -272,15 +272,11 @@ class _CardDetailViewState extends State<CardDetailView> {
     final pending = List<CardMessage>.from(_pendingMessages);
     final isProcessing = pending.isNotEmpty && !pending.last.isComplete && pending.last.role == 'assistant';
     
-    // Use post-frame callback to ensure setState doesn't run during layout
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _messages = pending;
-        _isAgentProcessing = isProcessing;
-      });
-      _scrollToBottom();
+    setState(() {
+      _messages = pending;
+      _isAgentProcessing = isProcessing;
     });
+    _scrollToBottom();
     
     // Clear timer reference
     _renderThrottleTimer = null;
