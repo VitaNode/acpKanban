@@ -306,7 +306,16 @@ class SessionWebSocketService {
       switch (m['type']) {
         case 'history':
           final newMessages = (m['messages'] as List?)
-                  ?.map((x) => CardMessage.fromJson(x))
+                  ?.map((x) {
+                    final msg = CardMessage.fromJson(x);
+                    // Extract thought from metadata for display if content is empty
+                    if (msg.metadata?['thought'] != null && msg.content.isEmpty) {
+                      return msg.copyWith(
+                        content: msg.metadata!['thought'] as String,
+                      );
+                    }
+                    return msg;
+                  })
                   .toList() ??
               [];
           
