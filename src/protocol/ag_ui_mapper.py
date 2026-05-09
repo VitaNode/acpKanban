@@ -138,7 +138,7 @@ class AGUIMapper:
         elif utype == "tool_call":
             # Map tool_call to tool_call_start/tool_call_result based on status
             status = update.get("status", "pending")
-            if status == "pending":
+            if status in ("pending", "running"):
                 event_type = "tool_call_start"
             elif status in ("completed", "success"):
                 event_type = "tool_call_result"

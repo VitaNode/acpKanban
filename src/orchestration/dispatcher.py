@@ -873,6 +873,8 @@ class MessageDispatcher:
             
             logger.info(f"[AG-UI] Flushing {len(buffer)} chunks for {card_id} (reason: {reason})")
             
+            is_terminal = "session_stop" in reason or "stop" in reason or "message_end" in reason
+            
             try:
                 # Persist chunks to database with seqId
                 for chunk in buffer:
@@ -883,9 +885,10 @@ class MessageDispatcher:
                     if event_type in ("message_chunk", "message_bundled"):
                         text = chunk.get("text", "")
                         if text:
+                            # Use is_complete=False for chunks to allow merging into a single row
                             await asyncio.to_thread(
                                 self.db.sessions.append_message,
-                                card_id, "assistant", text, True, seq_id=seq_id
+                                card_id, "assistant", text, False, seq_id=seq_id
                             )
                     
                     # Persist tool calls based on event type
@@ -901,12 +904,17 @@ class MessageDispatcher:
                         status = chunk.get("status", "success")
                         if status == "success":
                             trace_msg = f"\n✅ **Tool call finished:** `{name}`\n"
-                        else:
+                        elif status == "failed":
                             trace_msg = f"\n❌ **Tool call failed:** `{name}`\n"
-                        await asyncio.to_thread(
-                            self.db.append_thought,
-                            card_id, trace_msg, seq_id=seq_id
-                        )
+                        else:
+                            # Ignore 'running' or other intermediate states for persistent thought log
+                            trace_msg = ""
+                            
+                        if trace_msg:
+                            await asyncio.to_thread(
+                                self.db.append_thought,
+                                card_id, trace_msg, seq_id=seq_id
+                            )
                     
                     # Persist reasoning/thought if present
                     reasoning = chunk.get("reasoning")
@@ -919,11 +927,18 @@ class MessageDispatcher:
                     # Handle bundled tool calls (from history mapping or legacy chunks)
                     tool_calls = chunk.get("tool_calls", [])
                     for tc in tool_calls:
-                        trace_msg = f"\n🛠️ **Tool:** `{tc.get('name', 'unknown')}` - {tc.get('status', 'pending')}\n"
+                        status = tc.get("status", "success")
+                        marker = "✅" if status == "success" else "❌"
+                        trace_msg = f"\n{marker} **Tool:** `{tc.get('name', 'unknown')}` - {status}\n"
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, trace_msg, seq_id=seq_id
                         )
+                
+                # If this flush was triggered by a terminal event, mark the message as complete
+                if is_terminal:
+                    await asyncio.to_thread(self.db.mark_session_complete, card_id)
+                    logger.debug(f"[AG-UI] Marked session as complete for {card_id}")
                 
                 # Clear buffer after successful flush
                 self._chunk_buffers[card_id] = []

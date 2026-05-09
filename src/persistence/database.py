@@ -601,6 +601,13 @@ class SessionRepository(BaseRepository):
                 (json.dumps(metadata), msg_id)
             )
 
+    def mark_complete(self, card_id: str):
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "UPDATE card_sessions SET is_complete = 1 WHERE card_id = ? AND role = 'assistant' AND is_complete = 0",
+                (card_id,)
+            )
+
     def get_max_seq_id(self, card_id: str) -> int:
         with self.db.get_connection() as conn:
             cursor = conn.execute(
@@ -965,4 +972,5 @@ class KanbanDB:
     def update_card_token_usage(self, card_id: str, input_tokens: int, output_tokens: int): return self.cards.update_token_usage(card_id, input_tokens, output_tokens)
     def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
     def uncomplete_card(self, card_id): return self.cards.update(card_id, status='active')
+    def mark_session_complete(self, card_id): return self.sessions.mark_complete(card_id)
     def update_card_summary(self, card_id, summary): return self.summaries.upsert(card_id, summary)
