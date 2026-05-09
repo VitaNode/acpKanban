@@ -645,14 +645,6 @@ class MessageDispatcher:
                 # Buffer all AG-UI events for consistent sequencing and persistence
                 await self._buffer_chunk(card_id, ag_event, on_output)
                 
-                # Special handling for persistence of message chunks (mark as incomplete in DB for now)
-                # They will be marked as complete during _flush_buffer.
-                if ag_event.get("event") == "message_chunk" and ag_event.get("text"):
-                    await asyncio.to_thread(
-                        self.db.sessions.append_message, 
-                        card_id, "assistant", ag_event["text"], False
-                    )
-                
                 # If it's a stop/end event, trigger an immediate flush
                 if ag_event.get("event") in ("session_stop", "stop"):
                     await self._flush_on_event(card_id, "session_stop")
