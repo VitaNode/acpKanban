@@ -511,26 +511,64 @@ class SessionWebSocketService {
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == 'tool_call_start' || event.eventType == 'tool_call_update' || event.eventType == 'tool_call_result') {
-      // Handle tool call events by adding a message with tool metadata
+      // Handle tool call events by updating existing message or adding a new one
       final toolCall = event.toolCalls?.isNotEmpty == true ? event.toolCalls!.first : null;
-      final toolName = toolCall?.name ?? 'Unknown';
-      final toolStatus = _mapToolStatus(toolCall?.status ?? 'running');
+      if (toolCall == null) return;
+
+      final toolId = toolCall.toolId;
+      final toolName = toolCall.name ?? 'Unknown';
+      final toolStatus = _mapToolStatus(toolCall.status ?? 'running');
       
-      _currentMessages.add(CardMessage(
-        id: 'tool-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
-        cardId: _currentCardId ?? '',
-        role: 'tool',
-        content: toolCall?.result ?? '',
-        createdAt: DateTime.now().toIso8601String(),
-        isComplete: event.eventType == 'tool_call_result',
-        seqId: event.seqId,
-        metadata: {
-          'name': toolName,
-          'status': toolStatus,
-          'arguments': toolCall?.args ?? '',
-          'tool_id': toolCall?.toolId,
+      // Try to find an existing tool message with the same toolId
+      int existingIndex = _currentMessages.indexWhere((m) => 
+        m.role == 'tool' && m.metadata?['tool_id'] == toolId
+      );
+
+      if (existingIndex != -1) {
+        // Update existing tool message
+        final existing = _currentMessages[existingIndex];
+        final updatedMetadata = Map<String, dynamic>.from(existing.metadata ?? {});
+        
+        // Update name if it was previously 'Unknown' and we now have a name
+        if (updatedMetadata['name'] == 'Unknown' && toolName != 'Unknown') {
+          updatedMetadata['name'] = toolName;
         }
-      ));
+        updatedMetadata['status'] = toolStatus;
+        
+        // Update arguments if provided
+        if (toolCall.args != null && toolCall.args!.isNotEmpty) {
+          updatedMetadata['arguments'] = toolCall.args;
+        }
+        
+        // Use the newest result if available
+        String content = existing.content;
+        if (toolCall.result != null && toolCall.result!.isNotEmpty) {
+          content = toolCall.result!;
+        }
+
+        _currentMessages[existingIndex] = existing.copyWith(
+          content: content,
+          isComplete: event.eventType == 'tool_call_result',
+          metadata: updatedMetadata,
+        );
+      } else {
+        // Create a new tool message
+        _currentMessages.add(CardMessage(
+          id: 'tool-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
+          cardId: _currentCardId ?? '',
+          role: 'tool',
+          content: toolCall.result ?? '',
+          createdAt: DateTime.now().toIso8601String(),
+          isComplete: event.eventType == 'tool_call_result',
+          seqId: event.seqId,
+          metadata: {
+            'name': toolName,
+            'status': toolStatus,
+            'arguments': toolCall.args ?? '',
+            'tool_id': toolId,
+          }
+        ));
+      }
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == 'message_bundled' || event.eventType == 'message_chunk') {
