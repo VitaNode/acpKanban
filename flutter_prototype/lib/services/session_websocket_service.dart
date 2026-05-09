@@ -42,6 +42,9 @@ class SessionWebSocketService {
   Timer? _reconnectTimer;
   int _reconnectCount = 0;
 
+  // Track whether history has been loaded for the current card
+  bool _hasLoadedHistory = false;
+
   // Local cache to support streaming updates
   List<CardMessage> _currentMessages = [];
   
@@ -63,13 +66,18 @@ class SessionWebSocketService {
   bool get isConnected => _isConnected;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
+    // Debug log for connection attempt
+    debugPrint('[SessionWS] Connect attempt for card $cardId (retry=$retryCount), currentCardId=$_currentCardId, isConnected=$_isConnected, hasLoadedHistory=$_hasLoadedHistory');
+    
     // 如果是不同卡片，先断开旧连接，避免竞态条件
     if (_currentCardId != null && _currentCardId != cardId) {
+      debugPrint('[SessionWS] Switching from card $_currentCardId to $cardId, disconnecting old connection');
       await disconnect();
     }
 
     // 同一张卡片且连接正常 → 清空缓存并重索历史
     if ((_channel != null || (_useProxy && _isConnected)) && _currentCardId == cardId && _isConnected) {
+      debugPrint('[SessionWS] Reusing existing connection for card $cardId, clearing cache and requesting history');
       _clearCache();
       await _requestHistory();
       return true;
@@ -79,6 +87,7 @@ class SessionWebSocketService {
     _currentMessages = [];
     _eventBuffer.clear();
     _lastContiguousSeqId = 0;
+    _hasLoadedHistory = false;  // Reset history load flag on new connection
     _messageController.add([]);
     _planController.add(null);
     _configController.add([]);
@@ -301,6 +310,9 @@ class SessionWebSocketService {
                   .toList() ??
               [];
           
+          // Debug log for history loading
+          debugPrint('[SessionWS] Received history: ${newMessages.length} messages, after_seq=$_lastContiguousSeqId');
+          
           if (newMessages.isEmpty && _lastContiguousSeqId > 0) {
             _updateCardAndConfig(m);
             return;
@@ -309,6 +321,8 @@ class SessionWebSocketService {
           if (_lastContiguousSeqId == 0) {
             // Full sync or first load: store raw messages
             _currentMessages = List.from(newMessages);
+            _hasLoadedHistory = true;  // Mark history as loaded on full sync
+            debugPrint('[SessionWS] History fully loaded, total messages: ${_currentMessages.length}');
           } else {
             // Merge delta update into raw storage
             for (var msg in newMessages) {
@@ -817,6 +831,7 @@ class SessionWebSocketService {
     final channel = _channel;
     _channel = null;
     _isConnected = false;
+    _hasLoadedHistory = false;  // Reset history flag on disconnect
     if (channel != null) {
       await channel.sink.close();
     }
@@ -865,6 +880,7 @@ class SessionWebSocketService {
     _currentMessages = [];
     _eventBuffer.clear();
     _lastContiguousSeqId = 0;
+    _hasLoadedHistory = false;  // Mark that history needs to be reloaded
     
     // Notify UI of empty state
     _messageController.add([]);
