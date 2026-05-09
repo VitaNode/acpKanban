@@ -784,7 +784,10 @@ class MessageDispatcher:
         """
         async with self._seq_lock:
             if card_id not in self._seq_counters:
-                self._seq_counters[card_id] = 0
+                # Initialize from DB to ensure continuity across restarts
+                max_seq = await asyncio.to_thread(self.db.sessions.get_max_seq_id, card_id)
+                self._seq_counters[card_id] = max_seq
+            
             self._seq_counters[card_id] += 1
             return self._seq_counters[card_id]
     
@@ -959,6 +962,10 @@ class MessageDispatcher:
             card_id: The card/session identifier
         """
         logger.info(f"[AG-UI] Recovering incomplete messages for {card_id}")
+        
+        # Clear any stale buffers first
+        if card_id in self._chunk_buffers:
+            self._chunk_buffers[card_id] = []
         
         # Get incomplete messages from DB
         incomplete = await asyncio.to_thread(self.db.sessions.get_incomplete_messages, card_id)
