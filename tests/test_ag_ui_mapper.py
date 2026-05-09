@@ -49,7 +49,8 @@ class TestAGUIMapper(unittest.TestCase):
         self.assertEqual(result["event"], "message_chunk")
         self.assertEqual(result["text"], "part of msg")
 
-    def test_map_notification_tool_call(self):
+    def test_map_notification_tool_call_start(self):
+        """Test tool_call with pending status maps to tool_call_start"""
         acp_notif = {
             "method": "session/update",
             "params": {
@@ -57,13 +58,50 @@ class TestAGUIMapper(unittest.TestCase):
                     "sessionUpdate": "tool_call",
                     "toolCallId": "call_123",
                     "tool": "web_search",
-                    "status": "running"
+                    "status": "pending"
                 }
             }
         }
         result = self.mapper.map_notification(acp_notif)
-        self.assertEqual(result["event"], "tool_status")
+        self.assertEqual(result["event"], "tool_call_start")
         self.assertEqual(result["tool_id"], "call_123")
+        self.assertEqual(result["status"], "running")  # Mapped from pending
+        self.assertEqual(result["tool"], "web_search")
+    
+    def test_map_notification_tool_call_result(self):
+        """Test tool_call with completed status maps to tool_call_result"""
+        acp_notif = {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call_456",
+                    "tool": "code_executor",
+                    "status": "completed"
+                }
+            }
+        }
+        result = self.mapper.map_notification(acp_notif)
+        self.assertEqual(result["event"], "tool_call_result")
+        self.assertEqual(result["tool_id"], "call_456")
+        self.assertEqual(result["status"], "success")  # Mapped from completed
+    
+    def test_map_notification_tool_call_update(self):
+        """Test tool_call_update event mapping"""
+        acp_notif = {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call_789",
+                    "status": "running",
+                    "content": [{"type": "text", "text": "Processing..."}]
+                }
+            }
+        }
+        result = self.mapper.map_notification(acp_notif)
+        self.assertEqual(result["event"], "tool_call_update")
+        self.assertEqual(result["tool_id"], "call_789")
         self.assertEqual(result["status"], "running")
 
     def test_fallback_for_unknown_format(self):
