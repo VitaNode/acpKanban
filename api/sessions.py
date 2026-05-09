@@ -52,7 +52,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
 
             if msg_type == "get_history":
                 card = db.get_card(card_id)
-                history = db.get_session_history(card_id)
+                after_seq = message.get("after_seq")
+                history = db.get_session_history(card_id, limit=100, after_seq=after_seq)
                 config_opts = db.get_card_config_options(card_id)
                 avail_cmds = db.get_card_available_commands(card_id)
                 response = {

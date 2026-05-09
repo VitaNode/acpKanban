@@ -596,12 +596,13 @@ class SessionRepository(BaseRepository):
         
         now = datetime.now().isoformat()
         is_complete = kwargs.get('is_complete', 1)
+        seq_id = kwargs.get('seq_id')
         
         with self.db.get_connection() as conn:
-            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone, is_complete) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                         (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0, 1 if is_complete else 0))
+            conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_milestone, is_complete, seq_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                         (card_id, role, content, json.dumps(metadata) if metadata else None, now, 1 if is_milestone else 0, 1 if is_complete else 0, seq_id))
 
-    def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = False):
+    def append_message(self, card_id: str, role: str, content_chunk: str, is_complete: bool = False, seq_id: int = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             # Check the last message for this card
@@ -612,12 +613,12 @@ class SessionRepository(BaseRepository):
                 # Append to existing incomplete message of the same role
                 msg_id = row[0]
                 new_content = (row[2] or "") + content_chunk
-                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?", (new_content, 1 if is_complete else 0, msg_id))
+                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ?, seq_id = ? WHERE id = ?", (new_content, 1 if is_complete else 0, seq_id, msg_id))
             elif content_chunk:
                 # Start a new message only if there is actual content
-                conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete) VALUES (?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0))
+                conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete, seq_id) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0, seq_id))
 
-    def append_thought(self, card_id: str, thought_chunk: str):
+    def append_thought(self, card_id: str, thought_chunk: str, seq_id: int = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             # Look for the last assistant message
@@ -629,29 +630,21 @@ class SessionRepository(BaseRepository):
                 msg_id = row[0]
                 meta = json.loads(row[2]) if row[2] else {}
                 meta['thought'] = (meta.get('thought') or "") + thought_chunk
-                conn.execute("UPDATE card_sessions SET metadata = ? WHERE id = ?", (json.dumps(meta), msg_id))
+                conn.execute("UPDATE card_sessions SET metadata = ?, seq_id = ? WHERE id = ?", (json.dumps(meta), seq_id, msg_id))
             else:
                 # Create a new assistant message for this thought
                 meta = {'thought': thought_chunk}
-                conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete) VALUES (?, 'assistant', '', ?, ?, 0)", (card_id, json.dumps(meta), now))
+                conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete, seq_id) VALUES (?, 'assistant', '', ?, ?, 0, ?)", (card_id, json.dumps(meta), now, seq_id))
 
-    def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True):
+    def get_history(self, card_id: str, limit: int = 50, after_seq: int = None) -> List[Dict]:
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT id, metadata FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 10", (card_id,))
-            rows = cursor.fetchall()
-            for r in rows:
-                mid = r[0]
-                meta = json.loads(r[1]) if r[1] else {}
-                if meta.get(metadata_key) == metadata_val:
-                    if content:
-                        conn.execute("UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?", (content, 1 if is_complete else 0, mid))
-                    else:
-                        conn.execute("UPDATE card_sessions SET is_complete = ? WHERE id = ?", (1 if is_complete else 0, mid))
-                    break
-
-    def get_history(self, card_id: str, limit: int = 50) -> List[Dict]:
-        with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM card_sessions WHERE card_id = ? ORDER BY created_at ASC", (card_id,))
+            query = "SELECT * FROM card_sessions WHERE card_id = ?"
+            params = [card_id]
+            if after_seq is not None:
+                query += " AND seq_id > ?"
+                params.append(after_seq)
+            query += " ORDER BY created_at ASC"
+            cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()][-limit:]
 
 class CodeSymbolRepository(BaseRepository):
@@ -801,7 +794,7 @@ class KanbanDB:
             cursor.execute("CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, milestone_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'active', order_index INTEGER DEFAULT 0, created_at DATETIME, deleted_at DATETIME, FOREIGN KEY (milestone_id) REFERENCES milestones(id))")
             cursor.execute("CREATE TABLE IF NOT EXISTS columns (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, position INTEGER, color TEXT, prompt_template TEXT, acp_provider_id TEXT, approval_mode TEXT, created_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, column_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, position INTEGER, status TEXT DEFAULT 'active', plan_status TEXT DEFAULT 'plan', completed_at DATETIME, parent_id TEXT, last_summary TEXT, embedding TEXT, created_at DATETIME, updated_at DATETIME, acp_session_id TEXT, acp_provider_id TEXT, config_options TEXT, feature_id TEXT, deleted_at DATETIME, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS card_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, role TEXT, content TEXT, metadata TEXT, created_at DATETIME, is_complete INTEGER DEFAULT 1, is_milestone INTEGER DEFAULT 0, seq_id INTEGER)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, card_id TEXT, event_type TEXT, content TEXT, metadata TEXT, timestamp DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS project_agent_status (project_id TEXT PRIMARY KEY, state TEXT, start_time DATETIME, last_message TEXT, updated_at DATETIME)")
             cursor.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME)")
@@ -833,7 +826,8 @@ class KanbanDB:
                 ("cards", "input_tokens", "INTEGER DEFAULT 0"),
                 ("cards", "output_tokens", "INTEGER DEFAULT 0"),
                 ("summaries", "embedding", "TEXT"), 
-                ("card_sessions", "is_milestone", "INTEGER DEFAULT 0")
+                ("card_sessions", "is_milestone", "INTEGER DEFAULT 0"),
+                ("card_sessions", "seq_id", "INTEGER"),
             ]
             
             for table, col, col_type in migrations:

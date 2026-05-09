@@ -624,7 +624,8 @@ class MessageDispatcher:
             return
 
         if chunk_text:
-            await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False)
+            seq_id = self._get_next_seq(card_id)
+            await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False, seq_id=seq_id)
             bus.publish(card_id, {"type": "agent_message_chunk", "content": {"text": chunk_text}})
         elif utype == "plan":
             bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
@@ -658,6 +659,7 @@ class MessageDispatcher:
             
             # Phase 5.3: Integrate tool call into thought trace for end-to-end transparency
             trace_msg = ""
+            seq_id = self._get_next_seq(card_id)
             if status == "pending":
                 trace_msg = f"\n\n🛠️ **Calling tool:** `{title}`\n"
             elif status == "completed":
@@ -666,7 +668,7 @@ class MessageDispatcher:
                 trace_msg = f"\n❌ **Tool call failed:** `{title}`\n"
                 
             if trace_msg:
-                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
+                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
             # We no longer add a separate message for tool calls to avoid "message explosion"
@@ -692,7 +694,8 @@ class MessageDispatcher:
                     preview = clean_output[:1000] + ("..." if len(clean_output) > 1000 else "")
                     trace_msg = f"\n> **Output:** {preview}\n"
                 
-                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg)
+                seq_id = self._get_next_seq(card_id)
+                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
             # We no longer update the "message body" with tool output to avoid redundant info

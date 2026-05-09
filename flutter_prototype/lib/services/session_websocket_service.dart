@@ -174,7 +174,12 @@ class SessionWebSocketService {
   }
 
   Future<void> _requestHistory() async {
-    await _send({'type': 'get_history'});
+    // If we have already received some messages, request history from the last contiguous seqId
+    final afterSeq = _lastContiguousSeqId;
+    await _send({
+      'type': 'get_history',
+      'after_seq': afterSeq,
+    });
   }
 
   Future<void> _send(dynamic data) async {
