@@ -249,11 +249,23 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   void _flushMessages() {
     if (!mounted) return;
-    setState(() {
-      _messages = _pendingMessages;
-      _isAgentProcessing = _messages.isNotEmpty && !_messages.last.isComplete && _messages.last.role == 'assistant';
+    
+    // Capture pending messages locally to avoid race conditions
+    final pending = List<CardMessage>.from(_pendingMessages);
+    final isProcessing = pending.isNotEmpty && !pending.last.isComplete && pending.last.role == 'assistant';
+    
+    // Use post-frame callback to ensure setState doesn't run during layout
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _messages = pending;
+        _isAgentProcessing = isProcessing;
+      });
+      _scrollToBottom();
     });
-    _scrollToBottom();
+    
+    // Clear timer reference
+    _renderThrottleTimer = null;
   }
 
   void _onCardUpdate(KanbanCard updatedCard) {
@@ -356,7 +368,12 @@ class _CardDetailViewState extends State<CardDetailView> {
     final requestId = request['id'];
 
     if (method == 'session/request_permission') {
-      _showPermissionDialog(requestId, params);
+      // Defer dialog display to next frame to avoid layout conflicts
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showPermissionDialog(requestId, params);
+        }
+      });
     }
   }
 
