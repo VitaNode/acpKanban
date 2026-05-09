@@ -54,6 +54,7 @@ class MessageDispatcher:
         
         # AG-UI Buffer Layer (Phase 1)
         self._seq_counters: Dict[str, int] = {}  # card_id -> next seqId
+        self._seq_lock = asyncio.Lock()
         self._chunk_buffers: Dict[str, list] = {}  # card_id -> list of chunks
         self._flush_timers: Dict[str, asyncio.TimerHandle] = {}  # card_id -> timer handle
         self._flush_locks: Dict[str, asyncio.Lock] = {}  # card_id -> flush lock
@@ -326,6 +327,8 @@ class MessageDispatcher:
             # AG-UI: Recover incomplete messages on session start (crash recovery)
             if ui_format == "ag_ui":
                 await self.recover_incomplete_messages(card_id_for_format)
+                # Immediately advertise initial merged commands (system + existing agent cmds)
+                await self._advertise_commands(params.get("sessionId", ""), on_output, card_id=card_id_for_format)
             self._card_ui_formats[card_id_for_format] = ui_format
 
         async def wrapped_notification(notif_data):
@@ -411,8 +414,22 @@ class MessageDispatcher:
                 prompt_text = params.get("message") or params.get("prompt")
                 if isinstance(prompt_text, list):
                     prompt_text = " ".join([p.get("text", "") for p in prompt_text if p.get("type") == "text"])
-                await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text)
-                bus.publish(card_id, {"type": "refresh"})
+                
+                seq_id = await self._get_next_seq(card_id)
+                await asyncio.to_thread(self.db.sessions.add_message, card_id, "user", prompt_text, seq_id=seq_id)
+                
+                # Notify UI about the user message
+                if self._card_ui_formats.get(card_id) == "ag_ui":
+                    bus.publish(card_id, {
+                        "type": "ag_ui_event",
+                        "card_id": card_id,
+                        "event": "user_message",
+                        "role": "user",
+                        "text": prompt_text,
+                        "seqId": seq_id
+                    })
+                else:
+                    bus.publish(card_id, {"type": "refresh"})
                 
                 # Phase 7: Immediate "Thinking" feedback
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"text": "..."}})
@@ -560,6 +577,17 @@ class MessageDispatcher:
             
             # Mark assistant response as complete so Flutter stops showing "AI is thinking..."
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
+            
+            # AG-UI: Explicitly publish session_stop to close the current turn
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                seq_id = await self._get_next_seq(card_id)
+                bus.publish(card_id, {
+                    "type": "ag_ui_event",
+                    "card_id": card_id,
+                    "event": "session_stop",
+                    "seqId": seq_id
+                })
+            
             bus.publish(card_id, {"type": "refresh"})
         except Exception as e:
             logger.error(f"Engine error: {e}")
@@ -607,27 +635,40 @@ class MessageDispatcher:
             delta = update.get("delta", {})
             if isinstance(delta, dict):
                 chunk_text = delta.get("text", "")
-        elif utype == "agent_thought_chunk":
+        elif method == "_qwencode/slash_command":
+            chunk_text = params.get("message", "")
+
+        # AG-UI Path: Try to map ANY notification to AG-UI event
+        if ui_format == "ag_ui":
+            ag_event = AGUIMapper.map_notification(n)
+            if ag_event:
+                # Buffer all AG-UI events for consistent sequencing and persistence
+                await self._buffer_chunk(card_id, ag_event, on_output)
+                
+                # Special handling for persistence of message chunks (mark as incomplete in DB for now)
+                # They will be marked as complete during _flush_buffer.
+                if ag_event.get("event") == "message_chunk" and ag_event.get("text"):
+                    await asyncio.to_thread(
+                        self.db.sessions.append_message, 
+                        card_id, "assistant", ag_event["text"], False
+                    )
+                
+                # If it's a stop/end event, trigger an immediate flush
+                if ag_event.get("event") in ("session_stop", "stop"):
+                    await self._flush_on_event(card_id, "session_stop")
+                
+                return
+
+        # Fallback/ACP Path (Non-AG-UI or non-mappable)
+        if utype == "agent_thought_chunk":
             # Forward thought chunks for display (debugging/transparency)
             thought_text = update.get("content", {}).get("text", "")
             if thought_text:
                 await asyncio.to_thread(self.db.append_thought, card_id, thought_text)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
-        elif method == "_qwencode/slash_command":
-            chunk_text = params.get("message", "")
-
-        # AG-UI Buffer Layer: Buffer chunks instead of immediate dispatch
-        if ui_format == "ag_ui" and chunk_text:
-            # Map to AG-UI event and buffer
-            ag_event = AGUIMapper.map_notification(n)
-            if ag_event:
-                await self._buffer_chunk(card_id, ag_event, on_output)
-                # Also persist to DB for history
-                await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False)
-            return
-
+        
         if chunk_text:
-            seq_id = self._get_next_seq(card_id)
+            seq_id = await self._get_next_seq(card_id)
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False, seq_id=seq_id)
             bus.publish(card_id, {"type": "agent_message_chunk", "content": {"text": chunk_text}})
         elif utype == "plan":
@@ -668,7 +709,7 @@ class MessageDispatcher:
             
             # Phase 5.3: Integrate tool call into thought trace for end-to-end transparency
             trace_msg = ""
-            seq_id = self._get_next_seq(card_id)
+            seq_id = await self._get_next_seq(card_id)
             if status == "pending":
                 trace_msg = f"\n\n🛠️ **Calling tool:** `{title}`\n"
             elif status == "completed":
@@ -703,7 +744,7 @@ class MessageDispatcher:
                     preview = clean_output[:1000] + ("..." if len(clean_output) > 1000 else "")
                     trace_msg = f"\n> **Output:** {preview}\n"
                 
-                seq_id = self._get_next_seq(card_id)
+                seq_id = await self._get_next_seq(card_id)
                 await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
@@ -730,7 +771,7 @@ class MessageDispatcher:
 
     # ==================== AG-UI Buffer Layer (Phase 1) ====================
     
-    def _get_next_seq(self, card_id: str) -> int:
+    async def _get_next_seq(self, card_id: str) -> int:
         """
         Generate next sequence ID for a session.
         Each card_id maintains its own independent counter.
@@ -741,10 +782,11 @@ class MessageDispatcher:
         Returns:
             Next sequential ID (1-indexed)
         """
-        if card_id not in self._seq_counters:
-            self._seq_counters[card_id] = 0
-        self._seq_counters[card_id] += 1
-        return self._seq_counters[card_id]
+        async with self._seq_lock:
+            if card_id not in self._seq_counters:
+                self._seq_counters[card_id] = 0
+            self._seq_counters[card_id] += 1
+            return self._seq_counters[card_id]
     
     def set_ui_format(self, card_id: str, ui_format: str):
         """
@@ -771,10 +813,25 @@ class MessageDispatcher:
             self._flush_locks[card_id] = asyncio.Lock()
         
         # Add seqId to chunk
-        chunk["seqId"] = self._get_next_seq(card_id)
+        chunk["seqId"] = await self._get_next_seq(card_id)
         self._chunk_buffers[card_id].append(chunk)
         
         logger.debug(f"[AG-UI] Buffered chunk for {card_id}: seqId={chunk['seqId']}, buffer_size={len(self._chunk_buffers[card_id])}")
+        
+        # Real-time dispatch: Even if buffered for DB, we MUST publish to bus and on_output
+        # This fixes Defect #1, #2, and #3.
+        bus.publish(card_id, chunk)
+        
+        if on_output:
+            try:
+                # If on_output is the wrapped_notification from handle_message, 
+                # it expects a dict that looks like a notification.
+                # AG-UI events from AGUIMapper already look like notifications/events.
+                result = on_output(chunk)
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+            except Exception as e:
+                logger.error(f"[AG-UI] Failed to dispatch chunk to on_output: {e}")
         
         # Check capacity trigger (immediate flush if buffer is full)
         if len(self._chunk_buffers[card_id]) >= self._ag_ui_buffer_capacity:
@@ -836,6 +893,26 @@ class MessageDispatcher:
                                 card_id, "assistant", text, True, seq_id=seq_id
                             )
                     
+                    # Persist tool calls based on event type
+                    elif event_type == "tool_call_start":
+                        name = chunk.get("name") or chunk.get("tool", "unknown")
+                        trace_msg = f"\n\n🛠️ **Calling tool:** `{name}`\n"
+                        await asyncio.to_thread(
+                            self.db.append_thought,
+                            card_id, trace_msg, seq_id=seq_id
+                        )
+                    elif event_type == "tool_call_result":
+                        name = chunk.get("name") or chunk.get("tool", "unknown")
+                        status = chunk.get("status", "success")
+                        if status == "success":
+                            trace_msg = f"\n✅ **Tool call finished:** `{name}`\n"
+                        else:
+                            trace_msg = f"\n❌ **Tool call failed:** `{name}`\n"
+                        await asyncio.to_thread(
+                            self.db.append_thought,
+                            card_id, trace_msg, seq_id=seq_id
+                        )
+                    
                     # Persist reasoning/thought if present
                     reasoning = chunk.get("reasoning")
                     if reasoning:
@@ -844,7 +921,7 @@ class MessageDispatcher:
                             card_id, reasoning, seq_id=seq_id
                         )
                     
-                    # Persist tool calls if present
+                    # Handle bundled tool calls (from history mapping or legacy chunks)
                     tool_calls = chunk.get("tool_calls", [])
                     for tc in tool_calls:
                         trace_msg = f"\n🛠️ **Tool:** `{tc.get('name', 'unknown')}` - {tc.get('status', 'pending')}\n"
@@ -888,7 +965,16 @@ class MessageDispatcher:
         
         for msg in incomplete:
             # Mark as interrupted in metadata
-            metadata = msg.get("metadata") or {}
+            raw_metadata = msg.get("metadata")
+            metadata = {}
+            if isinstance(raw_metadata, str):
+                try:
+                    metadata = json.loads(raw_metadata)
+                except json.JSONDecodeError:
+                    metadata = {}
+            elif isinstance(raw_metadata, dict):
+                metadata = raw_metadata
+            
             metadata["is_interrupted"] = True
             metadata["interrupted_at"] = asyncio.get_event_loop().time()
             

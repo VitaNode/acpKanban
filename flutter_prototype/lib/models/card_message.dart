@@ -6,6 +6,7 @@ class CardMessage {
   final String createdAt;
   final Map<String, dynamic>? metadata;
   final bool isComplete;
+  final int? seqId;
 
   CardMessage({
     required this.id,
@@ -15,6 +16,7 @@ class CardMessage {
     required this.createdAt,
     this.metadata,
     this.isComplete = true,
+    this.seqId,
   });
 
   factory CardMessage.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class CardMessage {
       createdAt: json['created_at'] ?? DateTime.now().toIso8601String(),
       metadata: json['metadata'],
       isComplete: json['is_complete'] == 0 || json['is_complete'] == false ? false : true,
+      seqId: json['seq_id'] is int ? json['seq_id'] : null,
     );
   }
 
@@ -37,6 +40,7 @@ class CardMessage {
     String? content,
     bool? isComplete,
     Map<String, dynamic>? metadata,
+    int? seqId,
   }) {
     return CardMessage(
       id: id,
@@ -46,6 +50,7 @@ class CardMessage {
       createdAt: createdAt,
       metadata: metadata ?? this.metadata,
       isComplete: isComplete ?? this.isComplete,
+      seqId: seqId ?? this.seqId,
     );
   }
 }

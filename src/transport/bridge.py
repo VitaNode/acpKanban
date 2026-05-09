@@ -524,6 +524,30 @@ class UnifiedBridge:
             await safe_send({"jsonrpc": "2.0", "id": request_id, "result": projects})
             return
 
+        if method == "provider/list":
+            # Proxy to local API or read config directly
+            try:
+                from api.providers import get_providers
+                res = await get_providers()
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": res})
+            except Exception as e:
+                self.logger.error(f"Error in provider/list: {e}")
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+            return
+
+        if method == "kanban/progress/get":
+            pid = params.get("project_id")
+            if not pid:
+                # Use current project if not specified
+                pid = self.db.get_setting("current_project_id")
+            
+            if pid:
+                progress = self.db.get_project_progress(pid)
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": progress})
+            else:
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "No active project"}})
+            return
+
         if method == "projects/status":
             # This handles getAllProjectStatuses for iPhone UI
             try:
@@ -585,6 +609,9 @@ class UnifiedBridge:
                     for card in cards:
                         if 'card_id' in card and 'id' not in card:
                             card['id'] = card['card_id']
+                        # Ensure column_id is present
+                        if 'column_id' not in card:
+                            card['column_id'] = c['id']
                     
                     c['cards'] = cards
                     full_columns.append(c)

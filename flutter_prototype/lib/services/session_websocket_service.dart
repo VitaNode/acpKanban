@@ -76,6 +76,8 @@ class SessionWebSocketService {
 
     _currentCardId = cardId;
     _currentMessages = [];
+    _eventBuffer.clear();
+    _lastContiguousSeqId = 0;
     _messageController.add([]);
     _planController.add(null);
     _configController.add([]);
@@ -242,42 +244,53 @@ class SessionWebSocketService {
 
       switch (m['type']) {
         case 'history':
-          _currentMessages = (m['messages'] as List?)
+          final newMessages = (m['messages'] as List?)
                   ?.map((x) => CardMessage.fromJson(x))
                   .toList() ??
               [];
-          _messageController.add(_currentMessages);
           
-          // Emit card update if session/provider/tokens info is included
-          if (m.containsKey('acp_session_id') || m.containsKey('acp_provider_id') || m.containsKey('input_tokens')) {
-            _cardUpdateController.add(KanbanCard(
-              id: _currentCardId ?? '',
-              title: '', // Not used by CardDetailView listener for this case
-              description: '',
-              columnId: '',
-              createdAt: '',
-              updatedAt: '',
-              acpSessionId: m['acp_session_id'],
-              acpProviderId: m['acp_provider_id'],
-              availableCommands: (m['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
-              inputTokens: m['input_tokens'] ?? 0,
-              outputTokens: m['output_tokens'] ?? 0,
-            ));
+          // If we requested a delta update (after_seq > 0) and got no new messages,
+          // just update the card/config info and keep existing messages.
+          if (newMessages.isEmpty && _lastContiguousSeqId > 0) {
+            _updateCardAndConfig(m);
+            return;
           }
 
-          // Also handle config_options embedded in history response
-          if (m['config_options'] != null) {
-            _configController.add((m['config_options'] as List?)
-                    ?.map((x) => ConfigOption.fromJson(x))
-                    .toList() ??
-                []);
+          if (_lastContiguousSeqId == 0) {
+            // Full sync or first load
+            _currentMessages = newMessages;
+          } else {
+            // Merge delta update
+            for (var msg in newMessages) {
+              final index = _currentMessages.indexWhere((existing) => 
+                (existing.id == msg.id && msg.id.isNotEmpty && !msg.id.startsWith('streaming-') && !msg.id.startsWith('thought-')) || 
+                (existing.seqId == msg.seqId && msg.seqId != null)
+              );
+              
+              if (index != -1) {
+                // Update existing message (e.g., from streaming to complete)
+                _currentMessages[index] = msg;
+              } else {
+                // Add new message and keep sorted by seqId
+                _currentMessages.add(msg);
+              }
+            }
+            // Sort by seqId or fallback to created_at
+            _currentMessages.sort((a, b) {
+              if (a.seqId != null && b.seqId != null) return a.seqId!.compareTo(b.seqId!);
+              return a.createdAt.compareTo(b.createdAt);
+            });
           }
-          // Also handle available_commands embedded in history response
-          if (m['available_commands'] != null) {
-            _commandController.add((m['available_commands'] as List?)
-                    ?.cast<Map<String, dynamic>>() ??
-                []);
+          
+          // Update _lastContiguousSeqId based on the highest seqId in history
+          for (var msg in _currentMessages) {
+            if (msg.seqId != null && msg.seqId! > _lastContiguousSeqId) {
+              _lastContiguousSeqId = msg.seqId!;
+            }
           }
+          
+          _messageController.add(List.from(_currentMessages));
+          _updateCardAndConfig(m);
           break;
         case 'agent_plan':
           _planController
@@ -444,17 +457,19 @@ class SessionWebSocketService {
       content: jsonEncode(agEventMap),
       createdAt: DateTime.now().toIso8601String(),
       isComplete: event.isComplete ?? false,
+      seqId: event.seqId,
     );
 
     // Handle different event types for UI rendering
-    if (event.eventType == 'agent_message_chunk' && event.text != null) {
+    if ((event.eventType == 'agent_message_chunk' || event.eventType == 'message_chunk') && event.text != null) {
       final chunk = event.text!;
       if (_currentMessages.isNotEmpty && 
           _currentMessages.last.role == 'assistant' && 
           !_currentMessages.last.isComplete) {
         final last = _currentMessages.last;
         _currentMessages[_currentMessages.length - 1] = last.copyWith(
-          content: last.content + chunk
+          content: last.content + chunk,
+          seqId: event.seqId,
         );
       } else {
         _currentMessages.add(CardMessage(
@@ -463,7 +478,8 @@ class SessionWebSocketService {
           role: 'assistant',
           content: chunk,
           createdAt: DateTime.now().toIso8601String(),
-          isComplete: false
+          isComplete: false,
+          seqId: event.seqId,
         ));
       }
       _messageController.add(List.from(_currentMessages));
@@ -477,7 +493,8 @@ class SessionWebSocketService {
         final metadata = Map<String, dynamic>.from(last.metadata ?? {});
         metadata['thought'] = (metadata['thought'] ?? '') + thought;
         _currentMessages[_currentMessages.length - 1] = last.copyWith(
-          metadata: metadata
+          metadata: metadata,
+          seqId: event.seqId,
         );
       } else {
         _currentMessages.add(CardMessage(
@@ -487,7 +504,8 @@ class SessionWebSocketService {
           content: '',
           createdAt: DateTime.now().toIso8601String(),
           isComplete: false,
-          metadata: {'thought': thought}
+          metadata: {'thought': thought},
+          seqId: event.seqId,
         ));
       }
       _messageController.add(List.from(_currentMessages));
@@ -505,6 +523,7 @@ class SessionWebSocketService {
         content: toolCall?.result ?? '',
         createdAt: DateTime.now().toIso8601String(),
         isComplete: event.eventType == 'tool_call_result',
+        seqId: event.seqId,
         metadata: {
           'name': toolName,
           'status': toolStatus,
@@ -540,14 +559,75 @@ class SessionWebSocketService {
         content: text,
         createdAt: DateTime.now().toIso8601String(),
         isComplete: event.isComplete ?? true,
+        seqId: event.seqId,
         metadata: metadata.isNotEmpty ? metadata : null
       ));
       _messageController.add(List.from(_currentMessages));
     }
-    else {
-      // For other event types, just add the raw message for now
-      _currentMessages.add(agUiMessage);
+    else if (event.eventType == 'user_message') {
+      // Handle user messages echoed back from the server
+      _currentMessages.add(CardMessage(
+        id: 'user-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
+        cardId: _currentCardId ?? '',
+        role: 'user',
+        content: event.text ?? '',
+        createdAt: DateTime.now().toIso8601String(),
+        isComplete: true,
+        seqId: event.seqId,
+      ));
       _messageController.add(List.from(_currentMessages));
+    }
+    else if (event.eventType == 'plan_update') {
+      // Handle plan updates by extracting steps
+      try {
+        final rawMap = jsonDecode(agUiMessage.content);
+        _planController.add(AgentPlan.fromJson(rawMap));
+      } catch (e) {
+        debugPrint('[SessionWS] Plan Update Error: $e');
+      }
+    }
+    else if (event.eventType == 'config_update') {
+      // Handle config updates
+      try {
+        final rawMap = jsonDecode(agUiMessage.content);
+        final options = rawMap['options'] as List?;
+        if (options != null) {
+          _configController.add(options.map((o) => ConfigOption.fromJson(o as Map<String, dynamic>)).toList());
+        }
+      } catch (e) {
+        debugPrint('[SessionWS] Config Update Error: $e');
+      }
+    }
+    else if (event.eventType == 'commands_update') {
+      // Handle commands updates
+      try {
+        final rawMap = jsonDecode(agUiMessage.content);
+        final commands = rawMap['commands'] as List?;
+        if (commands != null) {
+          _commandController.add(commands.map((c) => c as Map<String, dynamic>).toList());
+        }
+      } catch (e) {
+        debugPrint('[SessionWS] Commands Update Error: $e');
+      }
+    }
+    else if (event.eventType == 'session_stop' || event.eventType == 'stop') {
+      if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant') {
+        _currentMessages[_currentMessages.length - 1] = _currentMessages.last.copyWith(isComplete: true);
+        _messageController.add(List.from(_currentMessages));
+      }
+    }
+    else {
+      // If it's a known non-message event, ignore it to avoid leaking raw JSON
+      final ignoreEvents = ['heartbeat', 'session_info', 'context_data'];
+      if (event.eventType != null && ignoreEvents.contains(event.eventType)) {
+        return;
+      }
+      
+      // For unknown event types, only add if it looks like a message
+      if (event.text != null && event.text!.isNotEmpty) {
+        _currentMessages.add(agUiMessage);
+        _messageController.add(List.from(_currentMessages));
+      }
     }
   }
 
@@ -570,6 +650,15 @@ class SessionWebSocketService {
   }
 
   void _tryDeliverBufferedEvents() {
+    // Prevent memory leaks: if buffer grows too large due to missing seqIds, clear it
+    if (_eventBuffer.length > 100) {
+      debugPrint("[AG-UI] Event buffer exceeded limit (100). Possible dropped packet at seqId ${_lastContiguousSeqId + 1}. Clearing buffer.");
+      _eventBuffer.clear();
+      // Optionally we could try to jump to the next available seqId, 
+      // but clearing is safer to maintain consistency.
+      return;
+    }
+
     // Continuously deliver events from buffer as long as we have the next seqId
     while (_eventBuffer.containsKey(_lastContiguousSeqId + 1)) {
       final nextSeqId = _lastContiguousSeqId + 1;
@@ -645,6 +734,39 @@ class SessionWebSocketService {
     _isConnected = false;
     if (channel != null) {
       await channel.sink.close();
+    }
+  }
+
+  void _updateCardAndConfig(Map<String, dynamic> m) {
+    // Emit card update if session/provider/tokens info is included
+    if (m.containsKey('acp_session_id') || m.containsKey('acp_provider_id') || m.containsKey('input_tokens')) {
+      _cardUpdateController.add(KanbanCard(
+        id: _currentCardId ?? '',
+        title: '', // Not used by CardDetailView listener for this case
+        description: '',
+        columnId: '',
+        createdAt: '',
+        updatedAt: '',
+        acpSessionId: m['acp_session_id'],
+        acpProviderId: m['acp_provider_id'],
+        availableCommands: (m['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
+        inputTokens: m['input_tokens'] ?? 0,
+        outputTokens: m['output_tokens'] ?? 0,
+      ));
+    }
+
+    // Also handle config_options embedded in history response
+    if (m['config_options'] != null) {
+      _configController.add((m['config_options'] as List?)
+              ?.map((x) => ConfigOption.fromJson(x))
+              .toList() ??
+          []);
+    }
+    // Also handle available_commands embedded in history response
+    if (m['available_commands'] != null) {
+      _commandController.add((m['available_commands'] as List?)
+              ?.cast<Map<String, dynamic>>() ??
+          []);
     }
   }
 

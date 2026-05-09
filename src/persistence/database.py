@@ -585,6 +585,22 @@ class SummaryRepository(BaseRepository):
             return results[:limit]
 
 class SessionRepository(BaseRepository):
+    def get_incomplete_messages(self, card_id: str) -> List[Dict]:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT id, role, content, metadata FROM card_sessions WHERE card_id = ? AND is_complete = 0",
+                (card_id,)
+            )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def update_message_metadata(self, msg_id: int, metadata: Dict):
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "UPDATE card_sessions SET metadata = ?, is_complete = 1 WHERE id = ?",
+                (json.dumps(metadata), msg_id)
+            )
+
     def add_message(self, *args, **kwargs):
         # Flexible signature to avoid TypeError: (card_id, role, content, metadata=None, is_milestone=False, ...)
         card_id = args[0] if len(args) > 0 else kwargs.get('card_id')
@@ -886,12 +902,12 @@ class KanbanDB:
     def get_project_progress(self, project_id, depth=3): return self.cards.get_progress_stats(project_id, depth)
 
     def get_summary(self, card_id): return self.summaries.get(card_id)
-    def get_session_history(self, card_id, limit=50): return self.sessions.get_history(card_id, limit)
+    def get_session_history(self, card_id, limit=50, after_seq=None): return self.sessions.get_history(card_id, limit, after_seq)
     def add_session_message(self, card_id, role, content, metadata=None, is_milestone=False): return self.sessions.add_message(card_id, role, content, metadata, is_milestone)
-    def append_message(self, card_id, role, content_chunk, is_complete=False): return self.sessions.append_message(card_id, role, content_chunk, is_complete)
+    def append_message(self, card_id, role, content_chunk, is_complete=False, seq_id=None): return self.sessions.append_message(card_id, role, content_chunk, is_complete, seq_id)
     def update_message_with_metadata(self, card_id, metadata_key, metadata_val, content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, metadata_key, metadata_val, content, is_complete)
-    def add_thought(self, card_id, thought): return self.sessions.append_thought(card_id, thought)
-    def append_thought(self, card_id, thought_chunk): return self.sessions.append_thought(card_id, thought_chunk)
+    def add_thought(self, card_id, thought, seq_id=None): return self.sessions.append_thought(card_id, thought, seq_id)
+    def append_thought(self, card_id, thought_chunk, seq_id=None): return self.sessions.append_thought(card_id, thought_chunk, seq_id)
 
     def get_timeline(self, project_id, limit=100): return self.timeline.get_by_project(project_id, limit)
     def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)

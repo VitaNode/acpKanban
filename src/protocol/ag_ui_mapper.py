@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Any, Optional
 import re
 
@@ -29,7 +30,18 @@ class AGUIMapper:
         """
         role = msg.get("role", "assistant")
         content = msg.get("content", "")
-        metadata = msg.get("metadata") or {}
+        
+        # Ensure metadata is a dict
+        raw_metadata = msg.get("metadata")
+        metadata = {}
+        if isinstance(raw_metadata, str):
+            try:
+                metadata = json.loads(raw_metadata)
+            except:
+                metadata = {}
+        elif isinstance(raw_metadata, dict):
+            metadata = raw_metadata
+            
         created_at = msg.get("created_at", "")
         is_complete = msg.get("is_complete", True)
         

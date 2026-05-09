@@ -99,6 +99,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     _descriptionController = TextEditingController(text: _card.description);
     _summaryController = TextEditingController();
     _contextController = TextEditingController();
+    _isAgentConnected = _card.acpSessionId != null && _card.acpSessionId!.isNotEmpty;
     _setupWebSocket();
     _loadSummary();
     _loadEnvironmentInfo();
@@ -929,12 +930,12 @@ class _CardDetailViewState extends State<CardDetailView> {
                     const SizedBox(width: AppConstants.space8),
                     Expanded(
                       child: Text(
-                          _targetProviderId != null
+                          (_targetProviderId != null || _card.acpProviderId != null)
                               ? 'Agent [${_providerDisplayName.toUpperCase()}] is ready in this column.'
                               : 'No default agent for this column.',
                           style: Theme.of(context).textTheme.bodySmall),
                     ),
-                    if (_targetProviderId != null)
+                    if (_targetProviderId != null || _card.acpProviderId != null)
                       _isInitializing
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                         : TextButton(

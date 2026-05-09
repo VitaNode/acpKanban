@@ -299,7 +299,7 @@ async def get_all_project_statuses():
     """
     db = get_db()
     try:
-        return db.get_all_agent_statuses()
+        return db.get_project_agent_statuses()
     except Exception as e:
         raise HTTPError(400, str(e))
 
@@ -707,14 +707,20 @@ async def switch_project(project_id: str):
                 "name": col["name"],
                 "position": col["position"],
                 "color": col["color"],
+                "acp_provider_id": col.get("acp_provider_id"),
+                "prompt_template": col.get("prompt_template"),
+                "approval_mode": col.get("approval_mode"),
                 "card_count": len(col_cards),
                 "cards": [
                     {
                         "id": c["id"],
+                        "column_id": col_id,
                         "title": c["title"],
                         "description": c.get("description", ""),
                         "position": c["position"],
                         "status": c.get("status", "active"),
+                        "plan_status": c.get("plan_status", "plan"),
+                        "feature_id": c.get("feature_id"),
                         "completed_at": c.get("completed_at"),
                         "parent_id": c.get("parent_id"),
                         "acp_session_id": c.get("acp_session_id"),

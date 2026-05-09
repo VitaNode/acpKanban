@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:kanban_app/models/card_message.dart';
+import 'card_message.dart';
 
 class AgUiEvent {
   final String? eventType;
