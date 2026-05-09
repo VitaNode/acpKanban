@@ -300,18 +300,16 @@ class SessionWebSocketService {
                   .toList() ??
               [];
           
-          // If we requested a delta update (after_seq > 0) and got no new messages,
-          // just update the card/config info and keep existing messages.
           if (newMessages.isEmpty && _lastContiguousSeqId > 0) {
             _updateCardAndConfig(m);
             return;
           }
 
           if (_lastContiguousSeqId == 0) {
-            // Full sync or first load
-            _currentMessages = _mergeMessages(newMessages);
+            // Full sync or first load: store raw messages
+            _currentMessages = List.from(newMessages);
           } else {
-            // Merge delta update
+            // Merge delta update into raw storage
             for (var msg in newMessages) {
               final index = _currentMessages.indexWhere((existing) => 
                 (existing.id == msg.id && msg.id.isNotEmpty && !msg.id.startsWith('streaming-') && !msg.id.startsWith('thought-')) || 
@@ -319,31 +317,25 @@ class SessionWebSocketService {
               );
               
               if (index != -1) {
-                // Update existing message (e.g., from streaming to complete)
                 _currentMessages[index] = msg;
               } else {
-                // Add new message and keep sorted by seqId
                 _currentMessages.add(msg);
               }
             }
-            // Sort by seqId or fallback to created_at
             _currentMessages.sort((a, b) {
               if (a.seqId != null && b.seqId != null) return a.seqId!.compareTo(b.seqId!);
               return a.createdAt.compareTo(b.createdAt);
             });
-            
-            // After merging delta, we should also ensure the final list is merged
-            _currentMessages = _mergeMessages(_currentMessages);
           }
           
-          // Update _lastContiguousSeqId based on the highest seqId in history
           for (var msg in _currentMessages) {
             if (msg.seqId != null && msg.seqId! > _lastContiguousSeqId) {
               _lastContiguousSeqId = msg.seqId!;
             }
           }
           
-          _messageController.add(List.from(_currentMessages));
+          // Emit merged view to UI, but keep raw storage intact
+          _messageController.add(_mergeMessages(_currentMessages));
           _updateCardAndConfig(m);
           break;
         case 'agent_plan':
