@@ -145,7 +145,26 @@ class AGUIMapper:
             else:  # failed, cancelled, etc.
                 event_type = "tool_call_result"
             
-            # Extract result from content array if present
+            # Extract args from rawInput (contains the tool parameters)
+            args_text = None
+            raw_input = update.get("rawInput")
+            if raw_input and isinstance(raw_input, dict):
+                # Convert rawInput dict to a readable string representation
+                # Prioritize 'content' field for file operations
+                if "content" in raw_input:
+                    args_text = f"content: {raw_input['content']}"
+                    if "filePath" in raw_input:
+                        args_text += f"\nfilePath: {raw_input['filePath']}"
+                elif "path" in raw_input:
+                    args_text = f"path: {raw_input['path']}"
+                # Fallback: convert entire dict to JSON string
+                if not args_text:
+                    try:
+                        args_text = json.dumps(raw_input, indent=2)
+                    except:
+                        args_text = str(raw_input)
+            
+            # Extract result from content array or rawOutput
             result_text = None
             content = update.get("content", [])
             if content and isinstance(content, list):
@@ -159,19 +178,28 @@ class AGUIMapper:
                 if text_parts:
                     result_text = "\n".join(text_parts)
             
+            # Fallback to rawOutput.output if no content extracted
+            if not result_text:
+                raw_output = update.get("rawOutput")
+                if raw_output and isinstance(raw_output, dict):
+                    output = raw_output.get("output")
+                    if output:
+                        result_text = output
+            
             ag_event.update({
                 "event": event_type,
                 "tool_id": update.get("toolCallId"),
                 "tool": update.get("tool"),
                 "name": update.get("title") or update.get("tool"),
                 "status": AGUIMapper._map_tool_status(status),
-                "args": update.get("parameters", update.get("arguments")),
+                "args": args_text,
                 "result": result_text
             })
         elif utype == "tool_call_update":
             status = update.get("status", "running")
             
-            # Extract result text from content array
+            # For tool_call_update, we don't usually have args (already sent in tool_call)
+            # but we can extract result from content or rawOutput
             result_text = None
             content = update.get("content", [])
             if content and isinstance(content, list):
@@ -183,6 +211,14 @@ class AGUIMapper:
                             text_parts.append(item_content["text"])
                 if text_parts:
                     result_text = "\n".join(text_parts)
+            
+            # Fallback to rawOutput.output
+            if not result_text:
+                raw_output = update.get("rawOutput")
+                if raw_output and isinstance(raw_output, dict):
+                    output = raw_output.get("output")
+                    if output:
+                        result_text = output
             
             ag_event.update({
                 "event": "tool_call_update",
