@@ -215,11 +215,34 @@ class SessionWebSocketService {
           current.role.toLowerCase() == 'assistant' && 
           next.role.toLowerCase() == 'assistant') {
         
-        // 只要是连续的助手消息，无论 isComplete 状态如何，全部强制合并
+        // 1. 合并正文内容
+        String newContent = current.content + next.content;
+        
+        // 2. 深度合并元数据 (Metadata)
+        Map<String, dynamic>? newMetadata;
+        if (current.metadata != null || next.metadata != null) {
+          // 创建当前元数据的副本
+          newMetadata = Map<String, dynamic>.from(current.metadata ?? {});
+          
+          if (next.metadata != null) {
+            next.metadata!.forEach((key, value) {
+              if (key == 'thought') {
+                // 思考过程需要累加拼接，而不是覆盖
+                final prevThought = newMetadata['thought']?.toString() ?? '';
+                final nextThought = value?.toString() ?? '';
+                newMetadata['thought'] = prevThought + nextThought;
+              } else {
+                // 其他元数据属性取最新的值
+                newMetadata[key] = value;
+              }
+            });
+          }
+        }
+        
         current = current.copyWith(
-          content: current.content + next.content,
+          content: newContent,
           isComplete: next.isComplete,
-          metadata: next.metadata != null ? next.metadata : current.metadata,
+          metadata: newMetadata,
         );
       } else {
         merged.add(current!);
