@@ -601,6 +601,15 @@ class SessionRepository(BaseRepository):
                 (json.dumps(metadata), msg_id)
             )
 
+    def get_max_seq_id(self, card_id: str) -> int:
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT MAX(seq_id) FROM card_sessions WHERE card_id = ?",
+                (card_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row and row[0] is not None else 0
+
     def add_message(self, *args, **kwargs):
         # Flexible signature to avoid TypeError: (card_id, role, content, metadata=None, is_milestone=False, ...)
         card_id = args[0] if len(args) > 0 else kwargs.get('card_id')
