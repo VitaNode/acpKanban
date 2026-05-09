@@ -68,8 +68,9 @@ class SessionWebSocketService {
       await disconnect();
     }
 
-    // 同一张卡片且连接正常 → 重新请求历史（支持重入）
+    // 同一张卡片且连接正常 → 清空缓存并重索历史
     if ((_channel != null || (_useProxy && _isConnected)) && _currentCardId == cardId && _isConnected) {
+      _clearCache();
       await _requestHistory();
       return true;
     }
@@ -857,5 +858,18 @@ class SessionWebSocketService {
   void dispose() {
     _currentCardId = null;
     disconnect();
+  }
+
+  void _clearCache() {
+    // Clear all cached message state
+    _currentMessages = [];
+    _eventBuffer.clear();
+    _lastContiguousSeqId = 0;
+    
+    // Notify UI of empty state
+    _messageController.add([]);
+    _planController.add(null);
+    _configController.add([]);
+    _commandController.add([]);
   }
 }
