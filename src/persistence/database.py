@@ -637,12 +637,13 @@ class SessionRepository(BaseRepository):
     def append_thought(self, card_id: str, thought_chunk: str, seq_id: int = None):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # Look for the last assistant message
-            cursor = conn.execute("SELECT id, role, metadata, is_complete FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
+            # Look for the last assistant message (even if it's not the absolute last message in the session)
+            # This handles cases where a tool result or another event might have been recorded after the assistant started thinking.
+            cursor = conn.execute("SELECT id, role, metadata, is_complete FROM card_sessions WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
             
-            # If the last message is assistant and incomplete, append to its thought metadata
-            if row and row[1] == 'assistant' and row[3] == 0:
+            # If we found an incomplete assistant message, append to its thought metadata
+            if row:
                 msg_id = row[0]
                 meta = json.loads(row[2]) if row[2] else {}
                 meta['thought'] = (meta.get('thought') or "") + thought_chunk
