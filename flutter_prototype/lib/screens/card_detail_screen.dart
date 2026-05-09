@@ -206,44 +206,62 @@ class _CardDetailViewState extends State<CardDetailView> {
     });
 
     _planSub = _wsService.plan.listen((plan) {
-      if (mounted) setState(() => _currentPlan = plan);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _currentPlan = plan);
+      });
     });
 
     _configSub = _wsService.configOptions.listen((opts) {
-      if (mounted) setState(() => _configOptions = opts);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _configOptions = opts);
+      });
     });
 
     _commandSub = _wsService.availableCommands.listen((cmds) {
-      if (mounted) setState(() => _availableCommands = cmds);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _availableCommands = cmds);
+      });
     });
 
-    _cardSub = _wsService.cardUpdates.listen(_onCardUpdate);
+    _cardSub = _wsService.cardUpdates.listen((card) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onCardUpdate(card);
+      });
+    });
 
     _requestSub = _wsService.requests.listen((req) {
-      if (mounted) _handleUIRequest(req);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleUIRequest(req);
+      });
     });
 
     _errorSub = _wsService.errors.listen((err) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(err),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ));
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(err),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ));
+        }
+      });
     });
 
     _initializingSub = _wsService.isInitializing.listen((loading) {
-      if (mounted) setState(() => _isInitializing = loading);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _isInitializing = loading);
+      });
     });
 
     _contextSub = _wsService.contextData.listen((context) {
-      if (mounted) {
-        setState(() {
-          _contextController.text = context;
-          _isShowingContext = true;
-          _isEditingContext = true;
-        });
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _contextController.text = context;
+            _isShowingContext = true;
+            _isEditingContext = true;
+          });
+        }
+      });
     });
   }
 
