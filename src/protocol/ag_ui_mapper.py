@@ -198,8 +198,23 @@ class AGUIMapper:
         elif utype == "tool_call_update":
             status = update.get("status", "running")
             
-            # For tool_call_update, we don't usually have args (already sent in tool_call)
-            # but we can extract result from content or rawOutput
+            # Extract args from rawInput if available (may be missing if already sent in tool_call)
+            args_text = None
+            raw_input = update.get("rawInput")
+            if raw_input and isinstance(raw_input, dict):
+                if "content" in raw_input:
+                    args_text = f"content: {raw_input['content']}"
+                    if "filePath" in raw_input:
+                        args_text += f"\nfilePath: {raw_input['filePath']}"
+                elif "path" in raw_input:
+                    args_text = f"path: {raw_input['path']}"
+                if not args_text:
+                    try:
+                        args_text = json.dumps(raw_input, indent=2)
+                    except:
+                        args_text = str(raw_input)
+            
+            # Extract result from content array or rawOutput
             result_text = None
             content = update.get("content", [])
             if content and isinstance(content, list):
@@ -212,7 +227,6 @@ class AGUIMapper:
                 if text_parts:
                     result_text = "\n".join(text_parts)
             
-            # Fallback to rawOutput.output
             if not result_text:
                 raw_output = update.get("rawOutput")
                 if raw_output and isinstance(raw_output, dict):
@@ -224,6 +238,7 @@ class AGUIMapper:
                 "event": "tool_call_update",
                 "tool_id": update.get("toolCallId"),
                 "status": AGUIMapper._map_tool_status(status),
+                "args": args_text,
                 "result": result_text
             })
         elif utype == "session_info_update":
