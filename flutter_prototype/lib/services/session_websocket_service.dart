@@ -219,30 +219,30 @@ class SessionWebSocketService {
         String newContent = current.content + next.content;
         
         // 2. 深度合并元数据 (Metadata)
-        Map<String, dynamic>? newMetadata;
+        Map<String, dynamic>? finalMetadata;
         if (current.metadata != null || next.metadata != null) {
-          // 创建当前元数据的副本
-          newMetadata = Map<String, dynamic>.from(current.metadata ?? {});
+          final Map<String, dynamic> mergedMap = Map<String, dynamic>.from(current.metadata ?? {});
           
           if (next.metadata != null) {
             next.metadata!.forEach((key, value) {
               if (key == 'thought') {
                 // 思考过程需要累加拼接，而不是覆盖
-                final prevThought = newMetadata['thought']?.toString() ?? '';
+                final prevThought = mergedMap['thought']?.toString() ?? '';
                 final nextThought = value?.toString() ?? '';
-                newMetadata['thought'] = prevThought + nextThought;
+                mergedMap['thought'] = prevThought + nextThought;
               } else {
                 // 其他元数据属性取最新的值
-                newMetadata[key] = value;
+                mergedMap[key] = value;
               }
             });
           }
+          finalMetadata = mergedMap;
         }
         
         current = current.copyWith(
           content: newContent,
           isComplete: next.isComplete,
-          metadata: newMetadata,
+          metadata: finalMetadata,
         );
       } else {
         merged.add(current!);
