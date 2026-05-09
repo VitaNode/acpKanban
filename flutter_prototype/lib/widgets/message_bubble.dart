@@ -91,6 +91,8 @@ class MessageBubble extends StatelessWidget {
                 children: [
                   if (!isUser && message.metadata?['thought'] != null)
                     _buildThoughtSection(context),
+                  if (!isUser && message.metadata?['tool_calls'] != null)
+                    _buildToolCallsSection(context),
                   _buildMessageContent(context, isUser),
                 ],
               ),
@@ -202,6 +204,42 @@ class MessageBubble extends StatelessWidget {
         isCollapsed: false, // 默认展开
       ),
     );
+  }
+
+  Widget _buildToolCallsSection(BuildContext context) {
+    final toolCalls = message.metadata?['tool_calls'] as List<dynamic>?;
+    if (toolCalls == null || toolCalls.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.space12),
+      child: Wrap(
+        spacing: AppConstants.space8,
+        runSpacing: AppConstants.space8,
+        children: toolCalls.map((tc) {
+          final toolName = (tc['name'] ?? 'Unknown').toString();
+          final toolStatus = _mapToolStatus(tc['status']?.toString() ?? 'running');
+          return ToolPill(name: toolName, status: toolStatus);
+        }).toList(),
+      ),
+    );
+  }
+
+  String _mapToolStatus(String? status) {
+    // Map backend status to frontend-compatible status
+    switch (status) {
+      case 'pending':
+      case 'running':
+        return 'running';
+      case 'completed':
+      case 'success':
+        return 'success';
+      case 'failed':
+      case 'cancelled':
+      case 'error':
+        return 'failed';
+      default:
+        return 'running';
+    }
   }
 
   IconData _getProviderIcon() {

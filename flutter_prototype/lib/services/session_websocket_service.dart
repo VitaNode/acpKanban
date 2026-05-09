@@ -492,14 +492,80 @@ class SessionWebSocketService {
       }
       _messageController.add(List.from(_currentMessages));
     }
-    else if (event.eventType == 'tool_call_start' || event.eventType == 'tool_call_result') {
-      // Tool events trigger a history refresh to get latest state
-      _requestHistory();
+    else if (event.eventType == 'tool_call_start' || event.eventType == 'tool_call_update' || event.eventType == 'tool_call_result') {
+      // Handle tool call events by adding a message with tool metadata
+      final toolCall = event.toolCalls?.isNotEmpty == true ? event.toolCalls!.first : null;
+      final toolName = toolCall?.name ?? 'Unknown';
+      final toolStatus = _mapToolStatus(toolCall?.status ?? 'running');
+      
+      _currentMessages.add(CardMessage(
+        id: 'tool-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
+        cardId: _currentCardId ?? '',
+        role: 'tool',
+        content: toolCall?.result ?? '',
+        createdAt: DateTime.now().toIso8601String(),
+        isComplete: event.eventType == 'tool_call_result',
+        metadata: {
+          'name': toolName,
+          'status': toolStatus,
+          'arguments': toolCall?.args ?? '',
+          'tool_id': toolCall?.toolId,
+        }
+      ));
+      _messageController.add(List.from(_currentMessages));
+    }
+    else if (event.eventType == 'message_bundled' || event.eventType == 'message_chunk') {
+      // Handle bundled messages (with reasoning and tool calls)
+      final text = event.text ?? '';
+      final reasoning = event.reasoning;
+      
+      final metadata = <String, dynamic>{};
+      if (reasoning != null && reasoning.isNotEmpty) {
+        metadata['thought'] = reasoning;
+      }
+      if (event.toolCalls != null && event.toolCalls!.isNotEmpty) {
+        metadata['tool_calls'] = event.toolCalls!.map((tc) => {
+          'tool_id': tc.toolId,
+          'name': tc.name,
+          'status': tc.status,
+          'args': tc.args,
+          'result': tc.result,
+        }).toList();
+      }
+      
+      _currentMessages.add(CardMessage(
+        id: 'bundled-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
+        cardId: _currentCardId ?? '',
+        role: 'assistant',
+        content: text,
+        createdAt: DateTime.now().toIso8601String(),
+        isComplete: event.isComplete ?? true,
+        metadata: metadata.isNotEmpty ? metadata : null
+      ));
+      _messageController.add(List.from(_currentMessages));
     }
     else {
       // For other event types, just add the raw message for now
       _currentMessages.add(agUiMessage);
       _messageController.add(List.from(_currentMessages));
+    }
+  }
+
+  String _mapToolStatus(String backendStatus) {
+    // Map backend status (pending/completed/failed) to frontend status (running/success/failed)
+    switch (backendStatus) {
+      case 'pending':
+      case 'running':
+        return 'running';
+      case 'completed':
+      case 'success':
+        return 'success';
+      case 'failed':
+      case 'cancelled':
+      case 'error':
+        return 'failed';
+      default:
+        return 'running';
     }
   }
 
