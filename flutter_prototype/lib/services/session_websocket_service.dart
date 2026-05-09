@@ -212,11 +212,10 @@ class SessionWebSocketService {
       final next = messages[i];
       
       if (current != null && 
-          current.role == 'assistant' && 
-          next.role == 'assistant' && 
-          (!current.isComplete || !next.isComplete)) {
+          current.role.toLowerCase() == 'assistant' && 
+          next.role.toLowerCase() == 'assistant') {
         
-        // Merge next into current
+        // 只要是连续的助手消息，无论 isComplete 状态如何，全部强制合并
         current = current.copyWith(
           content: current.content + next.content,
           isComplete: next.isComplete,
