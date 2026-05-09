@@ -323,6 +323,9 @@ class MessageDispatcher:
         # Store ui_format for this card (for use in _forward_notification)
         card_id_for_format = params.get("card_id")
         if card_id_for_format:
+            # AG-UI: Recover incomplete messages on session start (crash recovery)
+            if ui_format == "ag_ui":
+                await self.recover_incomplete_messages(card_id_for_format)
             self._card_ui_formats[card_id_for_format] = ui_format
 
         async def wrapped_notification(notif_data):
@@ -819,12 +822,36 @@ class MessageDispatcher:
             logger.info(f"[AG-UI] Flushing {len(buffer)} chunks for {card_id} (reason: {reason})")
             
             try:
-                # Persist chunks to database
-                # TODO: Implement actual persistence logic based on your storage schema
-                # For now, we'll just log and clear the buffer
+                # Persist chunks to database with seqId
                 for chunk in buffer:
-                    # Example: self.db.sessions.add_ag_ui_chunk(card_id, chunk)
-                    pass
+                    seq_id = chunk.get("seqId")
+                    event_type = chunk.get("event", "message_chunk")
+                    
+                    # Map AG-UI event back to database storage
+                    if event_type in ("message_chunk", "message_bundled"):
+                        text = chunk.get("text", "")
+                        if text:
+                            await asyncio.to_thread(
+                                self.db.sessions.append_message,
+                                card_id, "assistant", text, True, seq_id=seq_id
+                            )
+                    
+                    # Persist reasoning/thought if present
+                    reasoning = chunk.get("reasoning")
+                    if reasoning:
+                        await asyncio.to_thread(
+                            self.db.append_thought,
+                            card_id, reasoning, seq_id=seq_id
+                        )
+                    
+                    # Persist tool calls if present
+                    tool_calls = chunk.get("tool_calls", [])
+                    for tc in tool_calls:
+                        trace_msg = f"\n🛠️ **Tool:** `{tc.get('name', 'unknown')}` - {tc.get('status', 'pending')}\n"
+                        await asyncio.to_thread(
+                            self.db.append_thought,
+                            card_id, trace_msg, seq_id=seq_id
+                        )
                 
                 # Clear buffer after successful flush
                 self._chunk_buffers[card_id] = []

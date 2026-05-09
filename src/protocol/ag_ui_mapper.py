@@ -124,17 +124,29 @@ class AGUIMapper:
                 "commands": update.get("availableCommands", [])
             })
         elif utype == "tool_call":
+            # Map tool_call to tool_call_start/tool_call_result based on status
+            status = update.get("status", "pending")
+            if status == "pending":
+                event_type = "tool_call_start"
+            elif status in ("completed", "success"):
+                event_type = "tool_call_result"
+            else:  # failed, cancelled, etc.
+                event_type = "tool_call_result"
+            
             ag_event.update({
-                "event": "tool_status",
+                "event": event_type,
                 "tool_id": update.get("toolCallId"),
+                "tool": update.get("tool"),
                 "name": update.get("title") or update.get("tool"),
-                "status": update.get("status", "pending")
+                "status": AGUIMapper._map_tool_status(status),
+                "args": update.get("parameters", update.get("arguments"))
             })
         elif utype == "tool_call_update":
+            status = update.get("status", "running")
             ag_event.update({
-                "event": "tool_status_update",
+                "event": "tool_call_update",
                 "tool_id": update.get("toolCallId"),
-                "status": update.get("status"),
+                "status": AGUIMapper._map_tool_status(status),
                 "content": update.get("content", [])
             })
         elif utype == "session_info_update":
@@ -151,3 +163,22 @@ class AGUIMapper:
             return None
 
         return ag_event
+    
+    @staticmethod
+    def _map_tool_status(backend_status: str) -> str:
+        """
+        Map backend tool status to frontend-compatible status.
+        
+        Backend uses: pending, running, completed, failed
+        Frontend expects: running, success, failed
+        """
+        status_map = {
+            "pending": "running",
+            "running": "running",
+            "completed": "success",
+            "success": "success",
+            "failed": "failed",
+            "cancelled": "failed",
+            "error": "failed"
+        }
+        return status_map.get(backend_status, "running")
