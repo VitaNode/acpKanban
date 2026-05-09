@@ -145,21 +145,50 @@ class AGUIMapper:
             else:  # failed, cancelled, etc.
                 event_type = "tool_call_result"
             
+            # Extract result from content array if present
+            result_text = None
+            content = update.get("content", [])
+            if content and isinstance(content, list):
+                # Extract text from content blocks
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict):
+                        item_content = item.get("content", {})
+                        if isinstance(item_content, dict) and "text" in item_content:
+                            text_parts.append(item_content["text"])
+                if text_parts:
+                    result_text = "\n".join(text_parts)
+            
             ag_event.update({
                 "event": event_type,
                 "tool_id": update.get("toolCallId"),
                 "tool": update.get("tool"),
                 "name": update.get("title") or update.get("tool"),
                 "status": AGUIMapper._map_tool_status(status),
-                "args": update.get("parameters", update.get("arguments"))
+                "args": update.get("parameters", update.get("arguments")),
+                "result": result_text
             })
         elif utype == "tool_call_update":
             status = update.get("status", "running")
+            
+            # Extract result text from content array
+            result_text = None
+            content = update.get("content", [])
+            if content and isinstance(content, list):
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict):
+                        item_content = item.get("content", {})
+                        if isinstance(item_content, dict) and "text" in item_content:
+                            text_parts.append(item_content["text"])
+                if text_parts:
+                    result_text = "\n".join(text_parts)
+            
             ag_event.update({
                 "event": "tool_call_update",
                 "tool_id": update.get("toolCallId"),
                 "status": AGUIMapper._map_tool_status(status),
-                "content": update.get("content", [])
+                "result": result_text
             })
         elif utype == "session_info_update":
             info = update.get("info", {})
