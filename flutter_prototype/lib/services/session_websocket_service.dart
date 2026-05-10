@@ -226,11 +226,13 @@ class SessionWebSocketService {
           current.role.toLowerCase() == 'assistant' && 
           next.role.toLowerCase() == 'assistant') {
         
-        // AG-UI Fix: Only merge if they have the same type (reasoning vs regular)
-        // AND current message is not yet complete (prevent merging historical turns)
+        // AG-UI Fix: Merge consecutive assistant messages of the same type.
+        // We remove the !current.isComplete restriction because intermediate flushes
+        // might have marked segments as 'complete' in the DB, but they visually
+        // belong to the same bubble.
         final currentType = current.metadata?['type'];
         final nextType = next.metadata?['type'];
-        if (currentType == nextType && !current.isComplete) {
+        if (currentType == nextType) {
           canMerge = true;
         }
       }
