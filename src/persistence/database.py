@@ -638,7 +638,8 @@ class SessionRepository(BaseRepository):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             # Check the last message for this card
-            cursor = conn.execute("SELECT id, role, content, metadata, is_complete FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
+            # Stability Fix: Use id DESC as secondary sort
+            cursor = conn.execute("SELECT id, role, content, metadata, is_complete, seq_id FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC, id DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
             
             # Type Isolation: Don't append to reasoning records
@@ -654,9 +655,19 @@ class SessionRepository(BaseRepository):
                 # Append to existing incomplete message of the same role/type
                 msg_id = row[0]
                 new_content = (row[2] or "") + content_chunk
-                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ?, seq_id = ? WHERE id = ?", (new_content, 1 if is_complete else 0, seq_id, msg_id))
+                
+                # AG-UI Fix: Never overwrite existing seq_id with NULL
+                target_seq = seq_id if seq_id is not None else row[5]
+                
+                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ?, seq_id = ? WHERE id = ?", (new_content, 1 if is_complete else 0, target_seq, msg_id))
             elif content_chunk:
                 # Start a new message
+                # Ensure seq_id is never NULL for new records
+                if seq_id is None:
+                    cursor_max = conn.execute("SELECT MAX(seq_id) FROM card_sessions WHERE card_id = ?", (card_id,))
+                    max_seq = cursor_max.fetchone()[0] or 0
+                    seq_id = max_seq + 1
+                    
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete, seq_id) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0, seq_id))
 
     def append_thought(self, card_id: str, thought_chunk: str, seq_id: int = None):
