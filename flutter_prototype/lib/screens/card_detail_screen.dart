@@ -802,6 +802,68 @@ class _CardDetailViewState extends State<CardDetailView> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              // Milestone Dropdown
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ProjectMilestone>(
+                    value: _selectedMilestone,
+                    isDense: true,
+                    hint: const Text('Milestone', style: TextStyle(fontSize: 12)),
+                    style: Theme.of(context).textTheme.bodySmall,
+                    items: [
+                      const DropdownMenuItem<ProjectMilestone>(
+                        value: null,
+                        child: Text('Uncategorized', style: TextStyle(fontSize: 12)),
+                      ),
+                      ..._milestones.map((m) => DropdownMenuItem(
+                            value: m,
+                            child: Text(m.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                          )),
+                    ],
+                    onChanged: (m) {
+                      setState(() {
+                        _selectedMilestone = m;
+                        _selectedFeature = null;
+                      });
+                      if (m == null) _onFeatureSelected(null);
+                    },
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
+              ),
+              // Feature Dropdown
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ProjectFeature>(
+                    value: _selectedFeature,
+                    isDense: true,
+                    hint: const Text('Feature', style: TextStyle(fontSize: 12)),
+                    style: Theme.of(context).textTheme.bodySmall,
+                    disabledHint: const Text('Select Milestone', style: TextStyle(fontSize: 12)),
+                    items: _selectedMilestone == null
+                        ? []
+                        : [
+                            const DropdownMenuItem<ProjectFeature>(
+                              value: null,
+                              child: Text('None', style: TextStyle(fontSize: 12)),
+                            ),
+                            ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
+                                  value: f,
+                                  child: Text(f.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                )),
+                          ],
+                    onChanged: _selectedMilestone == null ? null : (f) => _onFeatureSelected(f),
+                  ),
+                ),
+              ),
+            ],
+          ),
           if (_selectedMilestone != null && _selectedFeature != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -1203,6 +1265,25 @@ class _CardDetailViewState extends State<CardDetailView> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to reload card data')),
         );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _onFeatureSelected(ProjectFeature? feature) async {
+    try {
+      await _projectService.updateCard(
+        _card.id,
+        featureId: feature?.id,
+      );
+      if (mounted) {
+        setState(() {
+          _selectedFeature = feature;
+          _card = _card.copyWith(featureId: feature?.id);
+        });
       }
     } catch (e) {
       if (mounted) {
