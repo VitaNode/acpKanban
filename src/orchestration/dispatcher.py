@@ -943,6 +943,16 @@ class MessageDispatcher:
                                 self.db.append_thought,
                                 card_id, trace_msg, seq_id=seq_id
                             )
+                    elif event_type == "tool_call_update":
+                        # tool_call_update usually contains partial results or status, treat similar to a trace
+                        result = chunk.get("result", "")
+                        if result:
+                            trace_msg = f"\n> Update: {result[:200]}...\n"
+                            logger.info(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
+                            await asyncio.to_thread(
+                                self.db.append_thought,
+                                card_id, trace_msg, seq_id=seq_id
+                            )
                     elif event_type in ("commands_update", "plan_update", "config_update"):
                         # 系统事件不需要写入内容，但记录日志以确认 seqId 处理，防止前端认为丢失
                         logger.debug(f"[AG-UI] Persisting system event {event_type} seqId={seq_id} (no content write)")
