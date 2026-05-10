@@ -762,10 +762,11 @@ class SessionWebSocketService {
     if (_eventBuffer.length > 100) {
       debugPrint("[AG-UI] Event buffer exceeded limit (100). Possible dropped packet at seqId ${_lastContiguousSeqId + 1}. Clearing buffer.");
       _eventBuffer.clear();
-      // Optionally we could try to jump to the next available seqId, 
-      // but clearing is safer to maintain consistency.
       return;
     }
+
+    final sortedKeys = _eventBuffer.keys.toList()..sort();
+    int deliverCount = 0;
 
     // Continuously deliver events from buffer as long as we have the next seqId
     while (_eventBuffer.containsKey(_lastContiguousSeqId + 1)) {
@@ -774,12 +775,16 @@ class SessionWebSocketService {
       _lastContiguousSeqId = nextSeqId;
       
       _deliverAgUiEvent(event);
-      
-      // If this event marks completion, we can consider the message complete
-      if (event.isComplete == true) {
-        // Optionally reset buffer if we want to start fresh for next message
-        // But we keep buffering to handle potential overlaps
-      }
+      deliverCount++;
+    }
+
+    // FALLBACK: If stuck (no contiguous event) but buffer is not empty, 
+    // force deliver the oldest event to bridge the gap.
+    if (deliverCount == 0 && _eventBuffer.isNotEmpty) {
+      final oldestSeqId = sortedKeys.first;
+      debugPrint("[AG-UI] Buffer gap detected at seqId=${_lastContiguousSeqId + 1}. Forcing delivery of oldest buffered event seqId=$oldestSeqId");
+      _deliverAgUiEvent(_eventBuffer.remove(oldestSeqId)!);
+      _lastContiguousSeqId = oldestSeqId;
     }
   }
 

@@ -907,13 +907,18 @@ class MessageDispatcher:
                         text = chunk.get("text", "")
                         if text:
                             logger.info(f"[DB-WRITE-EXEC] Writing message_chunk seqId={seq_id} to DB for {card_id}")
-                            # Use is_complete=False for chunks to allow merging into a single row
                             await asyncio.to_thread(
                                 self.db.sessions.append_message,
                                 card_id, "assistant", text, False, seq_id=seq_id
                             )
-                    
-                    # Persist tool calls based on event type
+                    elif event_type == "reasoning_message":
+                        reasoning = chunk.get("reasoning", "")
+                        if reasoning:
+                            logger.info(f"[DB-WRITE-EXEC] Writing reasoning_message seqId={seq_id} to DB for {card_id}")
+                            await asyncio.to_thread(
+                                self.db.append_thought,
+                                card_id, reasoning, seq_id=seq_id
+                            )
                     elif event_type == "tool_call_start":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         trace_msg = f"\n\n🛠️ **Calling tool:** `{name}`\n"
@@ -930,7 +935,6 @@ class MessageDispatcher:
                         elif status == "failed":
                             trace_msg = f"\n❌ **Tool call failed:** `{name}`\n"
                         else:
-                            # Ignore 'running' or other intermediate states for persistent thought log
                             trace_msg = ""
                             
                         if trace_msg:
@@ -939,11 +943,16 @@ class MessageDispatcher:
                                 self.db.append_thought,
                                 card_id, trace_msg, seq_id=seq_id
                             )
+                    elif event_type in ("commands_update", "plan_update", "config_update"):
+                        # 系统事件不需要写入内容，但记录日志以确认 seqId 处理，防止前端认为丢失
+                        logger.debug(f"[AG-UI] Persisting system event {event_type} seqId={seq_id} (no content write)")
+                    else:
+                        logger.warning(f"[AG-UI] Unknown event type '{event_type}' at seqId={seq_id}")
                     
-                    # Persist reasoning/thought if present
+                    # Fallback: Persist any generic reasoning field for legacy/unmapped events
                     reasoning = chunk.get("reasoning")
-                    if reasoning:
-                        logger.info(f"[DB-WRITE-EXEC] Writing reasoning seqId={seq_id} to DB for {card_id}")
+                    if reasoning and event_type != "reasoning_message":
+                        logger.info(f"[DB-WRITE-EXEC] Writing fallback reasoning seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, reasoning, seq_id=seq_id
@@ -1035,17 +1044,28 @@ class MessageDispatcher:
         Typically called during WebSocket disconnection.
         """
         logger.info(f"[AG-UI] Force flushing session {card_id} due to disconnection")
-        await self._trigger_flush(card_id, "disconnect")
         
-        # Publish explicit session_stop event to clear "Agent is thinking..." in UI
+        # 1. Flush any pending buffer first
+        if card_id in self._chunk_buffers and len(self._chunk_buffers[card_id]) > 0:
+            await self._trigger_flush(card_id, "disconnect")
+        
+        # 2. ALWAYS publish session_stop, even if buffer was empty
+        # This ensures frontend knows the session has ended and clears "Agent is thinking..."
         seq_id = await self._get_next_seq(card_id)
-        bus.publish(card_id, {
+        stop_event = {
             "type": "ag_ui_event",
             "card_id": card_id,
             "event": "session_stop",
             "seqId": seq_id,
             "is_complete": True
-        })
+        }
+        
+        # Mark session as complete in DB to avoid recovery loop
+        await asyncio.to_thread(self.db.mark_session_complete, card_id)
+        
+        # Publish to bus for frontend consumption
+        bus.publish(card_id, stop_event)
+        logger.info(f"[AG-UI] Published session_stop (seqId={seq_id}) for {card_id}")
     
     # ==================== End AG-UI Buffer Layer ====================
 
