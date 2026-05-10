@@ -86,6 +86,12 @@ class SessionEngine:
                 # Try to restore previous session if we have a saved sessionId
                 if self.acp_session_id:
                     self.logger.info(f"Attempting to restore session: {self.acp_session_id}")
+                    
+                    # CRITICAL FIX: Temporarily disable notification forwarding during session load
+                    # to prevent historical messages from being re-published to the bus/UI.
+                    original_handler = self.adapter.on_notification
+                    self.adapter.on_notification = None
+                    
                     try:
                         load_params = {
                             "sessionId": self.acp_session_id,
@@ -105,6 +111,10 @@ class SessionEngine:
                             self.logger.warning(f"Session load failed, creating new session")
                     except Exception as e:
                         self.logger.warning(f"Session load error: {e}, creating new session")
+                    finally:
+                        # Restore notification handler after load attempt
+                        if self.adapter and self.adapter.on_notification is None:
+                            self.adapter.on_notification = original_handler
 
                 # session/new (fallback if no saved session or load failed)
                 res = await self.adapter.handle_request("session/new", {"cwd": self.workspace_path})
