@@ -45,9 +45,13 @@ class MessageBubble extends StatelessWidget {
     if (message.role == 'tool') return _buildToolLog(context);
 
     // AG-UI Fix: Don't render blank bubbles for empty messages without metadata info
-    final hasThought = message.metadata?['thought'] != null && message.metadata!['thought'].toString().isNotEmpty;
+    // Also ignore redundant "..." placeholder which is filtered by ThinkingBlock
+    final thought = message.metadata?['thought']?.toString() ?? "";
+    final hasThought = thought.isNotEmpty && thought != "...";
+    
     final hasToolCalls = message.metadata?['tool_calls'] != null && (message.metadata!['tool_calls'] as List).isNotEmpty;
-    final isReasoning = message.metadata?['type'] == 'reasoning';
+    final isReasoning = message.metadata?['type'] == 'reasoning' && message.content.trim().isNotEmpty;
+    
     if (message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning) {
       return const SizedBox.shrink();
     }
