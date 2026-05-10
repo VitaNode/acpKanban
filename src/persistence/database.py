@@ -656,10 +656,11 @@ class SessionRepository(BaseRepository):
                 msg_id = row[0]
                 new_content = (row[2] or "") + content_chunk
                 
-                # AG-UI Fix: Never overwrite existing seq_id with NULL
-                target_seq = seq_id if seq_id is not None else row[5]
-                
-                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ?, seq_id = ? WHERE id = ?", (new_content, 1 if is_complete else 0, target_seq, msg_id))
+                # AG-UI Fix: Never update seq_id once it is assigned to a record.
+                # This prevents the message from 'jumping' to a later position 
+                # if marked complete with a higher seq_id.
+                conn.execute("UPDATE card_sessions SET content = ?, is_complete = ? WHERE id = ?", 
+                             (new_content, 1 if is_complete else 0, msg_id))
             elif content_chunk:
                 # Start a new message
                 # Ensure seq_id is never NULL for new records
