@@ -656,7 +656,11 @@ class MessageDispatcher:
                 if ag_event.get("event") in ("session_stop", "stop"):
                     await self._flush_on_event(card_id, "session_stop")
                 
-                return
+                # AG-UI Fix: For system-level events (commands, plan, config), DO NOT return here.
+                # We need to fall through to the fallback path to execute side-effects like
+                # updating the Engine's command list, saving to DB, and broadcasting to the bus.
+                if ag_event.get("event") not in ("commands_update", "plan_update", "config_update"):
+                    return
             else:
                 logger.info(f"[FLOW] AG-UI Path FAILED for {card_id}, trying fallback")
 
