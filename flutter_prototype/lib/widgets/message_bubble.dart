@@ -93,7 +93,13 @@ class MessageBubble extends StatelessWidget {
                     _buildThoughtSection(context),
                   if (!isUser && message.metadata?['tool_calls'] != null)
                     _buildToolCallsSection(context),
-                  _buildMessageContent(context, isUser),
+                  // Check if this independent message is actually a thinking record
+                  if (!isUser && message.metadata?['type'] == 'reasoning')
+                    _buildThinkingRecordSection(context),
+                  if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning'))
+                    _buildMessageContent(context, isUser),
+                  if (isUser)
+                    _buildMessageContent(context, isUser),
                 ],
               ),
             ),
@@ -202,6 +208,17 @@ class MessageBubble extends StatelessWidget {
       child: ThinkingBlock(
         text: thought,
         isCollapsed: false, // 默认展开
+      ),
+    );
+  }
+
+  Widget _buildThinkingRecordSection(BuildContext context) {
+    // This handles the case where a thinking chunk is its own message
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.space12),
+      child: ThinkingBlock(
+        text: message.content,
+        isCollapsed: false,
       ),
     );
   }

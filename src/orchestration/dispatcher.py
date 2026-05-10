@@ -916,7 +916,7 @@ class MessageDispatcher:
                         if reasoning:
                             logger.info(f"[DB-WRITE-EXEC] Writing reasoning_message seqId={seq_id} to DB for {card_id}")
                             await asyncio.to_thread(
-                                self.db.append_thought,
+                                self.db.append_reasoning,
                                 card_id, reasoning, seq_id=seq_id
                             )
                     elif event_type == "tool_call_start":

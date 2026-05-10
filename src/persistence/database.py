@@ -651,6 +651,10 @@ class SessionRepository(BaseRepository):
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete, seq_id) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0, seq_id))
 
     def append_thought(self, card_id: str, thought_chunk: str, seq_id: int = None):
+        """
+        Append a thought chunk to the most recent incomplete assistant message.
+        This is a legacy method that merges thoughts into metadata.
+        """
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             # Look for the last assistant message (even if it's not the absolute last message in the session)
@@ -668,6 +672,21 @@ class SessionRepository(BaseRepository):
                 # Create a new assistant message for this thought
                 meta = {'thought': thought_chunk}
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete, seq_id) VALUES (?, 'assistant', '', ?, ?, 0, ?)", (card_id, json.dumps(meta), now, seq_id))
+
+    def append_reasoning(self, card_id: str, reasoning_chunk: str, seq_id: int = None):
+        """
+        Append a reasoning/thought chunk as an INDEPENDENT record.
+        Unlike append_thought(), this does NOT try to merge into existing records,
+        preserving the sequence ID for every single chunk.
+        """
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            # 始终插入新记录，确保 seq_id 被完整保留
+            conn.execute("""
+                INSERT INTO card_sessions 
+                (card_id, role, content, metadata, created_at, is_complete, seq_id) 
+                VALUES (?, 'assistant', ?, ?, ?, 0, ?)
+            """, (card_id, reasoning_chunk, json.dumps({'type': 'reasoning'}), now, seq_id))
 
     def get_history(self, card_id: str, limit: int = 50, after_seq: int = None) -> List[Dict]:
         with self.db.get_connection() as conn:
