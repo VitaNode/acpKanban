@@ -576,21 +576,21 @@ class MessageDispatcher:
                 await asyncio.to_thread(self.db.update_card_session_id, card_id, engine.acp_session_id)
             
             # Mark assistant response as complete so Flutter stops showing "AI is thinking..."
-            # AG-UI Fix: Explicitly allocate a seq_id for the completion marker to maintain chain
-            mark_complete_seq = None
+            # AG-UI Optimization: Flush buffer with terminal reason instead of jumping the queue
             if self._card_ui_formats.get(card_id) == "ag_ui":
-                mark_complete_seq = await self._get_next_seq(card_id)
+                await self._trigger_flush(card_id, "message_end")
                 
-            await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True, seq_id=mark_complete_seq)
-            
-            # AG-UI: Explicitly publish session_stop to close the current turn
-            if self._card_ui_formats.get(card_id) == "ag_ui":
+                # Publish session_stop to close the current turn in UI
+                stop_seq = await self._get_next_seq(card_id)
                 bus.publish(card_id, {
                     "type": "ag_ui_event",
                     "card_id": card_id,
                     "event": "session_stop",
-                    "seqId": mark_complete_seq or (await self._get_next_seq(card_id))
+                    "seqId": stop_seq
                 })
+            else:
+                # Legacy mode or other formats
+                await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", "", True)
             
             bus.publish(card_id, {"type": "refresh"})
         except Exception as e:
