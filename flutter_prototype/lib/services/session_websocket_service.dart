@@ -540,6 +540,9 @@ class SessionWebSocketService {
         'result': tc.result,
       }).toList();
     }
+    if (event.commands != null) agEventMap['commands'] = event.commands;
+    if (event.plan != null) agEventMap['plan'] = event.plan;
+    if (event.options != null) agEventMap['options'] = event.options;
 
     final agUiMessage = CardMessage(
       id: '${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
