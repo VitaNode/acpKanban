@@ -891,18 +891,21 @@ class MessageDispatcher:
             self._flush_locks[card_id] = asyncio.Lock()
         
         async with self._flush_locks[card_id]:
-            buffer = self._chunk_buffers.get(card_id, [])
-            if not buffer:
+            buffer_to_flush = self._chunk_buffers.get(card_id, [])
+            # Snapshot and Clear IMMEDIATELY to prevent new chunks from being mixed into this cycle during async writes
+            self._chunk_buffers[card_id] = []
+            
+            if not buffer_to_flush:
                 logger.debug(f"[AG-UI] No chunks to flush for {card_id}")
                 return
             
-            logger.info(f"[DB-WRITE-FLUSH] Flushing {len(buffer)} chunks for {card_id} (reason: {reason})")
+            logger.info(f"[DB-WRITE-FLUSH] Flushing {len(buffer_to_flush)} chunks for {card_id} (reason: {reason})")
             
             is_terminal = "session_stop" in reason or "stop" in reason or "message_end" in reason
             
             try:
                 # Persist chunks to database with seqId
-                for chunk in buffer:
+                for chunk in buffer_to_flush:
                     seq_id = chunk.get("seqId")
                     event_type = chunk.get("event", "message_chunk")
                     
@@ -989,13 +992,12 @@ class MessageDispatcher:
                     await asyncio.to_thread(self.db.mark_session_complete, card_id)
                     logger.debug(f"[AG-UI] Marked session as complete for {card_id}")
                 
-                # Clear buffer after successful flush
-                self._chunk_buffers[card_id] = []
                 logger.info(f"[DB-WRITE-FLUSH] Flush complete for {card_id}")
                 
             except Exception as e:
                 logger.error(f"[AG-UI] Flush failed for {card_id}: {e}")
-                # Keep buffer on failure for retry
+                # Restore the buffer so we don't lose data on failed DB write
+                self._chunk_buffers[card_id] = buffer_to_flush + self._chunk_buffers.get(card_id, [])
     
     async def _flush_on_event(self, card_id: str, event_type: str):
         """
