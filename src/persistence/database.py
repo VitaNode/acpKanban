@@ -674,7 +674,8 @@ class SessionRepository(BaseRepository):
         """Legacy thought append (to metadata). Keeps compatibility for non-AG-UI agents."""
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            cursor = conn.execute("SELECT id, role, metadata, is_complete FROM card_sessions WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1", (card_id,))
+            # Stability Fix: Use id DESC as tie-breaker
+            cursor = conn.execute("SELECT id, role, metadata, is_complete FROM card_sessions WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 ORDER BY created_at DESC, id DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
             if row:
                 msg_id = row[0]
@@ -724,7 +725,9 @@ class SessionRepository(BaseRepository):
             if after_seq is not None:
                 query += " AND seq_id > ?"
                 params.append(after_seq)
-            query += " ORDER BY created_at ASC"
+            
+            # Stability Fix: Always order by seq_id then id to guarantee logic sequence
+            query += " ORDER BY seq_id ASC, id ASC"
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()][-limit:]
 

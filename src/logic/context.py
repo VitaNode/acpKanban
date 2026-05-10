@@ -112,7 +112,7 @@ class ContextBuilder:
         with self.db.get_connection() as conn:
             # 1. Find the ID of the most recent milestone
             cursor = conn.execute(
-                "SELECT id FROM card_sessions WHERE card_id = ? AND is_milestone = 1 ORDER BY created_at DESC LIMIT 1",
+                "SELECT id FROM card_sessions WHERE card_id = ? AND is_milestone = 1 ORDER BY created_at DESC, id DESC LIMIT 1",
                 (card_id,)
             )
             row = cursor.fetchone()
@@ -120,7 +120,7 @@ class ContextBuilder:
             
             # 2. Get all messages after that milestone
             cursor = conn.execute(
-                "SELECT role, content FROM card_sessions WHERE card_id = ? AND id > ? ORDER BY created_at ASC",
+                "SELECT role, content FROM card_sessions WHERE card_id = ? AND id > ? ORDER BY id ASC",
                 (card_id, milestone_id)
             )
             rows = cursor.fetchall()
