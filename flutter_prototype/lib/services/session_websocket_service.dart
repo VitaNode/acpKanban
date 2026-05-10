@@ -221,12 +221,22 @@ class SessionWebSocketService {
     for (int i = 1; i < messages.length; i++) {
       final next = messages[i];
       
+      bool canMerge = false;
       if (current != null && 
           current.role.toLowerCase() == 'assistant' && 
           next.role.toLowerCase() == 'assistant') {
         
+        // AG-UI Fix: Only merge if they have the same type (reasoning vs regular)
+        final currentType = current.metadata?['type'];
+        final nextType = next.metadata?['type'];
+        if (currentType == nextType) {
+          canMerge = true;
+        }
+      }
+
+      if (canMerge) {
         // 1. 合并正文内容
-        String newContent = current.content + next.content;
+        String newContent = current!.content + next.content;
         
         // 2. 深度合并元数据 (Metadata)
         Map<String, dynamic>? finalMetadata;
@@ -236,7 +246,7 @@ class SessionWebSocketService {
           if (next.metadata != null) {
             next.metadata!.forEach((key, value) {
               if (key == 'thought') {
-                // 思考过程需要累加拼接，而不是覆盖
+                // 思考过程需要累加拼接，而不是覆盖 (Legacy support)
                 final prevThought = mergedMap['thought']?.toString() ?? '';
                 final nextThought = value?.toString() ?? '';
                 mergedMap['thought'] = prevThought + nextThought;
@@ -533,9 +543,11 @@ class SessionWebSocketService {
     // Handle different event types for UI rendering
     if ((event.eventType == 'agent_message_chunk' || event.eventType == 'message_chunk') && event.text != null) {
       final chunk = event.text!;
+      // Only append to non-reasoning assistant messages
       if (_currentMessages.isNotEmpty && 
           _currentMessages.last.role == 'assistant' && 
-          !_currentMessages.last.isComplete) {
+          !_currentMessages.last.isComplete &&
+          _currentMessages.last.metadata?['type'] != 'reasoning') {
         final last = _currentMessages.last;
         _currentMessages[_currentMessages.length - 1] = last.copyWith(
           content: last.content + chunk,
@@ -556,6 +568,7 @@ class SessionWebSocketService {
     } 
     else if ((event.eventType == 'agent_thought_chunk' || event.eventType == 'reasoning_message') && (event.text != null || event.reasoning != null)) {
       final thought = event.reasoning ?? event.text ?? '';
+      // Only append to reasoning assistant messages
       if (_currentMessages.isNotEmpty && 
           _currentMessages.last.role == 'assistant' && 
           !_currentMessages.last.isComplete &&

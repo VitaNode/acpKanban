@@ -638,50 +638,68 @@ class SessionRepository(BaseRepository):
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
             # Check the last message for this card
-            cursor = conn.execute("SELECT id, role, content, is_complete FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
+            cursor = conn.execute("SELECT id, role, content, metadata, is_complete FROM card_sessions WHERE card_id = ? ORDER BY created_at DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
             
-            if row and row[1] == role and row[3] == 0:
-                # Append to existing incomplete message of the same role
+            # Type Isolation: Don't append to reasoning records
+            is_reasoning = False
+            if row and row[3]: # metadata
+                try:
+                    meta = json.loads(row[3])
+                    if meta.get('type') == 'reasoning':
+                        is_reasoning = True
+                except: pass
+
+            if row and row[1] == role and row[4] == 0 and not is_reasoning:
+                # Append to existing incomplete message of the same role/type
                 msg_id = row[0]
                 new_content = (row[2] or "") + content_chunk
                 conn.execute("UPDATE card_sessions SET content = ?, is_complete = ?, seq_id = ? WHERE id = ?", (new_content, 1 if is_complete else 0, seq_id, msg_id))
             elif content_chunk:
-                # Start a new message only if there is actual content
+                # Start a new message
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, created_at, is_complete, seq_id) VALUES (?, ?, ?, ?, ?, ?)", (card_id, role, content_chunk, now, 1 if is_complete else 0, seq_id))
 
     def append_thought(self, card_id: str, thought_chunk: str, seq_id: int = None):
-        """
-        Append a thought chunk to the most recent incomplete assistant message.
-        This is a legacy method that merges thoughts into metadata.
-        """
+        """Legacy thought append (to metadata). Keeps compatibility for non-AG-UI agents."""
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # Look for the last assistant message (even if it's not the absolute last message in the session)
-            # This handles cases where a tool result or another event might have been recorded after the assistant started thinking.
             cursor = conn.execute("SELECT id, role, metadata, is_complete FROM card_sessions WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1", (card_id,))
             row = cursor.fetchone()
-            
-            # If we found an incomplete assistant message, append to its thought metadata
             if row:
                 msg_id = row[0]
                 meta = json.loads(row[2]) if row[2] else {}
                 meta['thought'] = (meta.get('thought') or "") + thought_chunk
                 conn.execute("UPDATE card_sessions SET metadata = ?, seq_id = ? WHERE id = ?", (json.dumps(meta), seq_id, msg_id))
             else:
-                # Create a new assistant message for this thought
                 meta = {'thought': thought_chunk}
                 conn.execute("INSERT INTO card_sessions (card_id, role, content, metadata, created_at, is_complete, seq_id) VALUES (?, 'assistant', '', ?, ?, 0, ?)", (card_id, json.dumps(meta), now, seq_id))
 
     def append_reasoning(self, card_id: str, reasoning_chunk: str, seq_id: int = None):
-        """
-        Append a reasoning/thought chunk as an INDEPENDENT record.
-        Unlike append_thought(), this does NOT try to merge into existing records,
-        preserving the sequence ID for every single chunk.
-        """
+        """Append to reasoning record. Merges with last incomplete reasoning record to avoid fragmentation."""
         now = datetime.now().isoformat()
         with self.db.get_connection() as conn:
-            # 始终插入新记录，确保 seq_id 被完整保留
+            # Try to find the last incomplete reasoning record
+            cursor = conn.execute("""
+                SELECT id, content FROM card_sessions 
+                WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 
+                ORDER BY created_at DESC LIMIT 1
+            """, (card_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                msg_id = row[0]
+                # Verify it's actually a reasoning record
+                cursor_meta = conn.execute("SELECT metadata FROM card_sessions WHERE id = ?", (msg_id,))
+                meta_row = cursor_meta.fetchone()
+                try:
+                    meta = json.loads(meta_row[0]) if meta_row[0] else {}
+                    if meta.get('type') == 'reasoning':
+                        new_content = (row[1] or "") + reasoning_chunk
+                        conn.execute("UPDATE card_sessions SET content = ?, seq_id = ? WHERE id = ?", (new_content, seq_id, msg_id))
+                        return
+                except: pass
+
+            # Otherwise, insert new record
             conn.execute("""
                 INSERT INTO card_sessions 
                 (card_id, role, content, metadata, created_at, is_complete, seq_id) 
