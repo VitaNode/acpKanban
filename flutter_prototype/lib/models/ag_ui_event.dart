@@ -9,6 +9,9 @@ class AgUiEvent {
   final bool? isComplete;
   final List<ToolCall>? toolCalls;
   final String? sessionId;
+  final List<Map<String, dynamic>>? commands;
+  final Map<String, dynamic>? plan;
+  final List<dynamic>? options;
 
   AgUiEvent({
     this.eventType,
@@ -18,6 +21,9 @@ class AgUiEvent {
     this.isComplete,
     this.toolCalls,
     this.sessionId,
+    this.commands,
+    this.plan,
+    this.options,
   });
 
   factory AgUiEvent.fromMessage(CardMessage message) {
@@ -54,6 +60,9 @@ class AgUiEvent {
         isComplete: json['is_complete'] as bool?,
         sessionId: json['session_id'] as String?,
         toolCalls: toolCalls,
+        commands: (json['commands'] as List?)?.cast<Map<String, dynamic>>(),
+        plan: json['plan'] as Map<String, dynamic>?,
+        options: json['options'] as List?,
       );
     } catch (e) {
       // If parsing fails, return empty event
