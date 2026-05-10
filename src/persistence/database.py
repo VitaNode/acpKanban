@@ -682,7 +682,7 @@ class SessionRepository(BaseRepository):
             cursor = conn.execute("""
                 SELECT id, content FROM card_sessions 
                 WHERE card_id = ? AND role = 'assistant' AND is_complete = 0 
-                ORDER BY created_at DESC LIMIT 1
+                ORDER BY created_at DESC, id DESC LIMIT 1
             """, (card_id,))
             row = cursor.fetchone()
             
