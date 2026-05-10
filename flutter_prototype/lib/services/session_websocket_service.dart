@@ -227,9 +227,10 @@ class SessionWebSocketService {
           next.role.toLowerCase() == 'assistant') {
         
         // AG-UI Fix: Only merge if they have the same type (reasoning vs regular)
+        // AND current message is not yet complete (prevent merging historical turns)
         final currentType = current.metadata?['type'];
         final nextType = next.metadata?['type'];
-        if (currentType == nextType) {
+        if (currentType == nextType && !current.isComplete) {
           canMerge = true;
         }
       }
