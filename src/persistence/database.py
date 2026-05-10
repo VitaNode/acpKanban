@@ -944,6 +944,7 @@ class KanbanDB:
     def update_message_with_metadata(self, card_id, metadata_key, metadata_val, content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, metadata_key, metadata_val, content, is_complete)
     def add_thought(self, card_id, thought, seq_id=None): return self.sessions.append_thought(card_id, thought, seq_id)
     def append_thought(self, card_id, thought_chunk, seq_id=None): return self.sessions.append_thought(card_id, thought_chunk, seq_id)
+    def append_reasoning(self, card_id, reasoning_chunk, seq_id=None): return self.sessions.append_reasoning(card_id, reasoning_chunk, seq_id)
 
     def get_timeline(self, project_id, limit=100): return self.timeline.get_by_project(project_id, limit)
     def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)

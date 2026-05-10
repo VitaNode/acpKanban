@@ -554,16 +554,15 @@ class SessionWebSocketService {
       }
       _messageController.add(List.from(_currentMessages));
     } 
-    else if (event.eventType == 'agent_thought_chunk' && event.text != null) {
-      final thought = event.text!;
+    else if ((event.eventType == 'agent_thought_chunk' || event.eventType == 'reasoning_message') && (event.text != null || event.reasoning != null)) {
+      final thought = event.reasoning ?? event.text ?? '';
       if (_currentMessages.isNotEmpty && 
           _currentMessages.last.role == 'assistant' && 
-          !_currentMessages.last.isComplete) {
+          !_currentMessages.last.isComplete &&
+          _currentMessages.last.metadata?['type'] == 'reasoning') {
         final last = _currentMessages.last;
-        final metadata = Map<String, dynamic>.from(last.metadata ?? {});
-        metadata['thought'] = (metadata['thought'] ?? '') + thought;
         _currentMessages[_currentMessages.length - 1] = last.copyWith(
-          metadata: metadata,
+          content: last.content + thought,
           seqId: event.seqId,
         );
       } else {
@@ -571,10 +570,10 @@ class SessionWebSocketService {
           id: 'thought-${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
           cardId: _currentCardId ?? '',
           role: 'assistant',
-          content: '',
+          content: thought,
           createdAt: DateTime.now().toIso8601String(),
           isComplete: false,
-          metadata: {'thought': thought},
+          metadata: {'type': 'reasoning'},
           seqId: event.seqId,
         ));
       }

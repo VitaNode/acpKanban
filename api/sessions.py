@@ -234,6 +234,17 @@ async def session_websocket(websocket: WebSocket, card_id: str):
     finally:
         bus_task.cancel()
         bus.unsubscribe(card_id, queue)
+        
+        # Phase 5.4 FIX: Ensure all AG-UI buffered chunks are flushed to DB on disconnect
+        try:
+            import run_bridge
+            bridge_instance = run_bridge.bridge_instance
+            if bridge_instance and bridge_instance.dispatcher:
+                # We use create_task because this finally block is in a synchronous-like context
+                # (handled by FastAPI's WebSocket loop)
+                asyncio.create_task(bridge_instance.dispatcher.force_flush_session(card_id))
+        except Exception as e:
+            print(f"ERROR during session disconnect flush: {e}")
 
 @router.get("/cards/{card_id}/session", response_model=dict)
 async def get_session_history(card_id: str, limit: int = Query(50, ge=1, le=200)):
