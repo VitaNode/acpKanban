@@ -316,19 +316,27 @@ class SessionWebSocketService {
 
       switch (m['type']) {
         case 'history':
-          final newMessages = (m['messages'] as List?)
-                  ?.map((x) {
-                    final msg = CardMessage.fromJson(x);
-                    // Extract thought from metadata for display if content is empty
-                    if (msg.metadata?['thought'] != null && msg.content.isEmpty) {
-                      return msg.copyWith(
-                        content: msg.metadata!['thought'] as String,
-                      );
-                    }
-                    return msg;
-                  })
-                  .toList() ??
-              [];
+          final rawMessages = (m['messages'] as List?) ?? [];
+          final List<CardMessage> newMessages = [];
+          
+          for (int i = 0; i < rawMessages.length; i++) {
+            var msg = CardMessage.fromJson(rawMessages[i]);
+            
+            // AG-UI Fix: If seqId is missing in history (due to backend bug), assign a synthetic one
+            // to ensure it's not hidden by the contiguous delivery logic.
+            if (msg.seqId == null) {
+              msg = msg.copyWith(seqId: _lastContiguousSeqId + i + 1);
+              debugPrint('[SessionWS] Assigned synthetic seqId ${msg.seqId} to message ${msg.id}');
+            }
+            
+            // Extract thought from metadata for display if content is empty (Legacy support)
+            if (msg.metadata?['thought'] != null && msg.content.isEmpty) {
+              msg = msg.copyWith(
+                content: msg.metadata!['thought'] as String,
+              );
+            }
+            newMessages.add(msg);
+          }
           
           // Debug log for history loading
           debugPrint('[SessionWS] Received history: ${newMessages.length} messages, after_seq=$_lastContiguousSeqId');
