@@ -247,21 +247,17 @@ class _CardDetailViewState extends State<CardDetailView> {
     });
 
     _initializingSub = _wsService.isInitializing.listen((loading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _isInitializing = loading);
-      });
+      if (mounted) setState(() => _isInitializing = loading);
     });
 
     _contextSub = _wsService.contextData.listen((context) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _contextController.text = context;
-            _isShowingContext = true;
-            _isEditingContext = true;
-          });
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _contextController.text = context;
+          _isShowingContext = true;
+          _isEditingContext = true;
+        });
+      }
     });
   }
 
