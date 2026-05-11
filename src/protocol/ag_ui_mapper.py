@@ -287,6 +287,49 @@ class AGUIMapper:
             "options": []
         }
         
+        # === 新增：特殊处理 session/request_permission ===
+        if method == "session/request_permission":
+            tool_call = params.get("toolCall", {})
+            
+            # 提取标题
+            if not text and tool_call.get("title"):
+                text = tool_call.get("title", "Permission Required")
+                ag_event["title"] = text
+            
+            # 提取工具调用的详细内容
+            tool_kind = tool_call.get("kind", "unknown")
+            
+            if tool_kind == "edit":
+                # 文件编辑操作
+                content_list = tool_call.get("content", [])
+                for item in content_list:
+                    if item.get("type") == "diff":
+                        path = item.get("path", "unknown file")
+                        old_text = item.get("oldText", "")
+                        new_text = item.get("newText", "")
+                        
+                        # 构建可读的文本描述
+                        text += f"\n\n### File Operation: Edit\n\n**File:** `{path}`\n\n"
+                        if old_text:
+                            text += f"**Current Content:**\n```\n{old_text}\n```\n"
+                        text += f"**New Content:**\n```\n{new_text}\n```\n"
+                        break
+            
+            elif tool_kind == "execute":
+                # 命令执行操作
+                raw_input = tool_call.get("rawInput", {})
+                command = raw_input.get("command", raw_input.get("script", ""))
+                text += f"\n\n### Command Execution\n\n```bash\n{command}\n```\n"
+            
+            # 添加原始输入作为参考
+            raw_input = tool_call.get("rawInput", {})
+            if raw_input and not any(k in text for k in raw_input.keys()):
+                try:
+                    text += f"\n\n**Details:**\n```json\n{json.dumps(raw_input, indent=2)}\n```"
+                except:
+                    pass
+        # ============================================
+        
         # Map options correctly
         raw_options = params.get("options", [])
         if not raw_options:
@@ -324,6 +367,7 @@ class AGUIMapper:
             else:
                 ag_event["text"] += f"\n\n{arguments}"
         
+        ag_event["text"] = text
         return ag_event
     
     @staticmethod
