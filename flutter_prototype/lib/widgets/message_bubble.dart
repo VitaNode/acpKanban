@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
 import '../models/card_message.dart';
 import '../models/content_block.dart';
 import '../widgets/content_block_renderer.dart';
@@ -10,6 +11,38 @@ import '../utils/icon_util.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ag_ui/thinking_block.dart';
 import '../widgets/ag_ui/tool_pill.dart';
+
+class MarkdownHeaderBuilder extends MarkdownElementBuilder {
+  final int level;
+  final TextStyle style;
+
+  MarkdownHeaderBuilder({required this.level, required this.style});
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final String prefix = '#' * level + ' ';
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: SelectableText.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: prefix,
+              style: style.copyWith(
+                color: style.color?.withOpacity(0.4),
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+            TextSpan(
+              text: element.textContent,
+              style: style,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
@@ -161,7 +194,16 @@ class MessageBubble extends StatelessWidget {
         ? colorScheme.onPrimary
         : theme.textTheme.bodyMedium?.color ?? colorScheme.onSurface;
 
+    // Use primary color for headings and special elements in agent messages
+    // For user messages, stick to onPrimary for readability
+    final accentColor = isUser ? colorScheme.onPrimary : colorScheme.primary;
+    final secondaryTextColor = isUser 
+        ? colorScheme.onPrimary.withOpacity(0.8) 
+        : colorScheme.onSurfaceVariant;
+
     if (blocks.length == 1 && blocks[0] is TextContent) {
+      final markdownData = (blocks[0] as TextContent).text;
+
       return Theme(
         data: theme.copyWith(
           textSelectionTheme: TextSelectionThemeData(
@@ -171,34 +213,42 @@ class MessageBubble extends StatelessWidget {
           ),
         ),
         child: MarkdownBody(
-          data: (blocks[0] as TextContent).text,
+          data: markdownData,
+          builders: {
+            'h1': MarkdownHeaderBuilder(level: 1, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
+            'h2': MarkdownHeaderBuilder(level: 2, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
+            'h3': MarkdownHeaderBuilder(level: 3, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
+            'h4': MarkdownHeaderBuilder(level: 4, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
+            'h5': MarkdownHeaderBuilder(level: 5, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
+            'h6': MarkdownHeaderBuilder(level: 6, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
+          },
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-            p: TextStyle(color: textColor, fontSize: 14, height: 1.5),
-            h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 22),
-            h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 20),
-            h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 18),
-            h4: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16),
-            h5: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            h6: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12),
-            em: TextStyle(color: textColor, fontStyle: FontStyle.italic),
-            strong: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-            listBullet: TextStyle(color: textColor),
+            p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
+            blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
+            blockquoteDecoration: BoxDecoration(
+              border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
+            ),
+            listBullet: TextStyle(color: secondaryTextColor, fontSize: 14),
+            em: TextStyle(color: textColor, fontStyle: FontStyle.italic, fontSize: 14),
+            strong: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+            a: TextStyle(color: accentColor, decoration: TextDecoration.underline, fontSize: 14),
             code: TextStyle(
               backgroundColor: isUser
                   ? Colors.black26
-                  : customColors.codeBackground,
+                  : colorScheme.primaryContainer.withOpacity(0.1),
               color: isUser
-                  ? Colors.white
-                  : customColors.codeText,
+                  ? colorScheme.onPrimary
+                  : colorScheme.primary,
               fontFamily: 'monospace',
-              fontSize: 12,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
             ),
             codeblockDecoration: BoxDecoration(
               color: isUser
                   ? Colors.black26
                   : customColors.codeBackground,
               borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-              border: isUser ? null : Border.all(color: Colors.white.withOpacity(0.05)),
+              border: isUser ? null : Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
             ),
           ),
         ),
