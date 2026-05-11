@@ -7,7 +7,7 @@ class ThinkingBlock extends StatefulWidget {
   const ThinkingBlock({
     Key? key,
     required this.text,
-    this.isCollapsed = false,
+    this.isCollapsed = true,
   }) : super(key: key);
 
   @override

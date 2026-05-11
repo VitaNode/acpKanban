@@ -219,7 +219,7 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: AppConstants.space12),
       child: ThinkingBlock(
         text: thought,
-        isCollapsed: false, // 默认展开
+        isCollapsed: true, // 默认折叠
       ),
     );
   }
@@ -230,7 +230,7 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: AppConstants.space12),
       child: ThinkingBlock(
         text: message.content,
-        isCollapsed: false,
+        isCollapsed: true,
       ),
     );
   }
