@@ -224,6 +224,7 @@ class MessageBubble extends StatelessWidget {
           },
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
+            blockSpacing: 12.0,
             blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
             blockquoteDecoration: BoxDecoration(
               border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
