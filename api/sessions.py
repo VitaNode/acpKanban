@@ -167,7 +167,35 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 bridge_instance = run_bridge.bridge_instance
                 rid = message.get("id")
                 result = message.get("result")
+                
                 if bridge_instance and rid:
+                    # Record user response in history for persistence and visibility
+                    if isinstance(result, dict) and "outcome" in result:
+                        option_id = result["outcome"].get("optionId", "unknown")
+                        try:
+                            # Use a thread-safe DB call
+                            from src.persistence.database import KanbanDB
+                            local_db = KanbanDB()
+                            seq_id = await bridge_instance.dispatcher._get_next_seq(card_id)
+                            await asyncio.to_thread(
+                                local_db.sessions.add_message, 
+                                card_id, 
+                                "user", 
+                                f"Response: {option_id}",
+                                seq_id=seq_id
+                            )
+                            # Notify bus about the new user message
+                            bus.publish(card_id, {
+                                "type": "ag_ui_event",
+                                "card_id": card_id,
+                                "event": "user_message",
+                                "role": "user",
+                                "text": f"Response: {option_id}",
+                                "seqId": seq_id
+                            })
+                        except Exception as e:
+                            print(f"DEBUG: Failed to record rpc_response: {e}")
+
                     # The dispatcher manages pending tool/permission requests
                     # and will resolve the future associated with this ID
                     await bridge_instance.on_ui_response(rid, result)
