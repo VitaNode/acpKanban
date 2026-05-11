@@ -1,6 +1,7 @@
 import json
 from typing import Dict, Any, Optional
 import re
+from datetime import datetime
 
 class AGUIMapper:
     """
@@ -260,6 +261,47 @@ class AGUIMapper:
         else:
             return None
 
+        return ag_event
+    
+    @staticmethod
+    def map_request(method: str, params: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+        """
+        Maps an ACP request (from agent to UI) to an AG-UI interactive event.
+        Used for permissions, questions, etc.
+        """
+        card_id = params.get("card_id")
+        timestamp = params.get("timestamp") or datetime.now().isoformat()
+        
+        ag_event = {
+            "type": "ag_ui_event",
+            "card_id": card_id,
+            "event": "interactive_request",
+            "method": method,
+            "requestId": request_id,
+            "timestamp": timestamp,
+            "title": params.get("title", "Action Required"),
+            "text": params.get("message", ""),
+            "options": params.get("options", [
+                {"id": "allow", "label": "Allow", "primary": True},
+                {"id": "deny", "label": "Deny", "primary": False}
+            ])
+        }
+        
+        # If there's a plan or arguments, include them in the text or metadata
+        arguments = params.get("arguments")
+        if arguments:
+            if isinstance(arguments, dict):
+                try:
+                    args_str = json.dumps(arguments, indent=2)
+                except:
+                    args_str = str(arguments)
+            else:
+                args_str = str(arguments)
+            
+            # Append details to text if not already present
+            if args_str not in ag_event["text"]:
+                ag_event["text"] += f"\n\n```json\n{args_str}\n```"
+        
         return ag_event
     
     @staticmethod
