@@ -12,38 +12,6 @@ import '../theme/app_theme.dart';
 import '../widgets/ag_ui/thinking_block.dart';
 import '../widgets/ag_ui/tool_pill.dart';
 
-class MarkdownHeaderBuilder extends MarkdownElementBuilder {
-  final int level;
-  final TextStyle style;
-
-  MarkdownHeaderBuilder({required this.level, required this.style});
-
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final String prefix = '#' * level + ' ';
-    return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 4),
-      child: SelectableText.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: prefix,
-              style: style.copyWith(
-                color: style.color?.withOpacity(0.4),
-                fontWeight: FontWeight.normal,
-              ),
-            ),
-            TextSpan(
-              text: element.textContent,
-              style: style,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
   final String? providerId;
@@ -202,7 +170,14 @@ class MessageBubble extends StatelessWidget {
         : colorScheme.onSurfaceVariant;
 
     if (blocks.length == 1 && blocks[0] is TextContent) {
-      final markdownData = (blocks[0] as TextContent).text;
+      String markdownData = (blocks[0] as TextContent).text;
+
+      // Pre-process headers to keep source visible (# Header -> # # Header)
+      // The first # is consumed as the block tag, the second # is rendered as content.
+      markdownData = markdownData.replaceAllMapped(
+        RegExp(r'^(#+)(\s+)', multiLine: true),
+        (match) => '${match[1]}${match[2]}${match[1]}${match[2]}'
+      );
 
       return Theme(
         data: theme.copyWith(
@@ -214,17 +189,15 @@ class MessageBubble extends StatelessWidget {
         ),
         child: MarkdownBody(
           data: markdownData,
-          builders: {
-            'h1': MarkdownHeaderBuilder(level: 1, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
-            'h2': MarkdownHeaderBuilder(level: 2, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
-            'h3': MarkdownHeaderBuilder(level: 3, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
-            'h4': MarkdownHeaderBuilder(level: 4, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
-            'h5': MarkdownHeaderBuilder(level: 5, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
-            'h6': MarkdownHeaderBuilder(level: 6, style: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14)),
-          },
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
             blockSpacing: 12.0,
+            h1: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
+            h2: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
+            h3: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
+            h4: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
+            h5: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
+            h6: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
             blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
             blockquoteDecoration: BoxDecoration(
               border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
