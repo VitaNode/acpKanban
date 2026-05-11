@@ -966,7 +966,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                   color: Theme.of(context).cardTheme.color,
                   borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
                   border: Border.all(color: Theme.of(context).dividerTheme.color!)),
-              child: SelectableText(
+              child: Text(
                 (_summary == null || _summary!.isEmpty) 
                   ? 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks.' 
                   : _summary!,

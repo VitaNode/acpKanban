@@ -392,7 +392,7 @@ class MessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         border: isDark ? Border.all(color: Colors.white.withOpacity(0.05)) : null,
       ),
-      child: SelectableText(
+      child: Text(
         text,
         style: TextStyle(
           color: customColors.codeText,

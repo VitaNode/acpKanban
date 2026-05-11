@@ -40,7 +40,7 @@ class _TextRenderer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SelectableText(
+    return Text(
       content.text,
       style: const TextStyle(fontSize: 14, height: 1.5),
     );
@@ -245,7 +245,7 @@ class _ResourceRenderer extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: SelectableText(
+              child: Text(
                 content.text!,
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 maxLines: 10,
@@ -371,7 +371,7 @@ class _TerminalRendererState extends State<_TerminalRenderer> {
               controller: _scrollController,
               padding: const EdgeInsets.all(8),
               children: [
-                SelectableText(
+                Text(
                   _output,
                   style: const TextStyle(
                     color: Colors.green,

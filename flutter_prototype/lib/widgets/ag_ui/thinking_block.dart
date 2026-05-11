@@ -125,7 +125,7 @@ class _ThinkingBlockState extends State<ThinkingBlock>
             axisAlignment: -1.0,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: SelectableText(
+              child: Text(
                 widget.text,
                 style: TextStyle(
                   fontSize: 13,
