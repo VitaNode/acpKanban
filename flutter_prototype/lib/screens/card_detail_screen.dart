@@ -269,9 +269,28 @@ class _CardDetailViewState extends State<CardDetailView> {
     final pending = List<CardMessage>.from(_pendingMessages);
     final isProcessing = pending.isNotEmpty && !pending.last.isComplete && pending.last.role == 'assistant';
     
+    // AG-UI: Detect responded interactive requests from history
+    final Set<String> newRespondedIds = {};
+    for (int i = 0; i < pending.length; i++) {
+      final m = pending[i];
+      if (m.role == 'assistant') {
+        final event = AgUiEvent.fromMessage(m);
+        if (event.eventType == 'interactive_request' && event.requestId != null) {
+          // Check if followed by a user response in history
+          if (i + 1 < pending.length) {
+            final next = pending[i + 1];
+            if (next.role == 'user' && next.content.startsWith('Response:')) {
+              newRespondedIds.add(event.requestId!);
+            }
+          }
+        }
+      }
+    }
+
     setState(() {
       _messages = pending;
       _isAgentProcessing = isProcessing;
+      _respondedRequestIds.addAll(newRespondedIds);
     });
     _scrollToBottom();
     
