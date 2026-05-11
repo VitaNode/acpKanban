@@ -121,18 +121,22 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                         return # Ignore unknown formats
 
                                     if method == "session/request_permission" or method.startswith("fs/") or method.startswith("terminal/"):
-                                        rid = params.get("id") or str(uuid.uuid4())
+                                        rid = params.get("id") or params.get("_request_id") or str(uuid.uuid4())
                                         fut = asyncio.get_event_loop().create_future()
                                         bridge_instance._pending_ui_requests[rid] = fut
                                         print(f"DEBUG: Publishing UI request {method} (rid: {rid}) to bus for card {card_id}")
+                                        
+                                        # Standardize UI request for both ACP and AG-UI
                                         bus.publish(card_id, {
                                             "type": "ui_request",
                                             "id": rid,
                                             "method": method,
                                             "params": params
                                         })
+                                        
                                         try:
-                                            return await asyncio.wait_for(fut, timeout=300.0)
+                                            # Support long-cycle async: 24h timeout
+                                            return await asyncio.wait_for(fut, timeout=3600.0 * 24)
                                         except asyncio.TimeoutError:
                                             bridge_instance._pending_ui_requests.pop(rid, None)
                                             return {"error": {"code": -32000, "message": "UI Request Timeout"}}

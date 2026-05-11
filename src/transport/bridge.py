@@ -635,12 +635,13 @@ class UnifiedBridge:
             return
 
         async def on_ui_request(method, params):
-            rid = str(uuid.uuid4())
+            rid = params.get("id") or str(uuid.uuid4())
             fut = asyncio.get_event_loop().create_future()
             self._pending_ui_requests[rid] = fut
             await safe_send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
             try:
-                return await asyncio.wait_for(fut, timeout=300.0)
+                # Support long-cycle async: 24h timeout
+                return await asyncio.wait_for(fut, timeout=3600.0 * 24)
             except asyncio.TimeoutError:
                 self._pending_ui_requests.pop(rid, None)
                 return {"error": {"code": -32000, "message": "UI Request Timeout"}}

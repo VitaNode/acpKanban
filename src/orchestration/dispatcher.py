@@ -350,6 +350,29 @@ class MessageDispatcher:
 
         async def wrapped_request(method, req_params):
             """Send a UI request that requires a response from the UI."""
+            # AG-UI Enhancement: Persist UI requests as messages for persistence and re-entry support
+            if ui_format == "ag_ui" and card_id:
+                rid = req_params.get("id") or str(uuid.uuid4())
+                req_params["id"] = rid # Ensure ID consistency
+                
+                ag_event = AGUIMapper.map_request(method, req_params, rid)
+                seq_id = await self._get_next_seq(card_id)
+                await asyncio.to_thread(
+                    self.db.sessions.add_message, 
+                    card_id, 
+                    "assistant", 
+                    json.dumps(ag_event), 
+                    is_complete=True, 
+                    seq_id=seq_id
+                )
+                # Re-publish as AG-UI event with seqId
+                ag_event["seqId"] = seq_id
+                bus.publish(card_id, ag_event)
+                
+                # Check if we should still call on_output (the old transient path)
+                # We do so for backward compatibility or if there's no websocket connected
+                return await on_output(method, req_params)
+            
             return await on_output(method, req_params)
 
         async def wrapped_output(output_data, is_request=False):
@@ -527,51 +550,15 @@ class MessageDispatcher:
                             logger.info(f"[*] YOLO mode detected for card {card_id}, auto-approving permission.")
                             return {"outcome": {"optionId": "allow"}}
 
-                    # Not YOLO: forward to Flutter UI for user approval
-                    rid = str(uuid.uuid4())
-                    fut = asyncio.get_event_loop().create_future()
-                    self._pending_ui_requests[rid] = fut
-                    logger.info(f"[*] Forwarding {inner_method} to UI (rid: {rid}, card_id: {card_id})")
-                    
-                    # AG-UI Enhancement: Persist as interactive message
-                    if self._card_ui_formats.get(card_id) == "ag_ui":
-                        ag_event = AGUIMapper.map_request(inner_method, inner_params, rid)
-                        seq_id = await self._get_next_seq(card_id)
-                        await asyncio.to_thread(
-                            self.db.sessions.add_message, 
-                            card_id, 
-                            "assistant", 
-                            json.dumps(ag_event), 
-                            is_complete=True, 
-                            seq_id=seq_id
-                        )
-                        # Re-publish as AG-UI event with seqId
-                        ag_event["seqId"] = seq_id
-                        bus.publish(card_id, ag_event)
-                    else:
-                        bus.publish(card_id, {
-                            "type": "ui_request",
-                            "id": rid,
-                            "method": inner_method,
-                            "params": inner_params
-                        })
-                    
-                    try:
-                        # Increase timeout to 24 hours to support long-cycle asynchronous workflows
-                        res = await asyncio.wait_for(fut, timeout=3600.0 * 24)
-                        logger.info(f"[*] UI Response received for {rid}: {res}")
-                        return res
-                    except asyncio.TimeoutError:
-                        self._pending_ui_requests.pop(rid, None)
-                        logger.warning(f"[*] UI Request Timeout for {rid}")
-                        return {"error": {"code": -32000, "message": "UI Request Timeout"}}
+                    # Use centralized wrapped_request for persistence and forwarding
+                    return await wrapped_request(inner_method, inner_params)
 
                 if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
                     inner_params["_request_id"] = inner_params.get("id")
-                    result = await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
+                    result = await wrapped_request(inner_method, inner_params)
                     return result
 
-                return await on_output({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
+                return await wrapped_request(inner_method, inner_params)
 
             engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)
             # if is_new or not engine.acp_session_id:
