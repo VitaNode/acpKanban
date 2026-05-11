@@ -192,30 +192,31 @@ class MessageBubble extends StatelessWidget {
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
             blockSpacing: 12.0,
-            h1: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
-            h2: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
-            h3: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
-            h4: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
-            h5: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
-            h6: TextStyle(color: accentColor, fontWeight: FontWeight.w600, fontSize: 14),
+            h1: TextStyle(color: accentColor, fontWeight: FontWeight.w400, fontSize: 14),
+            h2: TextStyle(color: accentColor, fontWeight: FontWeight.w400, fontSize: 14),
+            h3: TextStyle(color: accentColor, fontWeight: FontWeight.w400, fontSize: 14),
+            h4: TextStyle(color: accentColor, fontWeight: FontWeight.w400, fontSize: 14),
+            h5: TextStyle(color: accentColor, fontWeight: FontWeight.w400, fontSize: 14),
+            h6: TextStyle(color: accentColor, fontWeight: FontWeight.w400, fontSize: 14),
             blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
             blockquoteDecoration: BoxDecoration(
               border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
+            ),
+            horizontalRuleDecoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Colors.transparent, width: 0)),
             ),
             listBullet: TextStyle(color: secondaryTextColor, fontSize: 14),
             em: TextStyle(color: textColor, fontStyle: FontStyle.italic, fontSize: 14),
             strong: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
             a: TextStyle(color: accentColor, decoration: TextDecoration.underline, fontSize: 14),
             code: TextStyle(
-              backgroundColor: isUser
-                  ? Colors.black26
-                  : colorScheme.primaryContainer.withOpacity(0.1),
+              backgroundColor: Colors.transparent,
               color: isUser
                   ? colorScheme.onPrimary
                   : colorScheme.primary,
               fontFamily: 'monospace',
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
             ),
             codeblockDecoration: BoxDecoration(
               color: isUser
