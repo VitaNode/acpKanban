@@ -701,16 +701,27 @@ class SessionWebSocketService {
       ));
       _messageController.add(List.from(_currentMessages));
     }
-    else if (event.eventType == 'interactive_request') {
+    else if (event.eventType == "interactive_request") {
+      // Serialize the full event to JSON for proper parsing by fromMessage()
+      final eventJson = {
+        "event": event.eventType,
+        "text": event.text,
+        "title": event.title,
+        "method": event.method,
+        "requestId": event.requestId,
+        "options": event.options,
+        "seqId": event.seqId,
+      };
+
       _currentMessages.add(CardMessage(
-        id: 'request-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
-        cardId: _currentCardId ?? '',
-        role: 'assistant',
-        content: agUiMessage.content,
+        id: "request-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}",
+        cardId: _currentCardId ?? "",
+        role: "assistant",
+        content: jsonEncode(eventJson),
         createdAt: DateTime.now().toIso8601String(),
         isComplete: true,
         seqId: event.seqId,
-        metadata: {'type': 'interactive_request'}
+        metadata: {"type": "interactive_request"}
       ));
       _messageController.add(List.from(_currentMessages));
     }
