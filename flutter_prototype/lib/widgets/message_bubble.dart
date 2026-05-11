@@ -192,12 +192,12 @@ class MessageBubble extends StatelessWidget {
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
             blockSpacing: 12.0,
-            h1: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 14),
-            h2: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 14),
-            h3: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 14),
-            h4: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 14),
-            h5: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 14),
-            h6: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 14),
+            h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+            h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+            h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+            h4: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+            h5: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+            h6: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
             blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
             blockquoteDecoration: BoxDecoration(
               border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
