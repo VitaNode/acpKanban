@@ -72,11 +72,11 @@ class InteractiveRequestBlock extends StatelessWidget {
           ),
           
           // Body
-          if (event.text != null && event.text!.isNotEmpty)
+          if ((event.text != null && event.text!.isNotEmpty) || (event.title != null && event.title!.isNotEmpty))
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: MarkdownBody(
-                data: event.text!,
+                data: (event.text != null && event.text!.isNotEmpty) ? event.text! : event.title!,
                 selectable: true,
                 styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
                   p: theme.textTheme.bodyMedium?.copyWith(height: 1.5, fontSize: 13),
