@@ -12,6 +12,9 @@ class AgUiEvent {
   final List<Map<String, dynamic>>? commands;
   final Map<String, dynamic>? plan;
   final List<dynamic>? options;
+  final String? title;
+  final String? method;
+  final String? requestId;
 
   AgUiEvent({
     this.eventType,
@@ -24,6 +27,9 @@ class AgUiEvent {
     this.commands,
     this.plan,
     this.options,
+    this.title,
+    this.method,
+    this.requestId,
   });
 
   factory AgUiEvent.fromMessage(CardMessage message) {
@@ -63,6 +69,9 @@ class AgUiEvent {
         commands: (json['commands'] as List?)?.cast<Map<String, dynamic>>(),
         plan: json['plan'] as Map<String, dynamic>?,
         options: json['options'] as List?,
+        title: json['title'] as String?,
+        method: json['method'] as String?,
+        requestId: json['requestId'] as String?,
       );
     } catch (e) {
       // If parsing fails, return empty event
