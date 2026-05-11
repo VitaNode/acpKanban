@@ -557,7 +557,8 @@ class MessageDispatcher:
                         })
                     
                     try:
-                        res = await asyncio.wait_for(fut, timeout=300.0)
+                        # Increase timeout to 24 hours to support long-cycle asynchronous workflows
+                        res = await asyncio.wait_for(fut, timeout=3600.0 * 24)
                         logger.info(f"[*] UI Response received for {rid}: {res}")
                         return res
                     except asyncio.TimeoutError:
