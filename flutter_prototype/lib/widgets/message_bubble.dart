@@ -11,12 +11,16 @@ import '../utils/icon_util.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ag_ui/thinking_block.dart';
 import '../widgets/ag_ui/tool_pill.dart';
+import '../widgets/ag_ui/interactive_request_block.dart';
+import '../models/ag_ui_event.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
   final String? providerId;
   final String? providerName;
   final String? providerIcon;
+  final Function(String requestId, String optionId)? onOptionSelected;
+  final Set<String>? respondedRequestIds;
 
   const MessageBubble({
     super.key,
@@ -24,6 +28,8 @@ class MessageBubble extends StatelessWidget {
     this.providerId,
     this.providerName,
     this.providerIcon,
+    this.onOptionSelected,
+    this.respondedRequestIds,
   });
 
   List<ContentBlock> _parseContentBlocks() {
@@ -106,6 +112,8 @@ class MessageBubble extends StatelessWidget {
                     _buildThoughtSection(context),
                   if (!isUser && message.metadata?['tool_calls'] != null)
                     _buildToolCallsSection(context),
+                  // Check for AG-UI interactive request
+                  if (!isUser) _buildInteractiveRequestSection(context),
                   // Check if this independent message is actually a thinking record
                   if (!isUser && message.metadata?['type'] == 'reasoning')
                     _buildThinkingRecordSection(context),
@@ -275,6 +283,25 @@ class MessageBubble extends StatelessWidget {
           return ToolPill(name: toolName, status: toolStatus);
         }).toList(),
       ),
+    );
+  }
+
+  Widget _buildInteractiveRequestSection(BuildContext context) {
+    final event = AgUiEvent.fromMessage(message);
+    if (event.eventType != 'interactive_request' || event.requestId == null) {
+      return const SizedBox.shrink();
+    }
+
+    final isResponded = respondedRequestIds?.contains(event.requestId) ?? false;
+
+    return InteractiveRequestBlock(
+      event: event,
+      isResponded: isResponded,
+      onOptionSelected: (optionId) {
+        if (onOptionSelected != null) {
+          onOptionSelected!(event.requestId!, optionId);
+        }
+      },
     );
   }
 
