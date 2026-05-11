@@ -44,6 +44,7 @@ class SessionWebSocketService {
 
   // Track whether history has been loaded for the current card
   bool _hasLoadedHistory = false;
+  String? _uiFormat;
 
   // Local cache to support streaming updates
   List<CardMessage> _currentMessages = [];
@@ -64,6 +65,7 @@ class SessionWebSocketService {
   Stream<bool> get isInitializing => _initializingController.stream;
   Stream<String> get contextData => _contextController.stream;
   bool get isConnected => _isConnected;
+  String? get uiFormat => _uiFormat;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
     // Debug log for connection attempt
@@ -470,6 +472,7 @@ class SessionWebSocketService {
           break;
         case 'session_info':
           _initializingController.add(false);
+          _uiFormat = m['ui_format'];
           if (m['config_options'] != null) {
             _configController.add((m['config_options'] as List?)
                     ?.map((x) => ConfigOption.fromJson(x))
@@ -861,6 +864,17 @@ class SessionWebSocketService {
       await _send(
           {'type': 'rpc_response', 'id': id, 'result': result});
     }
+  }
+
+  void addSyntheticUserMessage(String content) {
+    _currentMessages.add(CardMessage(
+      id: 'synthetic-${DateTime.now().millisecondsSinceEpoch}',
+      cardId: _currentCardId ?? '',
+      role: 'user',
+      content: content,
+      createdAt: DateTime.now().toIso8601String(),
+    ));
+    _messageController.add(List.from(_currentMessages));
   }
 
   Future<void> disconnect() async {

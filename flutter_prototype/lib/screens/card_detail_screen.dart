@@ -72,6 +72,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
   OverlayEntry? _commandOverlay;
+  final Set<String> _respondedRequestIds = {};
 
   StreamSubscription? _messageSub;
   StreamSubscription? _planSub;
@@ -378,6 +379,13 @@ class _CardDetailViewState extends State<CardDetailView> {
     final requestId = request['id'];
 
     if (method == 'session/request_permission') {
+      // AG-UI Optimization: If we are in AG-UI mode, the request is already persisted as a message.
+      // We don't need to show a modal dialog that disrupts the flow.
+      if (_wsService.uiFormat == 'ag_ui') {
+        debugPrint('[CardDetail] Skipping permission dialog in AG-UI mode (request is in chat)');
+        return;
+      }
+
       // Defer dialog display to next frame to avoid layout conflicts
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -385,6 +393,24 @@ class _CardDetailViewState extends State<CardDetailView> {
         }
       });
     }
+  }
+
+  void _handleInteractiveResponse(String requestId, String optionId) {
+    if (_respondedRequestIds.contains(requestId)) return;
+
+    setState(() {
+      _respondedRequestIds.add(requestId);
+      _isAgentProcessing = true;
+    });
+
+    final response = {
+      'outcome': {'optionId': optionId}
+    };
+
+    _wsService.sendResponse(requestId, response);
+    
+    // Optional: add a synthetic user message for feedback
+    _wsService.addSyntheticUserMessage('Authorized: $optionId');
   }
 
   void _showPermissionDialog(String requestId, Map<String, dynamic> params) {
@@ -994,6 +1020,8 @@ class _CardDetailViewState extends State<CardDetailView> {
       message: m,
       providerName: _providerDisplayName,
       providerId: _card.acpProviderId,
+      respondedRequestIds: _respondedRequestIds,
+      onOptionSelected: (requestId, optionId) => _handleInteractiveResponse(requestId, optionId),
     )).toList();
   }
 
