@@ -121,6 +121,23 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                         return # Ignore unknown formats
 
                                     if method == "session/request_permission" or method.startswith("fs/") or method.startswith("terminal/"):
+                                        # AG-UI Enhancement: Skip redundant transient ui_request if in ag_ui mode.
+                                        # The Dispatcher's wrapped_request already handles the ag_ui_event and persistence.
+                                        card_ui_format = bridge_instance.dispatcher._card_ui_formats.get(card_id, "acp")
+                                        if card_ui_format == "ag_ui":
+                                            # We still need to create a future and wait for it here because this is the 
+                                            # bridge's on_output loop that blocked the agent.
+                                            rid = params.get("id") or params.get("_request_id") or str(uuid.uuid4())
+                                            fut = asyncio.get_event_loop().create_future()
+                                            bridge_instance._pending_ui_requests[rid] = fut
+                                            
+                                            try:
+                                                # Support long-cycle async: 24h timeout
+                                                return await asyncio.wait_for(fut, timeout=3600.0 * 24)
+                                            except asyncio.TimeoutError:
+                                                bridge_instance._pending_ui_requests.pop(rid, None)
+                                                return {"error": {"code": -32000, "message": "UI Request Timeout"}}
+
                                         rid = params.get("id") or params.get("_request_id") or str(uuid.uuid4())
                                         fut = asyncio.get_event_loop().create_future()
                                         bridge_instance._pending_ui_requests[rid] = fut

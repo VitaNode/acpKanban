@@ -304,20 +304,25 @@ class AGUIMapper:
                     "primary": opt.get("primary", False) or "proceed" in opt_id or "allow" in opt_id or "restore" in opt_id
                 })
         
-        # If there's a plan or arguments, include them in the text or metadata
+        # If there's a plan or arguments, include them in the text
         arguments = params.get("arguments")
         if arguments:
+            plan_text = ""
             if isinstance(arguments, dict):
-                try:
-                    args_str = json.dumps(arguments, indent=2)
-                except:
-                    args_str = str(arguments)
+                plan_text = arguments.get("plan") or arguments.get("description") or ""
+                # Remove the plan from arguments so we don't show it twice
+                other_args = {k: v for k, v in arguments.items() if k not in ("plan", "description")}
+                
+                if plan_text:
+                    ag_event["text"] += f"\n\n### Proposed Plan\n{plan_text}"
+                
+                if other_args:
+                    try:
+                        ag_event["text"] += f"\n\n**Arguments:**\n```json\n{json.dumps(other_args, indent=2)}\n```"
+                    except:
+                        ag_event["text"] += f"\n\n**Arguments:** {other_args}"
             else:
-                args_str = str(arguments)
-            
-            # Append details to text if not already present
-            if args_str not in ag_event["text"]:
-                ag_event["text"] += f"\n\n```json\n{args_str}\n```"
+                ag_event["text"] += f"\n\n{arguments}"
         
         return ag_event
     

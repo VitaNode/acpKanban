@@ -487,7 +487,6 @@ class _CardDetailViewState extends State<CardDetailView> {
                   onPressed: () {
                     _wsService.sendResponse(requestId, {
                       "outcome": {
-                        "outcome": "selected",
                         "optionId": opt['optionId']
                       }
                     });
