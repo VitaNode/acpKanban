@@ -531,13 +531,31 @@ class MessageDispatcher:
                     rid = str(uuid.uuid4())
                     fut = asyncio.get_event_loop().create_future()
                     self._pending_ui_requests[rid] = fut
-                    logger.info(f"[*] Forwarding session/request_permission to UI (rid: {rid}, card_id: {card_id})")
-                    bus.publish(card_id, {
-                        "type": "ui_request",
-                        "id": rid,
-                        "method": inner_method,
-                        "params": inner_params
-                    })
+                    logger.info(f"[*] Forwarding {inner_method} to UI (rid: {rid}, card_id: {card_id})")
+                    
+                    # AG-UI Enhancement: Persist as interactive message
+                    if self._card_ui_formats.get(card_id) == "ag_ui":
+                        ag_event = AGUIMapper.map_request(inner_method, inner_params, rid)
+                        seq_id = await self._get_next_seq(card_id)
+                        await asyncio.to_thread(
+                            self.db.sessions.add_message, 
+                            card_id, 
+                            "assistant", 
+                            json.dumps(ag_event), 
+                            is_complete=True, 
+                            seq_id=seq_id
+                        )
+                        # Re-publish as AG-UI event with seqId
+                        ag_event["seqId"] = seq_id
+                        bus.publish(card_id, ag_event)
+                    else:
+                        bus.publish(card_id, {
+                            "type": "ui_request",
+                            "id": rid,
+                            "method": inner_method,
+                            "params": inner_params
+                        })
+                    
                     try:
                         res = await asyncio.wait_for(fut, timeout=300.0)
                         logger.info(f"[*] UI Response received for {rid}: {res}")
