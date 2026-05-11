@@ -532,7 +532,7 @@ class MessageDispatcher:
         except Exception:
             return False
 
-    async def _process_engine_request(self, card_id, method, params, request_id, on_output):
+    async def _process_engine_request(self, card_id, method, params, request_id, on_output_with_helpers):
         task_key = f"{card_id}_{request_id}"
         session_id = params.get("sessionId")
         is_internal = session_id in self._internal_sessions
@@ -551,26 +551,27 @@ class MessageDispatcher:
                             return {"outcome": {"optionId": "allow"}}
 
                     # Use centralized wrapped_request for persistence and forwarding
-                    return await wrapped_request(inner_method, inner_params)
+                    # on_output_with_helpers is actually the wrapped_output from dispatch()
+                    return await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
                 if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
                     inner_params["_request_id"] = inner_params.get("id")
-                    result = await wrapped_request(inner_method, inner_params)
+                    result = await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
                     return result
 
-                return await wrapped_request(inner_method, inner_params)
+                return await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
-            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output)
+            engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output_with_helpers)
             # if is_new or not engine.acp_session_id:
             #     # Serial: wait for context injection to complete before processing user prompt.
             #     # This prevents concurrent prompt collision on the same ACP session.
-            #     await self._inject_context_async(card_id, engine, on_output)
+            #     await self._inject_context_async(card_id, engine, on_output_with_helpers)
 
             async def forward_notif(n):
                 if "params" in n: n["params"]["card_id"] = card_id
-                if is_internal: await on_output(n); return
+                if is_internal: await on_output_with_helpers(n); return
                 card_ui_format = self._card_ui_formats.get(card_id, "acp")
-                await self._forward_notification(card_id, n, on_output, ui_format=card_ui_format)
+                await self._forward_notification(card_id, n, on_output_with_helpers, ui_format=card_ui_format)
 
             res = await engine.process_prompt(method, params, on_notification=forward_notif)
 
