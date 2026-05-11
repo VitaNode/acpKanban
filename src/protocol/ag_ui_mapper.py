@@ -272,6 +272,9 @@ class AGUIMapper:
         card_id = params.get("card_id")
         timestamp = params.get("timestamp") or datetime.now().isoformat()
         
+        # Extract meaningful text from params
+        text = params.get("message") or params.get("title") or ""
+        
         ag_event = {
             "type": "ag_ui_event",
             "card_id": card_id,
@@ -280,12 +283,26 @@ class AGUIMapper:
             "requestId": request_id,
             "timestamp": timestamp,
             "title": params.get("title", "Action Required"),
-            "text": params.get("message", ""),
-            "options": params.get("options", [
+            "text": text,
+            "options": []
+        }
+        
+        # Map options correctly
+        raw_options = params.get("options", [])
+        if not raw_options:
+            ag_event["options"] = [
                 {"id": "allow", "label": "Allow", "primary": True},
                 {"id": "deny", "label": "Deny", "primary": False}
-            ])
-        }
+            ]
+        else:
+            for opt in raw_options:
+                opt_id = opt.get("id") or opt.get("optionId") or ""
+                opt_label = opt.get("label") or opt.get("name") or "Option"
+                ag_event["options"].append({
+                    "id": opt_id,
+                    "label": opt_label,
+                    "primary": opt.get("primary", False) or "proceed" in opt_id or "allow" in opt_id or "restore" in opt_id
+                })
         
         # If there's a plan or arguments, include them in the text or metadata
         arguments = params.get("arguments")
