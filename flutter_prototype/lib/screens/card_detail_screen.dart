@@ -5,6 +5,7 @@ import '../models/kanban_card.dart';
 import '../models/kanban_column.dart';
 import '../models/card_message.dart';
 import '../models/agent_plan.dart';
+import '../models/ag_ui_event.dart';
 import '../models/config_option.dart';
 import '../models/project_roadmap.dart';
 import '../services/project_service.dart';
