@@ -348,18 +348,25 @@ class MessageDispatcher:
                 except Exception:
                     pass
 
-        async def wrapped_request(method, req_params):
+        async def wrapped_request(method_name, req_params):
             """Send a UI request that requires a response from the UI."""
+            # Ensure we use the correct card_id and format for this specific request
+            current_card_id = req_params.get("card_id") or card_id_for_format
+            current_ui_format = self._card_ui_formats.get(current_card_id, "acp")
+            
+            logger.info(f"[DEBUG] wrapped_request: {method_name} for card {current_card_id} (format: {current_ui_format})")
+
             # AG-UI Enhancement: Persist UI requests as messages for persistence and re-entry support
-            if ui_format == "ag_ui" and card_id:
+            if current_ui_format == "ag_ui" and current_card_id:
                 rid = req_params.get("id") or str(uuid.uuid4())
                 req_params["id"] = rid # Ensure ID consistency
                 
-                ag_event = AGUIMapper.map_request(method, req_params, rid)
-                seq_id = await self._get_next_seq(card_id)
+                logger.info(f"[DEBUG] Creating interactive_request for {method_name} (rid: {rid})")
+                ag_event = AGUIMapper.map_request(method_name, req_params, rid)
+                seq_id = await self._get_next_seq(current_card_id)
                 await asyncio.to_thread(
                     self.db.sessions.add_message, 
-                    card_id, 
+                    current_card_id, 
                     "assistant", 
                     json.dumps(ag_event), 
                     is_complete=True, 
@@ -367,22 +374,30 @@ class MessageDispatcher:
                 )
                 # Re-publish as AG-UI event with seqId
                 ag_event["seqId"] = seq_id
-                bus.publish(card_id, ag_event)
+                bus.publish(current_card_id, ag_event)
+                logger.info(f"[DEBUG] Published interactive_request seqId={seq_id}")
                 
                 # Check if we should still call on_output (the old transient path)
                 # We do so for backward compatibility or if there's no websocket connected
-                return await on_output(method, req_params)
+                return await on_output(method_name, req_params)
             
-            return await on_output(method, req_params)
+            return await on_output(method_name, req_params)
 
         async def wrapped_output(output_data, is_request=False):
-            if ui_format == "ag_ui":
-                mapped = AGUIMapper.map_notification(output_data)
-                if not mapped: return
+            current_card_id = output_data.get("params", {}).get("card_id") or card_id_for_format
+            current_ui_format = self._card_ui_formats.get(current_card_id, "acp")
+            
+            logger.info(f"[DEBUG] wrapped_output: is_request={is_request}, card={current_card_id}, format={current_ui_format}")
+
+            if current_ui_format == "ag_ui":
                 if is_request:
-                    return await wrapped_request(mapped.get("method"), mapped.get("params", {}))
-                else:
-                    return await wrapped_notification(mapped)
+                    return await wrapped_request(output_data.get("method"), output_data.get("params", {}))
+                
+                mapped = AGUIMapper.map_notification(output_data)
+                if not mapped: 
+                    logger.debug(f"[DEBUG] map_notification returned None for {output_data.get('method')}")
+                    return
+                return await wrapped_notification(mapped)
             else:
                 if is_request:
                     return await wrapped_request(output_data.get("method"), output_data.get("params", {}))
