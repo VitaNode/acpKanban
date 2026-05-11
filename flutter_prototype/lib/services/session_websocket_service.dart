@@ -698,6 +698,19 @@ class SessionWebSocketService {
       ));
       _messageController.add(List.from(_currentMessages));
     }
+    else if (event.eventType == 'interactive_request') {
+      _currentMessages.add(CardMessage(
+        id: 'request-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
+        cardId: _currentCardId ?? '',
+        role: 'assistant',
+        content: agUiMessage.content,
+        createdAt: DateTime.now().toIso8601String(),
+        isComplete: true,
+        seqId: event.seqId,
+        metadata: {'type': 'interactive_request'}
+      ));
+      _messageController.add(List.from(_currentMessages));
+    }
     else if (event.eventType == 'user_message') {
       // Handle user messages echoed back from the server
       _currentMessages.add(CardMessage(
