@@ -59,7 +59,11 @@ class MessageBubble extends StatelessWidget {
     final hasToolCalls = message.metadata?['tool_calls'] != null && (message.metadata!['tool_calls'] as List).isNotEmpty;
     final isReasoning = message.metadata?['type'] == 'reasoning' && message.content.trim().isNotEmpty;
     
-    if (message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning) {
+    // Check for AG-UI interactive request to avoid double rendering
+    final event = AgUiEvent.fromMessage(message);
+    final isInteractiveRequest = event.eventType == 'interactive_request' && event.requestId != null;
+    
+    if (message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning && !isInteractiveRequest) {
       return const SizedBox.shrink();
     }
 
@@ -117,7 +121,9 @@ class MessageBubble extends StatelessWidget {
                   // Check if this independent message is actually a thinking record
                   if (!isUser && message.metadata?['type'] == 'reasoning')
                     _buildThinkingRecordSection(context),
-                  if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning'))
+                  // Only build message content if it's NOT an interactive request
+                  // to prevent rendering the raw JSON string.
+                  if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning') && !isInteractiveRequest)
                     _buildMessageContent(context, isUser),
                   if (isUser)
                     _buildMessageContent(context, isUser),

@@ -280,11 +280,18 @@ class _CardDetailViewState extends State<CardDetailView> {
           // Check if followed by a user response in history (scan forward)
           for (int j = i + 1; j < pending.length; j++) {
             final next = pending[j];
-            if (next.role == 'user' && next.content.startsWith('Response:')) {
-              newRespondedIds.add(event.requestId!);
+            if (next.role == 'user') {
+              if (next.content.startsWith('Response:')) {
+                newRespondedIds.add(event.requestId!);
+                break;
+              }
+              // Skip synthetic messages like "Authorized: ..." which are for UI feedback only
+              if (next.content.startsWith('Authorized:')) continue;
+              
+              // Stop if we hit any other real user input
               break;
             }
-            // Stop if we hit another interactive request or a completed message
+            // Stop if we hit another assistant message (interrupted or next turn)
             if (next.role == 'assistant') break;
           }
         }

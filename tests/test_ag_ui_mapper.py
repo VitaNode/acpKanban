@@ -132,5 +132,24 @@ class TestAGUIMapper(unittest.TestCase):
         self.assertEqual(len(result["options"]), 1)
         self.assertEqual(result["options"][0]["id"], "allow")
 
+    def test_map_request_plan_extraction(self):
+        """测试从 toolCall content 中提取 Plan 内容"""
+        method = "session/request_permission"
+        params = {
+            "card_id": "card_789",
+            "toolCall": {
+                "title": "Plan:",
+                "kind": "unknown",
+                "content": [
+                    {"type": "text", "text": "## Implementation Plan\n\n1. Step one\n2. Step two"}
+                ]
+            }
+        }
+        request_id = "req_plan"
+        result = self.mapper.map_request(method, params, request_id)
+        
+        self.assertEqual(result["title"], "Plan:")
+        self.assertEqual(result["text"], "## Implementation Plan\n\n1. Step one\n2. Step two")
+
 if __name__ == '__main__':
     unittest.main()

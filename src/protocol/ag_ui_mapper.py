@@ -274,6 +274,7 @@ class AGUIMapper:
         
         # Extract meaningful text from params
         text = params.get("message") or params.get("title") or ""
+        title = params.get("title", "Action Required")
         
         ag_event = {
             "type": "ag_ui_event",
@@ -282,7 +283,7 @@ class AGUIMapper:
             "method": method,
             "requestId": request_id,
             "timestamp": timestamp,
-            "title": params.get("title", "Action Required"),
+            "title": title,
             "text": text,
             "options": []
         }
@@ -292,9 +293,9 @@ class AGUIMapper:
             tool_call = params.get("toolCall", {})
             
             # 提取标题
-            if not text and tool_call.get("title"):
-                text = tool_call.get("title", "Permission Required")
-                ag_event["title"] = text
+            if tool_call.get("title") and (title == "Action Required" or not title):
+                title = tool_call.get("title")
+                ag_event["title"] = title
             
             # 提取工具调用的详细内容
             tool_kind = tool_call.get("kind", "unknown")
@@ -320,14 +321,43 @@ class AGUIMapper:
                 raw_input = tool_call.get("rawInput", {})
                 command = raw_input.get("command", raw_input.get("script", ""))
                 text += f"\n\n### Command Execution\n\n```bash\n{command}\n```\n"
+
+            # === 特殊处理：如果是 Plan 或具有 content blocks 的通用工具调用 ===
+            tool_content = tool_call.get("content", [])
+            if isinstance(tool_content, list) and tool_content:
+                extracted_text = ""
+                for item in tool_content:
+                    # Support both item['content']['text'] and item['text']
+                    c = item.get("content")
+                    if isinstance(c, dict) and "text" in c:
+                        extracted_text += c["text"]
+                    elif isinstance(item, dict) and item.get("type") == "text":
+                        extracted_text += item.get("text", "")
+                    elif isinstance(item, dict) and "text" in item:
+                        extracted_text += item.get("text", "")
+                
+                if extracted_text:
+                    # 如果当前 text 为空或是通用的标题，直接用提取的内容
+                    if not text or text.strip() == title:
+                        text = extracted_text
+                    else:
+                        text += f"\n\n{extracted_text}"
             
-            # 添加原始输入作为参考
+            # 添加原始输入作为参考 (仅当没有提取到 Plan 时)
             raw_input = tool_call.get("rawInput", {})
-            if raw_input and not any(k in text for k in raw_input.keys()):
-                try:
-                    text += f"\n\n**Details:**\n```json\n{json.dumps(raw_input, indent=2)}\n```"
-                except:
-                    pass
+            if raw_input and not any(k in text for k in (raw_input.keys() or [])) and "plan" not in text:
+                # If raw_input has 'plan', use it!
+                if isinstance(raw_input, dict) and "plan" in raw_input:
+                    plan_val = raw_input["plan"]
+                    if not text or text.strip() == title:
+                        text = plan_val
+                    else:
+                        text += f"\n\n{plan_val}"
+                else:
+                    try:
+                        text += f"\n\n**Details:**\n```json\n{json.dumps(raw_input, indent=2)}\n```"
+                    except:
+                        pass
         # ============================================
         
         # Map options correctly
@@ -357,17 +387,21 @@ class AGUIMapper:
                 other_args = {k: v for k, v in arguments.items() if k not in ("plan", "description")}
                 
                 if plan_text:
-                    ag_event["text"] += f"\n\n### Proposed Plan\n{plan_text}"
+                    if not text or text.strip() == title:
+                        text = plan_text
+                    else:
+                        text += f"\n\n### Proposed Plan\n{plan_text}"
                 
-                if other_args:
+                if other_args and not any(k in text for k in (other_args.keys() or [])):
                     try:
-                        ag_event["text"] += f"\n\n**Arguments:**\n```json\n{json.dumps(other_args, indent=2)}\n```"
+                        text += f"\n\n**Arguments:**\n```json\n{json.dumps(other_args, indent=2)}\n```"
                     except:
-                        ag_event["text"] += f"\n\n**Arguments:** {other_args}"
+                        text += f"\n\n**Arguments:** {other_args}"
             else:
-                ag_event["text"] += f"\n\n{arguments}"
+                text += f"\n\n{arguments}"
         
         ag_event["text"] = text
+        ag_event["title"] = title
         return ag_event
     
     @staticmethod
