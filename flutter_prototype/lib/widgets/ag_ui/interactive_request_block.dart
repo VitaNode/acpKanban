@@ -7,12 +7,14 @@ class InteractiveRequestBlock extends StatelessWidget {
   final AgUiEvent event;
   final Function(String optionId) onOptionSelected;
   final bool isResponded;
+  final MarkdownStyleSheet? styleSheet;
 
   const InteractiveRequestBlock({
     super.key,
     required this.event,
     required this.onOptionSelected,
     this.isResponded = false,
+    this.styleSheet,
   });
 
   @override
@@ -78,7 +80,7 @@ class InteractiveRequestBlock extends StatelessWidget {
               child: MarkdownBody(
                 data: (event.text != null && event.text!.isNotEmpty) ? event.text! : event.title!,
                 selectable: true,
-                styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                styleSheet: styleSheet ?? MarkdownStyleSheet.fromTheme(theme).copyWith(
                   p: theme.textTheme.bodyMedium?.copyWith(height: 1.5, fontSize: 13),
                   code: TextStyle(
                     backgroundColor: colorScheme.surfaceContainer,

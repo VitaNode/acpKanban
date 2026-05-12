@@ -719,6 +719,44 @@ class SessionRepository(BaseRepository):
                 VALUES (?, 'assistant', ?, ?, ?, 0, ?)
             """, (card_id, reasoning_chunk, json.dumps({'type': 'reasoning'}), now, seq_id))
 
+    def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True):
+        """Update the metadata of the last assistant message for a card."""
+        with self.db.get_connection() as conn:
+            # Look for the last assistant message (even if complete)
+            cursor = conn.execute("""
+                SELECT id, metadata, content FROM card_sessions 
+                WHERE card_id = ? AND role = 'assistant' 
+                ORDER BY created_at DESC, id DESC LIMIT 1
+            """, (card_id,))
+            row = cursor.fetchone()
+            if row:
+                msg_id = row[0]
+                try:
+                    meta = json.loads(row[1]) if row[1] else {}
+                except:
+                    meta = {}
+                
+                # Merge or set metadata
+                if isinstance(metadata_val, list) and metadata_key in meta and isinstance(meta[metadata_key], list):
+                    # For tool_calls, we might want to append? 
+                    # But Dispatcher currently sends the full list for that turn.
+                    meta[metadata_key] = metadata_val
+                else:
+                    meta[metadata_key] = metadata_val
+                
+                new_content = content if content is not None else row[2]
+                conn.execute("UPDATE card_sessions SET metadata = ?, content = ?, is_complete = ? WHERE id = ?", 
+                             (json.dumps(meta), new_content, 1 if is_complete else 0, msg_id))
+            else:
+                # No assistant message found, create one
+                now = datetime.now().isoformat()
+                meta = {metadata_key: metadata_val}
+                conn.execute("""
+                    INSERT INTO card_sessions 
+                    (card_id, role, content, metadata, created_at, is_complete) 
+                    VALUES (?, 'assistant', ?, ?, ?, ?)
+                """, (card_id, content or "", json.dumps(meta), now, 1 if is_complete else 0))
+
     def get_history(self, card_id: str, limit: int = 50, after_seq: int = None) -> List[Dict]:
         with self.db.get_connection() as conn:
             query = "SELECT * FROM card_sessions WHERE card_id = ?"

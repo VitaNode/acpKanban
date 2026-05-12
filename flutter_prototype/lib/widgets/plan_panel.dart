@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/agent_plan.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
 class PlanPanel extends StatefulWidget {
   final AgentPlan plan;
+  final MarkdownStyleSheet? styleSheet;
 
-  const PlanPanel({super.key, required this.plan});
+  const PlanPanel({super.key, required this.plan, this.styleSheet});
 
   @override
   State<PlanPanel> createState() => _PlanPanelState();
@@ -119,14 +121,26 @@ class _PlanPanelState extends State<PlanPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  step.content,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: isCompleted ? colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis) : colorScheme.onSurface,
-                    decoration: isCompleted ? TextDecoration.lineThrough : null,
-                    fontWeight: step.status == PlanStepStatus.inProgress ? FontWeight.w600 : FontWeight.normal,
+                if (widget.styleSheet != null)
+                  MarkdownBody(
+                    data: step.content,
+                    styleSheet: widget.styleSheet!.copyWith(
+                      p: widget.styleSheet!.p?.copyWith(
+                        color: isCompleted ? colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis) : colorScheme.onSurface,
+                        decoration: isCompleted ? TextDecoration.lineThrough : null,
+                        fontWeight: step.status == PlanStepStatus.inProgress ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  )
+                else
+                  Text(
+                    step.content,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: isCompleted ? colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis) : colorScheme.onSurface,
+                      decoration: isCompleted ? TextDecoration.lineThrough : null,
+                      fontWeight: step.status == PlanStepStatus.inProgress ? FontWeight.w600 : FontWeight.normal,
+                    ),
                   ),
-                ),
                 if (step.priority != PlanStepPriority.medium)
                   Padding(
                     padding: const EdgeInsets.only(top: AppConstants.space4),

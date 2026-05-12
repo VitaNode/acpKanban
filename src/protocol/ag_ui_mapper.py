@@ -114,7 +114,7 @@ class AGUIMapper:
                 "event": "plan_update",
                 "steps": [
                     {
-                        "label": e.get("content", ""),
+                        "content": e.get("content", ""),
                         "status": e.get("status", "pending"),
                         "priority": e.get("priority", "medium")
                     } for e in update.get("entries", [])

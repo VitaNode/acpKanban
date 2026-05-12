@@ -210,43 +210,8 @@ class MessageBubble extends StatelessWidget {
         ),
         child: MarkdownBody(
           data: markdownData,
-          styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-            p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
-            blockSpacing: 12.0,
-            h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            h4: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            h5: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            h6: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
-            blockquoteDecoration: BoxDecoration(
-              border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
-            ),
-            horizontalRuleDecoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Colors.transparent, width: 0)),
-            ),
-            listBullet: TextStyle(color: secondaryTextColor, fontSize: 14),
-            em: TextStyle(color: textColor, fontStyle: FontStyle.italic, fontSize: 14),
-            strong: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-            a: TextStyle(color: accentColor, decoration: TextDecoration.underline, fontSize: 14),
-            code: TextStyle(
-              backgroundColor: Colors.transparent,
-              color: isUser
-                  ? colorScheme.onPrimary
-                  : colorScheme.primary,
-              fontFamily: 'monospace',
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-            ),
-            codeblockDecoration: BoxDecoration(
-              color: isUser
-                  ? Colors.black26
-                  : customColors.codeBackground,
-              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-              border: isUser ? null : Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
-            ),
-          ),
+          selectable: true,
+          styleSheet: _getMarkdownStyle(context, isUser),
         ),
       );
     }
@@ -254,6 +219,49 @@ class MessageBubble extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children:
           blocks.map((block) => ContentBlockRenderer(block: block)).toList(),
+    );
+  }
+
+  MarkdownStyleSheet _getMarkdownStyle(BuildContext context, bool isUser) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final customColors = theme.extension<CustomColors>()!;
+    final textColor = isUser ? colorScheme.onPrimary : colorScheme.onSurface;
+    final secondaryTextColor = textColor.withOpacity(AppConstants.mediumEmphasis);
+    final accentColor = isUser ? colorScheme.onPrimary : colorScheme.primary;
+
+    return MarkdownStyleSheet.fromTheme(theme).copyWith(
+      p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
+      blockSpacing: 12.0,
+      h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      h4: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      h5: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      h6: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
+      blockquoteDecoration: BoxDecoration(
+        border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
+      ),
+      horizontalRuleDecoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.transparent, width: 0)),
+      ),
+      listBullet: TextStyle(color: secondaryTextColor, fontSize: 14),
+      em: TextStyle(color: textColor, fontStyle: FontStyle.italic, fontSize: 14),
+      strong: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
+      a: TextStyle(color: accentColor, decoration: TextDecoration.underline, fontSize: 14),
+      code: TextStyle(
+        backgroundColor: Colors.transparent,
+        color: isUser ? colorScheme.onPrimary : colorScheme.primary,
+        fontFamily: 'monospace',
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: isUser ? Colors.black26 : customColors.codeBackground,
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+        border: isUser ? null : Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
+      ),
     );
   }
 
@@ -266,6 +274,7 @@ class MessageBubble extends StatelessWidget {
       child: ThinkingBlock(
         text: thought,
         isCollapsed: true, // 默认折叠
+        styleSheet: _getMarkdownStyle(context, false),
       ),
     );
   }
@@ -277,6 +286,7 @@ class MessageBubble extends StatelessWidget {
       child: ThinkingBlock(
         text: message.content,
         isCollapsed: true,
+        styleSheet: _getMarkdownStyle(context, false),
       ),
     );
   }
@@ -310,6 +320,7 @@ class MessageBubble extends StatelessWidget {
     return InteractiveRequestBlock(
       event: event,
       isResponded: isResponded,
+      styleSheet: _getMarkdownStyle(context, false),
       onOptionSelected: (optionId) {
         if (onOptionSelected != null) {
           onOptionSelected!(event.requestId!, optionId);
@@ -446,12 +457,16 @@ class MessageBubble extends StatelessWidget {
   Widget _buildPlanUpdateSection(BuildContext context) {
     try {
       final rawMap = jsonDecode(message.content);
-      // AG-UI event maps the plan data under the 'plan' key
-      final planData = rawMap['plan'] as Map<String, dynamic>?;
-      if (planData == null) return const SizedBox.shrink();
+      // AG-UI event might have plan data directly or under 'plan' key
+      final planData = rawMap['plan'] ?? rawMap;
+      final plan = AgentPlan.fromJson(planData is Map<String, dynamic> ? planData : {});
       
-      final plan = AgentPlan.fromJson(planData);
-      return PlanPanel(plan: plan);
+      if (plan.entries.isEmpty) return const SizedBox.shrink();
+      
+      return PlanPanel(
+        plan: plan,
+        styleSheet: _getMarkdownStyle(context, false),
+      );
     } catch (e) {
       debugPrint('Plan rendering error: $e');
       return const Text('Failed to load plan');

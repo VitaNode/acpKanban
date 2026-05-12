@@ -973,10 +973,20 @@ class MessageDispatcher:
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         trace_msg = f"\n\n🛠️ **Calling tool:** `{name}`\n"
                         logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_start seqId={seq_id} to DB for {card_id}")
+                        
+                        # In AG-UI mode, try to use structured metadata if possible
                         await asyncio.to_thread(
-                            self.db.append_thought,
-                            card_id, trace_msg, seq_id=seq_id
+                            self.db.sessions.update_message_with_metadata,
+                            card_id, "tool_calls", [{
+                                "tool_id": chunk.get("tool_id"),
+                                "name": name,
+                                "status": "running",
+                                "arguments": chunk.get("args")
+                            }],
+                            content=trace_msg, # Set content so it's not a blank bubble
+                            is_complete=False
                         )
+
                     elif event_type == "tool_call_result":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         status = chunk.get("status", "success")
@@ -986,13 +996,22 @@ class MessageDispatcher:
                             trace_msg = f"\n❌ **Tool call failed:** `{name}`\n"
                         else:
                             trace_msg = ""
-                            
-                        if trace_msg:
-                            logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
-                            await asyncio.to_thread(
-                                self.db.append_thought,
-                                card_id, trace_msg, seq_id=seq_id
-                            )
+                        
+                        logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
+                        
+                        # In AG-UI mode, update the structured metadata
+                        await asyncio.to_thread(
+                            self.db.sessions.update_message_with_metadata,
+                            card_id, "tool_calls", [{
+                                "tool_id": chunk.get("tool_id"),
+                                "name": name,
+                                "status": status,
+                                "arguments": chunk.get("args"),
+                                "result": chunk.get("result")
+                            }],
+                            content=trace_msg if trace_msg else None,
+                            is_complete=True
+                        )
                     elif event_type == "tool_call_update":
                         # tool_call_update usually contains partial results or status, treat similar to a trace
                         result = chunk.get("result", "")

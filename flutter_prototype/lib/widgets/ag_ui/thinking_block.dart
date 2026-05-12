@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 class ThinkingBlock extends StatefulWidget {
   final String text;
   final bool isCollapsed;
+  final MarkdownStyleSheet? styleSheet;
 
   const ThinkingBlock({
     Key? key,
     required this.text,
     this.isCollapsed = true,
+    this.styleSheet,
   }) : super(key: key);
 
   @override
@@ -125,15 +128,20 @@ class _ThinkingBlockState extends State<ThinkingBlock>
             axisAlignment: -1.0,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Text(
-                widget.text,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: colorScheme.onSurfaceVariant.withOpacity(0.9),
-                  fontFamily: 'monospace',
-                ),
-              ),
+              child: widget.styleSheet != null 
+                ? MarkdownBody(
+                    data: widget.text,
+                    styleSheet: widget.styleSheet,
+                  )
+                : Text(
+                    widget.text,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: colorScheme.onSurfaceVariant.withOpacity(0.9),
+                      fontFamily: 'monospace',
+                    ),
+                  ),
             ),
           ),
         ],
