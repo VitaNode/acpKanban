@@ -277,12 +277,15 @@ class _CardDetailViewState extends State<CardDetailView> {
       if (m.role == 'assistant') {
         final event = AgUiEvent.fromMessage(m);
         if (event.eventType == 'interactive_request' && event.requestId != null) {
-          // Check if followed by a user response in history
-          if (i + 1 < pending.length) {
-            final next = pending[i + 1];
+          // Check if followed by a user response in history (scan forward)
+          for (int j = i + 1; j < pending.length; j++) {
+            final next = pending[j];
             if (next.role == 'user' && next.content.startsWith('Response:')) {
               newRespondedIds.add(event.requestId!);
+              break;
             }
+            // Stop if we hit another interactive request or a completed message
+            if (next.role == 'assistant') break;
           }
         }
       }

@@ -125,22 +125,13 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                         # The Dispatcher's wrapped_request already handles the ag_ui_event and persistence.
                                         card_ui_format = bridge_instance.dispatcher._card_ui_formats.get(card_id, "acp")
                                         if card_ui_format == "ag_ui":
-                                            # We still need to create a future and wait for it here because this is the 
-                                            # bridge's on_output loop that blocked the agent.
-                                            rid = params.get("id") or params.get("_request_id") or str(uuid.uuid4())
-                                            fut = asyncio.get_event_loop().create_future()
-                                            bridge_instance._pending_ui_requests[rid] = fut
-                                            
-                                            try:
-                                                # Support long-cycle async: 24h timeout
-                                                return await asyncio.wait_for(fut, timeout=3600.0 * 24)
-                                            except asyncio.TimeoutError:
-                                                bridge_instance._pending_ui_requests.pop(rid, None)
-                                                return {"error": {"code": -32000, "message": "UI Request Timeout"}}
+                                            # We return immediately. The bridge's on_ui_request is already waiting 
+                                            # for the future, which will be resolved via rpc_response.
+                                            return
 
-                                        rid = params.get("id") or params.get("_request_id") or str(uuid.uuid4())
-                                        fut = asyncio.get_event_loop().create_future()
-                                        bridge_instance._pending_ui_requests[rid] = fut
+                                        # For legacy/transient mode, we still publish the request to the bus
+                                        # so the UI can show a popup.
+                                        rid = params.get("id") or params.get("_request_id") or (msg_or_method.get("id") if isinstance(msg_or_method, dict) else None) or str(uuid.uuid4())
                                         print(f"DEBUG: Publishing UI request {method} (rid: {rid}) to bus for card {card_id}")
                                         
                                         # Standardize UI request for both ACP and AG-UI
@@ -150,13 +141,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                             "method": method,
                                             "params": params
                                         })
-                                        
-                                        try:
-                                            # Support long-cycle async: 24h timeout
-                                            return await asyncio.wait_for(fut, timeout=3600.0 * 24)
-                                        except asyncio.TimeoutError:
-                                            bridge_instance._pending_ui_requests.pop(rid, None)
-                                            return {"error": {"code": -32000, "message": "UI Request Timeout"}}
+                                        # Return immediately. The bridge already manages the future and timeout.
+                                        return
                                     # Regular notifications - ignore (already handled by bus.publish)
 
                                 await bridge_instance.handle_rpc(

@@ -320,11 +320,13 @@ class UnifiedBridge:
             except Exception as e:
                 self.logger.error(f"Error handling relay message: {e}")
 
-    async def on_ui_response(self, request_id: str, result: Any):
+    async def on_ui_response(self, request_id: str, result: Any) -> bool:
         """Phase 3.2: Standardized UI Response Resolver."""
         future = self._pending_ui_requests.pop(request_id, None)
         if future and not future.done():
             future.set_result(result)
+            return True
+        return False
 
     async def handle_rpc(self, data: Dict[str, Any], send_output: Callable):
         # Wrap the output to await it correctly

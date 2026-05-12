@@ -109,5 +109,28 @@ class TestAGUIMapper(unittest.TestCase):
         result = self.mapper.map_notification(acp_notif)
         self.assertIsNone(result)
 
+    def test_map_request_permission(self):
+        """Test mapping of session/request_permission to interactive_request"""
+        method = "session/request_permission"
+        params = {
+            "card_id": "card_789",
+            "title": "Edit Permission",
+            "toolCall": {
+                "kind": "edit",
+                "content": [{"type": "diff", "path": "test.txt", "newText": "hello"}]
+            },
+            "options": [
+                {"id": "allow", "label": "Allow", "primary": True}
+            ]
+        }
+        request_id = "req_123"
+        result = self.mapper.map_request(method, params, request_id)
+        
+        self.assertEqual(result["event"], "interactive_request")
+        self.assertEqual(result["requestId"], request_id)
+        self.assertIn("File Operation: Edit", result["text"])
+        self.assertEqual(len(result["options"]), 1)
+        self.assertEqual(result["options"][0]["id"], "allow")
+
 if __name__ == '__main__':
     unittest.main()
