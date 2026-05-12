@@ -59,11 +59,11 @@ class MessageBubble extends StatelessWidget {
     final hasToolCalls = message.metadata?['tool_calls'] != null && (message.metadata!['tool_calls'] as List).isNotEmpty;
     final isReasoning = message.metadata?['type'] == 'reasoning' && message.content.trim().isNotEmpty;
     
-    // Check for AG-UI interactive request to avoid double rendering
     final event = AgUiEvent.fromMessage(message);
     final isInteractiveRequest = event.eventType == 'interactive_request' && event.requestId != null;
+    final isPlanUpdate = message.metadata?['type'] == 'plan_update';
     
-    if (message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning && !isInteractiveRequest) {
+    if (message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning && !isInteractiveRequest && !isPlanUpdate) {
       return const SizedBox.shrink();
     }
 
@@ -121,9 +121,14 @@ class MessageBubble extends StatelessWidget {
                   // Check if this independent message is actually a thinking record
                   if (!isUser && message.metadata?['type'] == 'reasoning')
                     _buildThinkingRecordSection(context),
+                  
+                  // AG-UI Enhancement: Render plan updates in chat
+                  if (!isUser && isPlanUpdate)
+                    _buildPlanUpdateSection(context),
+
                   // Only build message content if it's NOT an interactive request
                   // to prevent rendering the raw JSON string.
-                  if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning') && !isInteractiveRequest)
+                  if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning') && !isInteractiveRequest && !isPlanUpdate)
                     _buildMessageContent(context, isUser),
                   if (isUser)
                     _buildMessageContent(context, isUser),
@@ -434,5 +439,20 @@ class MessageBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildPlanUpdateSection(BuildContext context) {
+    try {
+      final rawMap = jsonDecode(message.content);
+      // AG-UI event maps the plan data under the 'plan' key
+      final planData = rawMap['plan'] as Map<String, dynamic>?;
+      if (planData == null) return const SizedBox.shrink();
+      
+      final plan = AgentPlan.fromJson(planData);
+      return PlanPanel(plan: plan);
+    } catch (e) {
+      debugPrint('Plan rendering error: $e');
+      return const Text('Failed to load plan');
+    }
   }
 }

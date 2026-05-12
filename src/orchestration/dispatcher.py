@@ -718,7 +718,23 @@ class MessageDispatcher:
         elif utype == "plan":
             if self._card_ui_formats.get(card_id) == "ag_ui":
                 await self._flush_on_event(card_id, "message_end")
-            bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
+                # AG-UI Enhancement: Persist plan updates as messages for chat visibility
+                ag_event = AGUIMapper.map_notification(notification)
+                if ag_event:
+                    seq_id = await self._get_next_seq(card_id)
+                    await asyncio.to_thread(
+                        self.db.sessions.add_message,
+                        card_id,
+                        "assistant",
+                        json.dumps(ag_event),
+                        is_complete=True,
+                        seq_id=seq_id,
+                        metadata={"type": "plan_update"}
+                    )
+                    ag_event["seqId"] = seq_id
+                    bus.publish(card_id, ag_event)
+            else:
+                bus.publish(card_id, {"type": "agent_plan", "plan": {"entries": update.get("entries", [])}})
         elif utype == "config_option_update":
             if self._card_ui_formats.get(card_id) == "ag_ui":
                 await self._flush_on_event(card_id, "message_end")

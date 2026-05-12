@@ -742,7 +742,23 @@ class SessionWebSocketService {
       // Handle plan updates by extracting steps
       try {
         final rawMap = jsonDecode(agUiMessage.content);
-        _planController.add(AgentPlan.fromJson(rawMap));
+        final plan = AgentPlan.fromJson(rawMap);
+        _planController.add(plan);
+
+        // AG-UI Enhancement: Also add plan to chat for visibility
+        // If the last message was also a plan update, replace it to avoid clutter
+        if (_currentMessages.isNotEmpty && 
+            _currentMessages.last.role == 'assistant' && 
+            _currentMessages.last.metadata?['type'] == 'plan_update') {
+          _currentMessages[_currentMessages.length - 1] = agUiMessage.copyWith(
+            metadata: {'type': 'plan_update'}
+          );
+        } else {
+          _currentMessages.add(agUiMessage.copyWith(
+            metadata: {'type': 'plan_update'}
+          ));
+        }
+        _messageController.add(List.from(_currentMessages));
       } catch (e) {
         debugPrint('[SessionWS] Plan Update Error: $e');
       }
