@@ -719,7 +719,7 @@ class MessageDispatcher:
             if self._card_ui_formats.get(card_id) == "ag_ui":
                 await self._flush_on_event(card_id, "message_end")
                 # AG-UI Enhancement: Persist plan updates as messages for chat visibility
-                ag_event = AGUIMapper.map_notification(acp_notif)
+                ag_event = AGUIMapper.map_notification(n)
                 if ag_event:
                     seq_id = await self._get_next_seq(card_id)
                     await asyncio.to_thread(
