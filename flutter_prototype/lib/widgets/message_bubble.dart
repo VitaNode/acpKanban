@@ -13,6 +13,8 @@ import '../widgets/ag_ui/thinking_block.dart';
 import '../widgets/ag_ui/tool_pill.dart';
 import '../widgets/ag_ui/interactive_request_block.dart';
 import '../models/ag_ui_event.dart';
+import '../models/agent_plan.dart';
+import '../widgets/plan_panel.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
