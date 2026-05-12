@@ -16,5 +16,5 @@ def estimate_tokens(text: str) -> int:
 def log_context_stats(logger, stage: str, context: str):
     """Logs the estimated token size of the built context."""
     tokens = estimate_tokens(context)
-    logger.info(f"[TokenStats] {stage} Context Size: ~{tokens} tokens ({len(context)} chars)")
+    logger.debug(f"[TokenStats] {stage} Context Size: ~{tokens} tokens ({len(context)} chars)")
     return tokens

@@ -91,7 +91,7 @@ class UnifiedBridge:
             async for message in websocket:
                 try:
                     data = json.loads(message)
-                    self.logger.info(f"Received: {data.get('method', 'N/A')} (id: {data.get('id')})")
+                    self.logger.debug(f"Received: {data.get('method', 'N/A')} (id: {data.get('id')})")
 
                     # Handle E2EE pairing request
                     if data.get('method') == 'pairing/exchange':
@@ -108,7 +108,7 @@ class UnifiedBridge:
                         # Decrypt
                         inner_data = self._decrypt_message(secret, data.get('params', {}))
                         if inner_data:
-                            self.logger.info(f"Decrypted: {inner_data.get('method', 'N/A')} (id: {inner_data.get('id')})")
+                            self.logger.debug(f"Decrypted: {inner_data.get('method', 'N/A')} (id: {inner_data.get('id')})")
                             # Process RPC and send encrypted response
                             request_id = inner_data.get('id')
                             
@@ -414,7 +414,7 @@ class UnifiedBridge:
             body = params.get("body")
             headers = params.get("headers", {})
 
-            self.logger.info(f"Proxying {http_method} {path}")
+            self.logger.debug(f"Proxying {http_method} {path}")
             try:
                 response = await self._proxy_client.request(
                     method=http_method,

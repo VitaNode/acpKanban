@@ -201,7 +201,7 @@ class MessageDispatcher:
     async def _advertise_commands(self, session_id: str, on_output: Optional[Callable] = None, card_id: Optional[str] = None):
         # Phase 5.1: Advertise to UI via standard notification
         cmds = self._get_available_commands(card_id)
-        logger.info(f"[*] Advertising {len(cmds)} commands for card {card_id or 'N/A'} (session: {session_id[:8]})")
+        logger.debug(f"[*] Advertising {len(cmds)} commands for card {card_id or 'N/A'} (session: {session_id[:8]})")
         notif = {
             "jsonrpc": "2.0", "method": "session/update",
             "params": {
@@ -230,7 +230,7 @@ class MessageDispatcher:
             return
 
         # VERY LOUD DEBUG
-        logger.info(f"[TOKEN DEBUG] Analyzing data for {card_id}: keys={list(data.keys())}")
+        logger.debug(f"[TOKEN DEBUG] Analyzing data for {card_id}: keys={list(data.keys())}")
 
         in_val = 0
         out_val = 0
@@ -281,7 +281,7 @@ class MessageDispatcher:
             delta_out = max(0, out_val - turn_usage["output"])
 
             if delta_in > 0 or delta_out > 0:
-                logger.info(f"[*] Token Usage Update for {card_id}: +↑{delta_in} +↓{delta_out} (Current turn: ↑{in_val} ↓{out_val})")
+                logger.debug(f"[*] Token Usage Update for {card_id}: +↑{delta_in} +↓{delta_out} (Current turn: ↑{in_val} ↓{out_val})")
                 try:
                     self.db.update_card_token_usage(card_id, delta_in, delta_out)
                     # Update turn state
@@ -354,7 +354,7 @@ class MessageDispatcher:
             current_card_id = req_params.get("card_id") or card_id_for_format
             current_ui_format = self._card_ui_formats.get(current_card_id, "acp")
             
-            logger.info(f"[DEBUG] wrapped_request: {method_name} for card {current_card_id} (format: {current_ui_format})")
+            logger.debug(f"[DEBUG] wrapped_request: {method_name} for card {current_card_id} (format: {current_ui_format})")
 
             # AG-UI Enhancement: Persist UI requests as messages for persistence and re-entry support
             if current_ui_format == "ag_ui" and current_card_id:
@@ -387,7 +387,7 @@ class MessageDispatcher:
             current_card_id = output_data.get("params", {}).get("card_id") or card_id_for_format
             current_ui_format = self._card_ui_formats.get(current_card_id, "acp")
             
-            logger.info(f"[DEBUG] wrapped_output: is_request={is_request}, card={current_card_id}, format={current_ui_format}")
+            logger.debug(f"[DEBUG] wrapped_output: is_request={is_request}, card={current_card_id}, format={current_ui_format})")
 
             if current_ui_format == "ag_ui":
                 if is_request:
@@ -664,13 +664,13 @@ class MessageDispatcher:
         elif method == "_qwencode/slash_command":
             chunk_text = params.get("message", "")
 
-        logger.info(f"[FLOW] Notification for {card_id}: utype={utype}, method={method}, ui_format={ui_format}")
+        logger.debug(f"[FLOW] Notification for {card_id}: utype={utype}, method={method}, ui_format={ui_format}")
 
         # AG-UI Path: Try to map ANY notification to AG-UI event
         if ui_format == "ag_ui":
             ag_event = AGUIMapper.map_notification(n)
             if ag_event:
-                logger.info(f"[FLOW] AG-UI Path SUCCESS for {card_id}: event={ag_event.get('event')}")
+                logger.debug(f"[FLOW] AG-UI Path SUCCESS for {card_id}: event={ag_event.get('event')}")
                 # Buffer all AG-UI events for consistent sequencing and persistence
                 await self._buffer_chunk(card_id, ag_event, on_output)
                 
@@ -684,14 +684,14 @@ class MessageDispatcher:
                 if ag_event.get("event") not in ("commands_update", "plan_update", "config_update"):
                     return
             else:
-                logger.info(f"[FLOW] AG-UI Path FAILED for {card_id}, trying fallback")
+                logger.debug(f"[FLOW] AG-UI Path FAILED for {card_id}, trying fallback")
 
         # Fallback/ACP Path (Non-AG-UI or non-mappable)
         if utype == "agent_thought_chunk":
             # Forward thought chunks for display (debugging/transparency)
             thought_text = update.get("content", {}).get("text", "")
             if thought_text:
-                logger.info(f"[FLOW] Fallback Thought Path for {card_id}")
+                logger.debug(f"[FLOW] Fallback Thought Path for {card_id}")
                 # Assign seqId for consistency even in fallback
                 seq_id = await self._get_next_seq(card_id)
                 await asyncio.to_thread(self.db.append_thought, card_id, thought_text, seq_id=seq_id)
@@ -710,7 +710,7 @@ class MessageDispatcher:
                     bus.publish(card_id, {"type": "agent_thought_chunk", "content": update.get("content", {})})
         
         if chunk_text:
-            logger.info(f"[FLOW] Fallback Chunk Path for {card_id}: text={chunk_text[:20]}...")
+            logger.debug(f"[FLOW] Fallback Chunk Path for {card_id}: text={chunk_text[:20]}...")
             seq_id = await self._get_next_seq(card_id)
             await asyncio.to_thread(self.db.sessions.append_message, card_id, "assistant", chunk_text, False, seq_id=seq_id)
             bus.publish(card_id, {"type": "agent_message_chunk", "content": {"text": chunk_text}})
@@ -862,7 +862,7 @@ class MessageDispatcher:
         chunk["seqId"] = await self._get_next_seq(card_id)
         self._chunk_buffers[card_id].append(chunk)
         
-        logger.info(f"[DB-WRITE-BUFFER] Buffering for {card_id}: seqId={chunk['seqId']}, event={chunk.get('event')}")
+        logger.debug(f"[DB-WRITE-BUFFER] Buffering for {card_id}: seqId={chunk['seqId']}, event={chunk.get('event')}")
         
         # Real-time dispatch: Even if buffered for DB, we MUST publish to bus and on_output
         # This fixes Defect #1, #2, and #3.
@@ -925,7 +925,7 @@ class MessageDispatcher:
                 logger.debug(f"[AG-UI] No chunks to flush for {card_id}")
                 return
             
-            logger.info(f"[DB-WRITE-FLUSH] Flushing {len(buffer_to_flush)} chunks for {card_id} (reason: {reason})")
+            logger.debug(f"[DB-WRITE-FLUSH] Flushing {len(buffer_to_flush)} chunks for {card_id} (reason: {reason})")
             
             is_terminal = "session_stop" in reason or "stop" in reason or "message_end" in reason
             
@@ -939,7 +939,7 @@ class MessageDispatcher:
                     if event_type in ("message_chunk", "message_bundled"):
                         text = chunk.get("text", "")
                         if text:
-                            logger.info(f"[DB-WRITE-EXEC] Writing message_chunk seqId={seq_id} to DB for {card_id}")
+                            logger.debug(f"[DB-WRITE-EXEC] Writing message_chunk seqId={seq_id} to DB for {card_id}")
                             await asyncio.to_thread(
                                 self.db.sessions.append_message,
                                 card_id, "assistant", text, False, seq_id=seq_id
@@ -947,7 +947,7 @@ class MessageDispatcher:
                     elif event_type == "reasoning_message":
                         reasoning = chunk.get("reasoning", "")
                         if reasoning:
-                            logger.info(f"[DB-WRITE-EXEC] Writing reasoning_message seqId={seq_id} to DB for {card_id}")
+                            logger.debug(f"[DB-WRITE-EXEC] Writing reasoning_message seqId={seq_id} to DB for {card_id}")
                             await asyncio.to_thread(
                                 self.db.append_reasoning,
                                 card_id, reasoning, seq_id=seq_id
@@ -955,7 +955,7 @@ class MessageDispatcher:
                     elif event_type == "tool_call_start":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         trace_msg = f"\n\n🛠️ **Calling tool:** `{name}`\n"
-                        logger.info(f"[DB-WRITE-EXEC] Writing tool_call_start seqId={seq_id} to DB for {card_id}")
+                        logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_start seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, trace_msg, seq_id=seq_id
@@ -971,7 +971,7 @@ class MessageDispatcher:
                             trace_msg = ""
                             
                         if trace_msg:
-                            logger.info(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
+                            logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
                             await asyncio.to_thread(
                                 self.db.append_thought,
                                 card_id, trace_msg, seq_id=seq_id
@@ -981,7 +981,7 @@ class MessageDispatcher:
                         result = chunk.get("result", "")
                         if result:
                             trace_msg = f"\n> Update: {result[:200]}...\n"
-                            logger.info(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
+                            logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
                             await asyncio.to_thread(
                                 self.db.append_thought,
                                 card_id, trace_msg, seq_id=seq_id
@@ -995,7 +995,7 @@ class MessageDispatcher:
                     # Fallback: Persist any generic reasoning field for legacy/unmapped events
                     reasoning = chunk.get("reasoning")
                     if reasoning and event_type != "reasoning_message":
-                        logger.info(f"[DB-WRITE-EXEC] Writing fallback reasoning seqId={seq_id} to DB for {card_id}")
+                        logger.debug(f"[DB-WRITE-EXEC] Writing fallback reasoning seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, reasoning, seq_id=seq_id
@@ -1007,7 +1007,7 @@ class MessageDispatcher:
                         status = tc.get("status", "success")
                         marker = "✅" if status == "success" else "❌"
                         trace_msg = f"\n{marker} **Tool:** `{tc.get('name', 'unknown')}` - {status}\n"
-                        logger.info(f"[DB-WRITE-EXEC] Writing bundled tool_call seqId={seq_id} to DB for {card_id}")
+                        logger.debug(f"[DB-WRITE-EXEC] Writing bundled tool_call seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.append_thought,
                             card_id, trace_msg, seq_id=seq_id
@@ -1018,7 +1018,7 @@ class MessageDispatcher:
                     await asyncio.to_thread(self.db.mark_session_complete, card_id)
                     logger.debug(f"[AG-UI] Marked session as complete for {card_id}")
                 
-                logger.info(f"[DB-WRITE-FLUSH] Flush complete for {card_id}")
+                logger.debug(f"[DB-WRITE-FLUSH] Flush complete for {card_id}")
                 
             except Exception as e:
                 logger.error(f"[AG-UI] Flush failed for {card_id}: {e}")

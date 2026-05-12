@@ -37,6 +37,9 @@ def setup_logger(name="Kanban", level="INFO"):
         
         logger.addHandler(handler)
         
+        # Disable propagation to prevent double logging if root logger also has handlers
+        logger.propagate = False
+        
     return logger
 
 def set_request_id(req_id: str = None):

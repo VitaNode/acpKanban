@@ -519,7 +519,7 @@ class CardRepository(BaseRepository):
             conn.execute("UPDATE cards SET available_commands = ? WHERE id = ?", (available_commands, card_id))
 
     def update_token_usage(self, card_id: str, input_tokens: int, output_tokens: int):
-        logger.info(f"[DB] Updating token usage for {card_id}: +↑{input_tokens} +↓{output_tokens}")
+        logger.debug(f"[DB] Updating token usage for {card_id}: +↑{input_tokens} +↓{output_tokens}")
         with self.db.get_connection() as conn:
             conn.execute("UPDATE cards SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ? WHERE id = ?", (input_tokens, output_tokens, card_id))
 

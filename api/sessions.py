@@ -11,6 +11,9 @@ from api.dependencies import (
     HTTPError,
 )
 from src.transport.bus import bus
+from src.logger import setup_logger
+
+logger = setup_logger("SessionsAPI")
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -82,7 +85,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 role = message.get("role", "user")
                 content = message.get("content", "")
                 ui_format = message.get("ui_format", "acp")
-                print(f"DEBUG: Received message for card {card_id}: {content[:30]}... (format: {ui_format})")
+                logger.debug(f"Received message for card {card_id}: {content[:30]}... (format: {ui_format})")
                 
                 # We no longer add message to DB here, Dispatcher will handle it
                 # to avoid duplication.
@@ -132,7 +135,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                         # For legacy/transient mode, we still publish the request to the bus
                                         # so the UI can show a popup.
                                         rid = params.get("id") or params.get("_request_id") or (msg_or_method.get("id") if isinstance(msg_or_method, dict) else None) or str(uuid.uuid4())
-                                        print(f"DEBUG: Publishing UI request {method} (rid: {rid}) to bus for card {card_id}")
+                                        logger.debug(f"Publishing UI request {method} (rid: {rid}) to bus for card {card_id}")
                                         
                                         # Standardize UI request for both ACP and AG-UI
                                         bus.publish(card_id, {
@@ -151,11 +154,13 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                 )
                             except Exception as e:
                                 import traceback
-                                print(f"\n❌ Bridge processing error:\n{traceback.format_exc()}")
+                                logger.error(f"Bridge processing error: {e}")
+                                import traceback
+                                logger.error(traceback.format_exc())
                                 bus.publish(card_id, {"type": "error", "message": str(e)})
                         asyncio.create_task(process_with_bridge())
                 except Exception as e:
-                    print(f"DEBUG: Failed to forward to bridge: {e}")
+                    logger.debug(f"Failed to forward to bridge: {e}")
             
             elif msg_type == "set_config_option":
                 # Phase 5.2: Route config change to dispatcher (CRIT-2 FIX)
@@ -201,7 +206,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                 "seqId": seq_id
                             })
                         except Exception as e:
-                            print(f"DEBUG: Failed to record rpc_response: {e}")
+                            logger.debug(f"Failed to record rpc_response: {e}")
 
                     # The dispatcher manages pending tool/permission requests
                     # and will resolve the future associated with this ID
@@ -230,7 +235,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "ui_format": ui_format # Confirm format to client
                         }))
                     except Exception as e:
-                        print(f"ERROR in session_init: {e}")
+                        logger.error(f"ERROR in session_init: {e}")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": f"Initialization failed: {str(e)}"
@@ -255,7 +260,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "context": context
                         }))
                     except Exception as e:
-                        print(f"ERROR in get_context: {e}")
+                        logger.error(f"ERROR in get_context: {e}")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": f"Failed to get context: {str(e)}"
@@ -279,7 +284,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 # (handled by FastAPI's WebSocket loop)
                 asyncio.create_task(bridge_instance.dispatcher.force_flush_session(card_id))
         except Exception as e:
-            print(f"ERROR during session disconnect flush: {e}")
+            logger.error(f"ERROR during session disconnect flush: {e}")
 
 @router.get("/cards/{card_id}/session", response_model=dict)
 async def get_session_history(card_id: str, limit: int = Query(50, ge=1, le=200)):

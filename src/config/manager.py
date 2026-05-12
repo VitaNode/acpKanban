@@ -1,10 +1,11 @@
 import os
 import json
-import logging
+from src.logger import setup_logger
 from pathlib import Path
 from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 
+logger = setup_logger("ConfigManager")
 load_dotenv()
 
 class ConfigManager:
@@ -34,7 +35,7 @@ class ConfigManager:
         self._load_from_env()
         
         self._initialized = True
-        logging.info(f"ConfigManager initialized. Project root: {self.project_root}")
+        logger.info(f"ConfigManager initialized. Project root: {self.project_root}")
 
     def _load_defaults(self):
         """Set default values for all configurations."""
@@ -80,9 +81,9 @@ class ConfigManager:
                     if key in file_config:
                         self._config[key].update(file_config[key])
                         
-                logging.info(f"Loaded config from {self.config_path}")
+                logger.info(f"Loaded config from {self.config_path}")
             except Exception as e:
-                logging.error(f"Failed to load config file: {e}")
+                logger.error(f"Failed to load config file: {e}")
 
     def _load_from_env(self):
         """Override configuration with environment variables."""

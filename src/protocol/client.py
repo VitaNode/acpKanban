@@ -30,6 +30,14 @@ class ACPClient:
             stderr=asyncio.subprocess.PIPE,
             cwd=self.cwd
         )
+
+        # Fix: Increase StreamReader limit (default is 64KB)
+        # Using 1MB limit for long JSON-RPC messages
+        if self.process.stdout:
+            self.process.stdout._limit = 1024 * 1024
+        if self.process.stderr:
+            self.process.stderr._limit = 1024 * 1024
+
         self._running = True
         asyncio.create_task(self._read_stdout())
         asyncio.create_task(self._read_stderr())
@@ -57,8 +65,12 @@ class ACPClient:
                 if not line_str:
                     continue
 
-                # Log all incoming lines (no truncation for debugging)
-                self.logger.info(f"ACP -> BRIDGE: {line_str}")
+                # Log all incoming lines (truncate if too long to save token usage)
+                if len(line_str) > 1000:
+                    log_str = line_str[:1000] + f"... [truncated {len(line_str)-1000} chars]"
+                else:
+                    log_str = line_str
+                self.logger.info(f"ACP -> BRIDGE: {log_str}")
 
                 if not (line_str.startswith("{") or line_str.startswith("[")):
                     self.logger.debug(f"Non-JSON stdout: {line_str}")
@@ -89,7 +101,13 @@ class ACPClient:
                 await asyncio.sleep(0.1) # Prevent tight loop on error
 
     async def _handle_message(self, data: Dict[str, Any]):
-        self.logger.debug(f"RECV: {data}")
+        # Use a compact representation for debug logs
+        data_str = json.dumps(data)
+        if len(data_str) > 500:
+            log_str = data_str[:500] + "..."
+        else:
+            log_str = data_str
+        self.logger.debug(f"RECV: {log_str}")
         
         # Call all raw message handlers
         for handler in self.message_handlers:
