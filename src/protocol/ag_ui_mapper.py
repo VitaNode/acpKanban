@@ -310,22 +310,26 @@ class AGUIMapper:
                         new_text = item.get("newText", "")
                         
                         # 构建可读的文本描述
-                        text += f"\n\n### File Operation: Edit\n\n**File:** `{path}`\n\n"
+                        edit_text = f"\n\n### File Operation: Edit\n\n**File:** `{path}`\n\n"
                         if old_text:
-                            text += f"**Current Content:**\n```\n{old_text}\n```\n"
-                        text += f"**New Content:**\n```\n{new_text}\n```\n"
+                            edit_text += f"**Current Content:**\n```\n{old_text}\n```\n"
+                        edit_text += f"**New Content:**\n```\n{new_text}\n```\n"
+                        if edit_text not in text:
+                            text += edit_text
                         break
             
             elif tool_kind == "execute":
                 # 命令执行操作
                 raw_input = tool_call.get("rawInput", {})
                 command = raw_input.get("command", raw_input.get("script", ""))
-                text += f"\n\n### Command Execution\n\n```bash\n{command}\n```\n"
+                exec_text = f"\n\n### Command Execution\n\n```bash\n{command}\n```\n"
+                if exec_text not in text:
+                    text += exec_text
 
             # === 特殊处理：如果是 Plan 或具有 content blocks 的通用工具调用 ===
             tool_content = tool_call.get("content", [])
+            extracted_text = ""
             if isinstance(tool_content, list) and tool_content:
-                extracted_text = ""
                 for item in tool_content:
                     # Support both item['content']['text'] and item['text']
                     c = item.get("content")
@@ -335,25 +339,28 @@ class AGUIMapper:
                         extracted_text += item.get("text", "")
                     elif isinstance(item, dict) and "text" in item:
                         extracted_text += item.get("text", "")
-                
-                if extracted_text:
-                    # 如果当前 text 为空或是通用的标题，直接用提取的内容
-                    if not text or text.strip() == title:
-                        text = extracted_text
-                    else:
-                        text += f"\n\n{extracted_text}"
             
-            # 添加原始输入作为参考 (仅当没有提取到 Plan 时)
-            raw_input = tool_call.get("rawInput", {})
-            if raw_input and not any(k in text for k in (raw_input.keys() or [])) and "plan" not in text:
-                # If raw_input has 'plan', use it!
-                if isinstance(raw_input, dict) and "plan" in raw_input:
-                    plan_val = raw_input["plan"]
-                    if not text or text.strip() == title:
-                        text = plan_val
-                    else:
-                        text += f"\n\n{plan_val}"
-                else:
+            # 优先从 arguments 提取 Plan (通常最完整)
+            plan_from_args = ""
+            arguments = params.get("arguments")
+            if isinstance(arguments, dict):
+                plan_from_args = arguments.get("plan") or arguments.get("description") or ""
+            
+            # 合并提取的内容，避免重复
+            source_text = plan_from_args or extracted_text
+            if source_text:
+                source_text = source_text.strip()
+                # 如果当前 text 只是通用的标题，直接替换
+                if not text or text.strip() == title:
+                    text = source_text
+                # 如果 text 中还不包含这段内容，则追加
+                elif source_text not in text:
+                    text += f"\n\n{source_text}"
+            
+            # 添加原始输入作为参考 (仅当没有提取到任何有效描述时)
+            if not source_text and tool_kind == "unknown":
+                raw_input = tool_call.get("rawInput", {})
+                if raw_input and not any(k in text for k in (raw_input.keys() or [])):
                     try:
                         text += f"\n\n**Details:**\n```json\n{json.dumps(raw_input, indent=2)}\n```"
                     except:

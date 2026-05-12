@@ -370,7 +370,8 @@ class MessageDispatcher:
                     "assistant", 
                     json.dumps(ag_event), 
                     is_complete=True, 
-                    seq_id=seq_id
+                    seq_id=seq_id,
+                    metadata={"type": "interactive_request"}
                 )
                 # Re-publish as AG-UI event with seqId
                 ag_event["seqId"] = seq_id
