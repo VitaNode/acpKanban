@@ -77,11 +77,17 @@ class MessageBubble extends StatelessWidget {
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
+        // Assistant bubbles take full allowed width for consistency
+        width: isUser ? null : double.infinity,
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.85,
         ),
-        margin: const EdgeInsets.symmetric(
-            vertical: AppConstants.space8, horizontal: AppConstants.space16),
+        margin: EdgeInsets.only(
+          top: AppConstants.space8,
+          bottom: AppConstants.space8,
+          left: isUser ? AppConstants.space16 : 0, // Align strictly to left for assistant
+          right: isUser ? AppConstants.space16 : AppConstants.space16,
+        ),
         child: Column(
           crossAxisAlignment:
               isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -89,6 +95,8 @@ class MessageBubble extends StatelessWidget {
             _buildHeader(context, isUser),
             const SizedBox(height: AppConstants.space4),
             Container(
+              // Inner bubble also takes full width if assistant
+              width: isUser ? null : double.infinity,
               padding: const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
                 color: isUser
