@@ -51,8 +51,10 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.isSystem) return const SizedBox.shrink();
-    if (message.role == 'tool') return _buildToolLog(context);
 
+    final isTool = message.role == 'tool';
+    final isUser = message.isUser;
+    
     // AG-UI Fix: Don't render blank bubbles for empty messages without metadata info
     // Also ignore redundant "..." placeholder which is filtered by ThinkingBlock
     final thought = message.metadata?['thought']?.toString() ?? "";
@@ -65,11 +67,10 @@ class MessageBubble extends StatelessWidget {
     final isInteractiveRequest = event.eventType == 'interactive_request' && event.requestId != null;
     final isPlanUpdate = message.metadata?['type'] == 'plan_update';
     
-    if (message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning && !isInteractiveRequest && !isPlanUpdate) {
+    if (!isTool && message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning && !isInteractiveRequest && !isPlanUpdate) {
       return const SizedBox.shrink();
     }
 
-    final isUser = message.isUser;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -77,7 +78,7 @@ class MessageBubble extends StatelessWidget {
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        // Assistant bubbles take full allowed width for consistency
+        // Assistant and Tool bubbles take full allowed width for consistency
         width: isUser ? null : double.infinity,
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.85,
@@ -85,7 +86,7 @@ class MessageBubble extends StatelessWidget {
         margin: EdgeInsets.only(
           top: AppConstants.space8,
           bottom: AppConstants.space8,
-          left: isUser ? AppConstants.space16 : 0, // Align strictly to left for assistant
+          left: isUser ? AppConstants.space16 : 0, // Align strictly to left for agent side
           right: isUser ? AppConstants.space16 : AppConstants.space16,
         ),
         child: Column(
@@ -95,9 +96,9 @@ class MessageBubble extends StatelessWidget {
             _buildHeader(context, isUser),
             const SizedBox(height: AppConstants.space4),
             Container(
-              // Inner bubble also takes full width if assistant
+              // Inner bubble also takes full width if agent side
               width: isUser ? null : double.infinity,
-              padding: const EdgeInsets.all(AppConstants.space12),
+              padding: isTool ? EdgeInsets.zero : const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
                 color: isUser
                     ? colorScheme.primary
@@ -122,26 +123,30 @@ class MessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!isUser && message.metadata?['thought'] != null)
-                    _buildThoughtSection(context),
-                  if (!isUser && message.metadata?['tool_calls'] != null)
-                    _buildToolCallsSection(context),
-                  // Check for AG-UI interactive request
-                  if (!isUser) _buildInteractiveRequestSection(context),
-                  // Check if this independent message is actually a thinking record
-                  if (!isUser && message.metadata?['type'] == 'reasoning')
-                    _buildThinkingRecordSection(context),
-                  
-                  // AG-UI Enhancement: Render plan updates in chat
-                  if (!isUser && isPlanUpdate)
-                    _buildPlanUpdateSection(context),
+                  if (isTool)
+                    _buildToolLog(context)
+                  else ...[
+                    if (!isUser && message.metadata?['thought'] != null)
+                      _buildThoughtSection(context),
+                    if (!isUser && message.metadata?['tool_calls'] != null)
+                      _buildToolCallsSection(context),
+                    // Check for AG-UI interactive request
+                    if (!isUser) _buildInteractiveRequestSection(context),
+                    // Check if this independent message is actually a thinking record
+                    if (!isUser && message.metadata?['type'] == 'reasoning')
+                      _buildThinkingRecordSection(context),
+                    
+                    // AG-UI Enhancement: Render plan updates in chat
+                    if (!isUser && isPlanUpdate)
+                      _buildPlanUpdateSection(context),
 
-                  // Only build message content if it's NOT an interactive request
-                  // to prevent rendering the raw JSON string.
-                  if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning') && !isInteractiveRequest && !isPlanUpdate)
-                    _buildMessageContent(context, isUser),
-                  if (isUser)
-                    _buildMessageContent(context, isUser),
+                    // Only build message content if it's NOT an interactive request
+                    // to prevent rendering the raw JSON string.
+                    if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning') && !isInteractiveRequest && !isPlanUpdate)
+                      _buildMessageContent(context, isUser),
+                    if (isUser)
+                      _buildMessageContent(context, isUser),
+                  ],
                 ],
               ),
             ),
@@ -370,56 +375,35 @@ class MessageBubble extends StatelessWidget {
     final toolName = message.metadata?['name']?.toString() ?? "UNKNOWN";
     final toolStatus = message.metadata?['status']?.toString() ?? "pending";
     
-    return Container(
-      margin: const EdgeInsets.symmetric(
-          vertical: AppConstants.space4, horizontal: AppConstants.space24),
-      decoration: BoxDecoration(
-        color: isDark
-            ? colorScheme.surfaceContainer.withOpacity(0.5)
-            : colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        border: Border.all(color: theme.dividerTheme.color!),
-      ),
-      child: Theme(
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          dense: true,
-          visualDensity: VisualDensity.compact,
-          leading: ToolPill(name: toolName, status: toolStatus),
-          title: Text(
-            'TOOL LOG',
-            style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-                fontFamily: 'monospace',
-                color: isDark ? colorScheme.onSurface : Colors.blueGrey),
-          ),
-          subtitle: Text(
-            DateFormatter.formatTimeOnly(message.createdAt),
-            style: theme.textTheme.bodySmall,
-          ),
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppConstants.space12),
-              color: Colors.black.withOpacity(0.02),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (message.metadata?['arguments'] != null) ...[
-                    Text('ARGUMENTS',
-                        style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: isDark
-                                ? colorScheme.primary
-                                : Colors.blueGrey)),
-                    const SizedBox(height: AppConstants.space4),
-                    _buildCodeBlock(context, message.metadata!['arguments'].toString()),
-                    const SizedBox(height: AppConstants.space8),
-                  ],
-                  Text('RESULT',
+    return Theme(
+      data: theme.copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        leading: ToolPill(name: toolName, status: toolStatus),
+        title: Text(
+          'TOOL LOG',
+          style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+              fontFamily: 'monospace',
+              color: isDark ? colorScheme.onSurface : Colors.blueGrey),
+        ),
+        subtitle: Text(
+          DateFormatter.formatTimeOnly(message.createdAt),
+          style: theme.textTheme.bodySmall,
+        ),
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppConstants.space12),
+            color: Colors.black.withOpacity(0.02),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (message.metadata?['arguments'] != null) ...[
+                  Text('ARGUMENTS',
                       style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
@@ -427,12 +411,22 @@ class MessageBubble extends StatelessWidget {
                               ? colorScheme.primary
                               : Colors.blueGrey)),
                   const SizedBox(height: AppConstants.space4),
-                  _buildCodeBlock(context, message.content),
+                  _buildCodeBlock(context, message.metadata!['arguments'].toString()),
+                  const SizedBox(height: AppConstants.space8),
                 ],
-              ),
+                Text('RESULT',
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? colorScheme.primary
+                            : Colors.blueGrey)),
+                const SizedBox(height: AppConstants.space4),
+                _buildCodeBlock(context, message.content),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
