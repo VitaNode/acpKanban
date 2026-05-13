@@ -45,6 +45,9 @@ class _CardDetailViewState extends State<CardDetailView> {
   final _scrollController = ScrollController();
   final _chatFocusNode = FocusNode();
 
+  bool _userIsAtBottom = false; // Initial stay at top
+  int _unreadCount = 0;
+
   late KanbanCard _card;
   List<CardMessage> _messages = [];
   AgentPlan? _currentPlan;
@@ -113,9 +116,27 @@ class _CardDetailViewState extends State<CardDetailView> {
     _chatController.addListener(_onChatChanged);
     _titleController.addListener(_onCardInfoChanged);
     _descriptionController.addListener(_onCardInfoChanged);
+    _scrollController.addListener(_onScroll);
 
     // Setup Enter to send, Shift+Enter to newline
     _chatFocusNode.onKeyEvent = _onChatKeyEvent;
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    
+    // threshold of 100px from bottom to consider as "staying at bottom"
+    bool atBottom = pos.extentAfter < 100;
+    
+    if (atBottom != _userIsAtBottom) {
+      setState(() {
+        _userIsAtBottom = atBottom;
+        if (atBottom) {
+          _unreadCount = 0;
+        }
+      });
+    }
   }
 
   Future<void> _loadRoadmapData() async {
@@ -297,6 +318,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     // Capture pending messages locally to avoid race conditions
     final pending = List<CardMessage>.from(_pendingMessages);
     final isProcessing = pending.isNotEmpty && !pending.last.isComplete && pending.last.role == 'assistant';
+    final bool isInitialLoad = _messages.isEmpty && pending.isNotEmpty;
     
     // AG-UI: Detect responded interactive requests from history
     final Set<String> newRespondedIds = {};
@@ -327,11 +349,22 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
 
     setState(() {
+      // If we are NOT at bottom and not initial load, track unread messages
+      if (!_userIsAtBottom && !isInitialLoad && pending.length > _messages.length) {
+        _unreadCount += (pending.length - _messages.length);
+      }
+
       _messages = pending;
       _isAgentProcessing = isProcessing;
       _respondedRequestIds.addAll(newRespondedIds);
+
+      // Scene-aware: If entering while agent is busy, jump to bottom to track progress
+      if (isInitialLoad && isProcessing) {
+        _userIsAtBottom = true;
+      }
     });
-    _scrollToBottom();
+
+    _scrollToBottom(force: isInitialLoad && isProcessing);
     
     // Clear timer reference
     _renderThrottleTimer = null;
@@ -645,11 +678,21 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
+    // Only scroll if user is already at bottom or we are forcing it
+    if (!force && !_userIsAtBottom) return;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(_scrollController.position.maxScrollExtent,
             duration: AppConstants.animationDuration, curve: Curves.easeOut);
+        
+        if (force) {
+          setState(() {
+            _unreadCount = 0;
+            _userIsAtBottom = true;
+          });
+        }
       }
     });
   }
@@ -744,33 +787,43 @@ class _CardDetailViewState extends State<CardDetailView> {
           _buildViewHeader(theme, colorScheme),
           if (_isAgentConnected) ConfigOptionsBar(options: _configOptions),
           Expanded(
-            child: ListView(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
+            child: Stack(
               children: [
-                _buildHeader(),
-                if (_currentPlan != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
-                    child: PlanPanel(plan: _currentPlan!),
-                  ),
-                _buildSummarySection(),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
-                  child: Divider(),
-                ),
-                if (_messages.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
-                      child: Text('Start a conversation...',
-                          style: theme.textTheme.bodySmall),
+                ListView(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
+                  children: [
+                    _buildHeader(),
+                    if (_currentPlan != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
+                        child: PlanPanel(plan: _currentPlan!),
+                      ),
+                    _buildSummarySection(),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+                      child: Divider(),
                     ),
-                  )
-                else
-                  ..._buildMessageList(),
-                if (_isAgentProcessing) _buildProcessingIndicator(),
-                const SizedBox(height: AppConstants.space24),
+                    if (_messages.isEmpty)
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
+                          child: Text('Start a conversation...',
+                              style: theme.textTheme.bodySmall),
+                        ),
+                      )
+                    else
+                      ..._buildMessageList(),
+                    if (_isAgentProcessing) _buildProcessingIndicator(),
+                    const SizedBox(height: AppConstants.space24),
+                  ],
+                ),
+                if (_unreadCount > 0)
+                  Positioned(
+                    bottom: AppConstants.space16,
+                    right: AppConstants.space16,
+                    child: _buildJumpToBottomButton(colorScheme),
+                  ),
               ],
             ),
           ),
@@ -1119,6 +1172,17 @@ class _CardDetailViewState extends State<CardDetailView> {
       respondedRequestIds: _respondedRequestIds,
       onOptionSelected: (requestId, optionId) => _handleInteractiveResponse(requestId, optionId),
     )).toList();
+  }
+
+  Widget _buildJumpToBottomButton(ColorScheme colorScheme) {
+    return FloatingActionButton.extended(
+      onPressed: () => _scrollToBottom(force: true),
+      label: Text('$_unreadCount new messages'),
+      icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+      backgroundColor: colorScheme.primary,
+      foregroundColor: colorScheme.onPrimary,
+      elevation: 4,
+    );
   }
 
   Widget _buildInputArea() {
