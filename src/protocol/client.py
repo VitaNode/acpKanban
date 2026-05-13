@@ -1,4 +1,5 @@
 import asyncio
+import os
 import json
 import logging
 import uuid
@@ -23,12 +24,19 @@ class ACPClient:
 
     async def start(self):
         self.logger.info(f"Starting CLI: {' '.join(self.command)}")
+        
+        # Defensive check for local cwd existence (crucial for remote workspace support)
+        actual_cwd = self.cwd
+        if actual_cwd and not os.path.exists(actual_cwd):
+            self.logger.warning(f"Local cwd does not exist: {actual_cwd}. Falling back to default.")
+            actual_cwd = None
+
         self.process = await asyncio.create_subprocess_exec(
             *self.command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=self.cwd
+            cwd=actual_cwd
         )
 
         # Fix: Increase StreamReader limit (default is 64KB)

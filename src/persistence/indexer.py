@@ -105,7 +105,9 @@ class CodeIndexer:
         Main entry point for incremental indexing.
         """
         if not workspace_path or not os.path.exists(workspace_path):
-            logger.error(f"Invalid workspace path: {workspace_path}")
+            # For remote projects, the workspace path might not exist locally.
+            # We skip local indexing gracefully.
+            logger.debug(f"Workspace path not found locally: {workspace_path}. Skipping local indexing.")
             return
 
         if not os.access(workspace_path, os.R_OK):

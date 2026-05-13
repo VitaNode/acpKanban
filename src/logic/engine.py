@@ -24,6 +24,7 @@ class SessionEngine:
         self.card_id = card_id
         self.provider_id = provider_id
         self.workspace_path = workspace_path
+        self.resolved_agent_cwd = workspace_path # Default to project path
         self.column_id = column_id
         self.db = db
         self.logger = setup_logger(f"SessionEngine[{card_id[:8]}]")
@@ -85,9 +86,23 @@ class SessionEngine:
                 cfg = next((p for p in providers if isinstance(p, dict) and p.get("id") == self.provider_id), None)
                 if not cfg: raise ValueError(f"Provider {self.provider_id} not found in {len(providers)} providers")
 
-                self.acp_client = ACPClient(cfg["command"], self.workspace_path)
+                self.logger.info(f"[*] Starting session for card {self.card_id} with provider {self.provider_id}")
+                
+                # Resolve separate CWDs for the local subprocess and the remote agent
+                # Subprocess cwd: Must be local. If remote provider, use project root as safe fallback.
+                subprocess_cwd = self.workspace_path
+                if cfg.get("remote"):
+                    subprocess_cwd = str(config.project_root)
+                    self.logger.debug(f"Remote provider detected. Local subprocess cwd fallback to project root: {subprocess_cwd}")
+                
+                # Agent cwd: Use provider override if set, otherwise use the project's workspace_path
+                agent_cwd = cfg.get("workspace_path") or self.workspace_path
+                self.resolved_agent_cwd = agent_cwd # Save for context building and session loading
+                self.logger.info(f"Resolved agent workspace: {agent_cwd}")
+
+                self.acp_client = ACPClient(cfg["command"], subprocess_cwd)
                 await self.acp_client.start()
-                self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=self.workspace_path, provider_id=self.provider_id, on_request=on_request, on_notification=on_notification)
+                self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=agent_cwd, provider_id=self.provider_id, on_request=on_request, on_notification=on_notification)
 
                 # Try to restore previous session if we have a saved sessionId
                 if self.acp_session_id:
@@ -101,7 +116,7 @@ class SessionEngine:
                     try:
                         load_params = {
                             "sessionId": self.acp_session_id,
-                            "cwd": self.workspace_path,
+                            "cwd": agent_cwd,
                             "mcpServers": tool_registry.get_mcp_servers()
                         }
                         load_res = await self.adapter.handle_request("session/load", load_params)
@@ -123,7 +138,7 @@ class SessionEngine:
                             self.adapter.on_notification = original_handler
 
                 # session/new (fallback if no saved session or load failed)
-                res = await self.adapter.handle_request("session/new", {"cwd": self.workspace_path})
+                res = await self.adapter.handle_request("session/new", {"cwd": agent_cwd})
                 self.acp_session_id = res.get("sessionId")
                 self.current_config_options = self._normalize_session_config(res)
                 self.available_commands = res.get("availableCommands") or []

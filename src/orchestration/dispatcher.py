@@ -634,7 +634,9 @@ class MessageDispatcher:
             if column:
                 column_prompt = column.get("prompt_template")
 
-        context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt)
+        # Pass resolved_agent_cwd to builder (Phase: Remote Workspace Support)
+        agent_cwd = getattr(engine, "resolved_agent_cwd", None)
+        context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt, agent_cwd=agent_cwd)
 
         # 用真实的 ACP sessionId 注入 context
         await engine.process_prompt("session/prompt", {

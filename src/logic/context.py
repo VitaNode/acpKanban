@@ -23,7 +23,7 @@ class ContextBuilder:
     def __init__(self, db: KanbanDB):
         self.db = db
 
-    async def build_initial_context(self, card_id: str, column_prompt: Optional[str] = None) -> str:
+    async def build_initial_context(self, card_id: str, column_prompt: Optional[str] = None, agent_cwd: Optional[str] = None) -> str:
         """
         Builds the comprehensive initial context string.
         Focuses on guiding the agent to use mcp-tools instead of bulk reading.
@@ -34,23 +34,26 @@ class ContextBuilder:
 
         project_id = card.get("project_id")
         project = self.db.projects.get_by_id(project_id) if project_id else None
-        
+
         sections = []
-        
+
         # --- Level 1: Global Context (Slimmed) ---
         if project:
             sections.append(f"# Global Project Context: {project['name']}")
             sections.append(f"Project ID: {project_id}")
             if project.get("description"):
                 sections.append(f"Project Description: {project['description']}")
-            if project.get("workspace_path"):
-                sections.append(f"Root Workspace: {project['workspace_path']}")
-            
+
+            # Use resolved agent_cwd (from engine) if available, otherwise fallback to project workspace_path
+            display_cwd = agent_cwd or project.get("workspace_path")
+            if display_cwd:
+                sections.append(f"Root Workspace: {display_cwd}")
+
             # Guidelines on how to explore efficiently
             sections.append("""## Efficiency Guidelines
-1. **Don't read full files immediately.** Use `code-tools` to get the project outline first.
-2. **Use `get_symbol_code`** to read specific classes/functions instead of whole files.
-3. **Semantic Search**: Use `search_code` if you are unsure where a feature is implemented.""")
+    1. **Don't read full files immediately.** Use `code-tools` to get the project outline first.
+    2. **Use `get_symbol_code`** to read specific classes/functions instead of whole files.
+    3. **Semantic Search**: Use `search_code` if you are unsure where a feature is implemented.""")
 
         # --- Level 1.5: Project Roadmap & Progress ---
         if project_id:
@@ -65,7 +68,6 @@ class ContextBuilder:
                 content = agent_md[:MAX_AGENT_MD_CHARS] + f"\n\n[WARNING: agent.md content truncated at {MAX_AGENT_MD_CHARS} chars for efficiency]"
                 logger.warning(f"agent.md truncated ({len(agent_md)} -> {MAX_AGENT_MD_CHARS})")
             sections.append(f"## System Guidelines (agent.md)\n{content}")
-
         # --- Level 2: Related Context (Semantic Search) ---
         related_summaries = await self._get_related_summaries(card, project_id)
         if related_summaries:
