@@ -719,7 +719,7 @@ class SessionRepository(BaseRepository):
                 VALUES (?, 'assistant', ?, ?, ?, 0, ?)
             """, (card_id, reasoning_chunk, json.dumps({'type': 'reasoning'}), now, seq_id))
 
-    def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True):
+    def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True, append_content: bool = False):
         """Update the metadata of the last assistant message for a card."""
         with self.db.get_connection() as conn:
             # Look for the last assistant message (even if complete)
@@ -744,7 +744,14 @@ class SessionRepository(BaseRepository):
                 else:
                     meta[metadata_key] = metadata_val
                 
-                new_content = content if content is not None else row[2]
+                if content is not None:
+                    if append_content:
+                        new_content = (row[2] or "") + content
+                    else:
+                        new_content = content
+                else:
+                    new_content = row[2]
+
                 conn.execute("UPDATE card_sessions SET metadata = ?, content = ?, is_complete = ? WHERE id = ?", 
                              (json.dumps(meta), new_content, 1 if is_complete else 0, msg_id))
             else:

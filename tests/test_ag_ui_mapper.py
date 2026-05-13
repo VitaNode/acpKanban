@@ -151,5 +151,42 @@ class TestAGUIMapper(unittest.TestCase):
         self.assertEqual(result["title"], "Plan:")
         self.assertEqual(result["text"], "## Implementation Plan\n\n1. Step one\n2. Step two")
 
+    def test_map_history_message_with_reasoning_type(self):
+        """测试正确识别 metadata 类型为 reasoning 的记录"""
+        msg = {
+            "role": "assistant",
+            "content": "This is my thought process",
+            "metadata": {"type": "reasoning"},
+            "created_at": "2024-01-01T00:00:00",
+            "is_complete": True
+        }
+        result = self.mapper.map_history_message(msg)
+        self.assertEqual(result["reasoning"], "This is my thought process")
+        self.assertEqual(result["text"], "")
+
+    def test_map_history_message_structured_tool_calls(self):
+        """测试从 metadata 中映射结构化的工具调用"""
+        msg = {
+            "role": "assistant",
+            "content": "Result of tool",
+            "metadata": {
+                "tool_calls": [
+                    {
+                        "tool_id": "call_1",
+                        "name": "read_file",
+                        "arguments": "path='test.py'",
+                        "result": "file content",
+                        "status": "completed"
+                    }
+                ]
+            },
+            "created_at": "2024-01-01T00:00:00",
+            "is_complete": True
+        }
+        result = self.mapper.map_history_message(msg)
+        self.assertEqual(len(result["tool_calls"]), 1)
+        self.assertEqual(result["tool_calls"][0]["tool"], "read_file")
+        self.assertEqual(result["tool_calls"][0]["args"], "path='test.py'")
+
 if __name__ == '__main__':
     unittest.main()

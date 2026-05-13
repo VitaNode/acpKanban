@@ -216,65 +216,90 @@ class SessionWebSocketService {
 
   List<CardMessage> _mergeMessages(List<CardMessage> messages) {
     if (messages.isEmpty) return [];
-    
+
     List<CardMessage> merged = [];
-    CardMessage? current = messages[0];
-    
-    for (int i = 1; i < messages.length; i++) {
-      final next = messages[i];
-      
+    CardMessage? current;
+
+    for (var next in messages) {
+      if (current == null) {
+        current = next;
+        continue;
+      }
+
       bool canMerge = false;
-      if (current != null && 
-          current.role.toLowerCase() == 'assistant' && 
+      if (current.role.toLowerCase() == 'assistant' &&
           next.role.toLowerCase() == 'assistant') {
         
-        // AG-UI Fix: Merge consecutive assistant messages of the same type.
-        // We remove the !current.isComplete restriction because intermediate flushes
-        // might have marked segments as 'complete' in the DB, but they visually
-        // belong to the same bubble.
-        final currentType = current.metadata?['type'];
-        final nextType = next.metadata?['type'];
-        if (currentType == nextType) {
+        // AG-UI Fix: Merge consecutive assistant messages of the same conceptual type.
+        final currentMeta = current.metadata ?? {};
+        final nextMeta = next.metadata ?? {};
+        
+        final currentType = currentMeta['type'];
+        final nextType = nextMeta['type'];
+        
+        // Rules for merging:
+        // 1. Both are reasoning/thinking records
+        if (currentType == 'reasoning' && nextType == 'reasoning') {
+          canMerge = true;
+        }
+        // 2. Both are standard assistant messages (null type)
+        else if (currentType == null && nextType == null) {
+          canMerge = true;
+        }
+        // 3. Plan updates should usually stay separate or merge with each other
+        else if (currentType == 'plan_update' && nextType == 'plan_update') {
           canMerge = true;
         }
       }
 
       if (canMerge) {
-        // 1. 合并正文内容
-        String newContent = current!.content + next.content;
+        // 1. Combine content text
+        String newContent = current.content + next.content;
+
+        // 2. Deep merge metadata
+        final Map<String, dynamic> mergedMeta = Map<String, dynamic>.from(current.metadata ?? {});
+        final nextMeta = next.metadata ?? {};
         
-        // 2. 深度合并元数据 (Metadata)
-        Map<String, dynamic>? finalMetadata;
-        if (current.metadata != null || next.metadata != null) {
-          final Map<String, dynamic> mergedMap = Map<String, dynamic>.from(current.metadata ?? {});
-          
-          if (next.metadata != null) {
-            next.metadata!.forEach((key, value) {
-              if (key == 'thought') {
-                // 思考过程需要累加拼接，而不是覆盖 (Legacy support)
-                final prevThought = mergedMap['thought']?.toString() ?? '';
-                final nextThought = value?.toString() ?? '';
-                mergedMap['thought'] = prevThought + nextThought;
+        nextMeta.forEach((key, value) {
+          if (key == 'thought') {
+            final prevThought = mergedMeta['thought']?.toString() ?? '';
+            mergedMeta['thought'] = prevThought + (value?.toString() ?? '');
+          } else if (key == 'tool_calls') {
+            // Merge tool call lists
+            final List<dynamic> currentTC = List.from(mergedMeta['tool_calls'] ?? []);
+            final List<dynamic> nextTC = List.from(value as List? ?? []);
+            
+            for (var tc in nextTC) {
+              final id = tc['tool_id'];
+              final existingIdx = currentTC.indexWhere((e) => e['tool_id'] == id && id != null);
+              if (existingIdx != -1) {
+                currentTC[existingIdx] = tc; // Update existing
               } else {
-                // 其他元数据属性取最新的值
-                mergedMap[key] = value;
+                currentTC.add(tc); // Add new
               }
-            });
+            }
+            mergedMeta['tool_calls'] = currentTC;
+          } else {
+            mergedMeta[key] = value;
           }
-          finalMetadata = mergedMap;
-        }
-        
+        });
+
         current = current.copyWith(
           content: newContent,
-          isComplete: next.isComplete,
-          metadata: finalMetadata,
+          metadata: mergedMeta.isNotEmpty ? mergedMeta : null,
+          isComplete: next.isComplete, // Take the latest completeness status
+          seqId: next.seqId ?? current.seqId,
         );
       } else {
-        merged.add(current!);
+        merged.add(current);
         current = next;
       }
     }
-    merged.add(current!);
+
+    if (current != null) {
+      merged.add(current);
+    }
+
     return merged;
   }
 

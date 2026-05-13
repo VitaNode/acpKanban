@@ -21,6 +21,7 @@ class AGUIMapper:
         Supports:
         - Plain text messages
         - Messages with thought metadata
+        - Reasoning records (type: reasoning)
         - Smart extraction of tool call markers from content
         
         Args:
@@ -55,29 +56,53 @@ class AGUIMapper:
             "is_complete": is_complete
         }
         
-        # Extract thought from metadata if present
+        # AG-UI Fix: Handle explicit reasoning records
+        if metadata.get("type") == "reasoning":
+            ag_event["reasoning"] = content
+            ag_event["text"] = ""
+        
+        # Extract thought from metadata if present (Legacy support)
         thought = metadata.get("thought")
         if thought:
-            ag_event["reasoning"] = thought
+            if ag_event.get("reasoning"):
+                ag_event["reasoning"] += "\n" + thought
+            else:
+                ag_event["reasoning"] = thought
         
         # Smart tool extraction from content (Scheme B: Intelligent parsing)
         tool_calls = []
-        clean_text = content
+        clean_text = ag_event.get("text", "")
         
-        for match in AGUIMapper.TOOL_MARKER_PATTERN.finditer(content):
-            tool_name = match.group(1)
-            tool_args = match.group(2)
-            tool_result = match.group(3)
-            
-            tool_calls.append({
-                "tool": tool_name,
-                "args": tool_args,
-                "result": tool_result,
-                "status": "completed"  # Historical messages are always completed
-            })
-            
-            # Remove the tool marker from clean text
-            clean_text = clean_text.replace(match.group(0), f"[{tool_name} completed]")
+        # Handle structured tool_calls from metadata if present
+        meta_tool_calls = metadata.get("tool_calls")
+        if meta_tool_calls and isinstance(meta_tool_calls, list):
+            for tc in meta_tool_calls:
+                tool_calls.append({
+                    "tool_id": tc.get("tool_id"),
+                    "tool": tc.get("tool") or tc.get("name"),
+                    "name": tc.get("name"),
+                    "args": tc.get("arguments") or tc.get("args"),
+                    "result": tc.get("result"),
+                    "status": tc.get("status", "completed")
+                })
+        
+        # Fallback to pattern matching if no structured tool calls
+        if not tool_calls:
+            for match in AGUIMapper.TOOL_MARKER_PATTERN.finditer(content):
+                tool_name = match.group(1)
+                tool_args = match.group(2)
+                tool_result = match.group(3)
+                
+                tool_calls.append({
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "result": tool_result,
+                    "status": "completed"  # Historical messages are always completed
+                })
+                
+                # Remove the tool marker from clean text
+                if clean_text:
+                    clean_text = clean_text.replace(match.group(0), f"[{tool_name} completed]")
         
         if tool_calls:
             ag_event["tool_calls"] = tool_calls

@@ -786,7 +786,11 @@ class MessageDispatcher:
                 trace_msg = f"\n❌ **Tool call failed:** `{title}`\n"
                 
             if trace_msg:
-                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
+                # Use append_reasoning in AG-UI mode to ensure it shows up in thinking blocks
+                if ui_format == "ag_ui":
+                    await asyncio.to_thread(self.db.append_reasoning, card_id, trace_msg, seq_id=seq_id)
+                else:
+                    await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
             # We no longer add a separate message for tool calls to avoid "message explosion"
@@ -809,11 +813,14 @@ class MessageDispatcher:
                 if clean_output in ["Success", "OK", "Success.", "{}"]:
                     trace_msg = f"> Result: {clean_output}\n"
                 else:
-                    preview = clean_output[:1000] + ("..." if len(clean_output) > 1000 else "")
+                    preview = clean_output[:500] + ("..." if len(clean_output) > 500 else "")
                     trace_msg = f"\n> **Output:** {preview}\n"
                 
                 seq_id = await self._get_next_seq(card_id)
-                await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
+                if ui_format == "ag_ui":
+                    await asyncio.to_thread(self.db.append_reasoning, card_id, trace_msg, seq_id=seq_id)
+                else:
+                    await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
                 bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
 
             # We no longer update the "message body" with tool output to avoid redundant info
@@ -992,7 +999,8 @@ class MessageDispatcher:
                                 "arguments": chunk.get("args")
                             }],
                             content=trace_msg, # Set content so it's not a blank bubble
-                            is_complete=False
+                            is_complete=False,
+                            append_content=True # Don't overwrite existing reasoning
                         )
 
                     elif event_type == "tool_call_result":
@@ -1018,16 +1026,20 @@ class MessageDispatcher:
                                 "result": chunk.get("result")
                             }],
                             content=trace_msg if trace_msg else None,
-                            is_complete=True
+                            is_complete=True,
+                            append_content=True # Append result marker to reasoning
                         )
                     elif event_type == "tool_call_update":
                         # tool_call_update usually contains partial results or status, treat similar to a trace
                         result = chunk.get("result", "")
                         if result:
-                            trace_msg = f"\n> Update: {result[:200]}...\n"
+                            # Trim result to avoid excessive history size while still providing visibility
+                            preview = result[:500] + ("..." if len(result) > 500 else "")
+                            trace_msg = f"\n> Update: {preview}\n"
                             logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
+                            # AG-UI Fix: Use append_reasoning to keep in main thinking flow
                             await asyncio.to_thread(
-                                self.db.append_thought,
+                                self.db.append_reasoning,
                                 card_id, trace_msg, seq_id=seq_id
                             )
                     elif event_type in ("commands_update", "plan_update", "config_update"):
