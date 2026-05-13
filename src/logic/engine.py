@@ -36,7 +36,12 @@ class SessionEngine:
         self.column_approval_mode: Optional[str] = None
         self.current_config_options = [] # Phase 5.2: Store runtime options
         self.available_commands = [] # Phase 6: Agent-specific slash commands
+        self._is_cancelling = False
         self._lock = asyncio.Lock()
+
+    @property
+    def is_cancelling(self) -> bool:
+        return self._is_cancelling
 
     @property
     def is_alive(self) -> bool:
@@ -65,6 +70,7 @@ class SessionEngine:
 
     async def start(self, fallback_command=None, on_request: Optional[Callable] = None, on_notification: Optional[Callable] = None, is_quiet: bool = False):
         async with self._lock:
+            self._is_cancelling = False
             if self.is_alive: 
                 # If already alive, just return current session info if quiet
                 if is_quiet:
@@ -139,6 +145,20 @@ class SessionEngine:
                 await self.acp_client.stop()
                 self.acp_client = None
                 self.adapter = None
+
+    async def cancel(self):
+        """Cancel the current task on the agent without stopping the engine."""
+        if not self.adapter or not self.acp_session_id:
+            return None
+        
+        self._is_cancelling = True
+        self.logger.info(f"[*] Cancelling session: {self.acp_session_id}")
+        try:
+            res = await self.adapter.handle_request("session/cancel", {"sessionId": self.acp_session_id})
+            return res
+        except Exception as e:
+            self.logger.error(f"Failed to cancel session: {e}")
+            return {"error": {"code": -32000, "message": str(e)}}
 
     def _save_config_options_to_db(self):
         """Persist config options to database for recovery after reconnect."""
@@ -281,6 +301,7 @@ class SessionEngine:
     async def process_prompt(self, method: str, params: Dict, on_notification: Optional[Callable] = None):
         if not self.is_alive: await self.start()
         self.last_active = time.time()
+        self._is_cancelling = False
         
         # Phase 5.3: If this is the first prompt in a new session (no messages yet after start),
         # insert a milestone message to mark the new stage boundary.

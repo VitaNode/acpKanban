@@ -241,6 +241,12 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "message": f"Initialization failed: {str(e)}"
                         }))
 
+            elif msg_type == "session_cancel":
+                import run_bridge
+                bridge_instance = run_bridge.bridge_instance
+                if bridge_instance:
+                    await bridge_instance.dispatcher.cancel_session(card_id)
+
             elif msg_type == "get_context":
                 import run_bridge
                 bridge_instance = run_bridge.bridge_instance

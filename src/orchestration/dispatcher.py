@@ -67,6 +67,7 @@ class MessageDispatcher:
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
         self.commands.register("/reset", self._handle_reset_cmd)
+        self.commands.register("/stop", self._handle_stop_cmd)
         self.commands.register("/summarize", self._handle_summarize_cmd)
         self.commands.register("/help", self._handle_help_cmd)
 
@@ -176,6 +177,7 @@ class MessageDispatcher:
 
     def _get_available_commands(self, card_id: Optional[str] = None):
         system_cmds = [
+            {"name": "stop", "description": "Stop the current agent task."},
             {"name": "summarize", "description": "Generate an immediate summary of progress."},
             {"name": "reset", "description": "Reset the AI session."},
             {"name": "status", "description": "Show AI engine status."},
@@ -642,6 +644,12 @@ class MessageDispatcher:
 
     async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None, ui_format: str = "acp"):
         """Shared notification forwarding logic for both user and system prompts."""
+        # Phase 7.1 FIX: Drop notifications if engine is currently being cancelled
+        engine = self.engines.get(card_id)
+        if engine and engine.is_cancelling:
+            logger.debug(f"[FLOW] Dropping notification for {card_id} because engine is cancelling")
+            return
+
         if isinstance(n, dict):
             self._extract_and_update_tokens(n, card_id)
             if "params" in n and isinstance(n["params"], dict):
@@ -1153,6 +1161,57 @@ class MessageDispatcher:
         if new_options is not None: bus.publish(card_id, {"type": "config_options", "options": new_options})
         return new_options
 
+    async def cancel_session(self, card_id: str):
+        """Cancel the current task on the agent and clean up dispatcher state."""
+        logger.info(f"[*] Cancelling session for card {card_id}")
+        
+        # 1. Notify the engine/agent
+        engine = self.engines.get(card_id)
+        hard_stop_performed = False
+        if engine:
+            res = await engine.cancel()
+            # Phase 7.1 Fallback: If session/cancel is not supported, perform a hard stop (kill process)
+            if isinstance(res, dict) and "error" in res:
+                error = res["error"]
+                if error.get("code") == -32601: # Method not found
+                    logger.warning(f"[*] session/cancel not supported by agent for card {card_id}. Falling back to hard stop.")
+                    await engine.stop()
+                    self.engines.pop(card_id, None)
+                    hard_stop_performed = True
+        
+        # 2. Cancel all pending dispatcher tasks for this card
+        cancelled_count = 0
+        for key in list(self.tasks._tasks.keys()):
+            if key.startswith(f"{card_id}_"):
+                task = self.tasks._tasks.pop(key, None)
+                if task and not task.done():
+                    task.cancel()
+                    cancelled_count += 1
+        
+        # 3. Mark incomplete messages as interrupted in DB
+        await self.recover_incomplete_messages(card_id)
+        
+        # 4. Notify UI via bus
+        seq_id = await self._get_next_seq(card_id)
+        bus.publish(card_id, {
+            "type": "ag_ui_event",
+            "card_id": card_id,
+            "event": "session_stop",
+            "seqId": seq_id,
+            "is_complete": True
+        })
+        
+        stop_msg = "\n\n🛑 **Interrupted by user.**\n"
+        if hard_stop_performed:
+            stop_msg = "\n\n🛑 **Agent stopped (Hard).**\n*Reason: Agent does not support soft cancellation.*\n"
+            
+        # Add termination message to DB as a complete message
+        term_seq = await self._get_next_seq(card_id)
+        await asyncio.to_thread(self.db.sessions.add_message, card_id, "assistant", stop_msg, is_complete=True, seq_id=term_seq)
+        bus.publish(card_id, {"type": "refresh"})
+        
+        logger.info(f"[*] Cancel complete for card {card_id} ({cancelled_count} tasks aborted, hard_stop={hard_stop_performed})")
+
     async def _handle_status_cmd(self, p, rid):
         msg = f"Engines active: {len(self.engines)}"
         logger.info(f"[*] Command /status: {msg}")
@@ -1171,6 +1230,12 @@ class MessageDispatcher:
         if cid in self.engines: await self.engines[cid].stop(); del self.engines[cid]
         await asyncio.to_thread(self.db.update_card_session_id, cid, None)
         return {"message": "Reset complete."}
+
+    async def _handle_stop_cmd(self, p, rid):
+        cid = p.get("card_id")
+        logger.info(f"[*] Command /stop for card {cid}")
+        await self.cancel_session(cid)
+        return {"message": "Interrupted."}
 
     async def _handle_help_cmd(self, p, rid):
         msg = "Available:\n" + "\n".join([f"- `/{c['name']}`: {c['description']}" for c in self._get_available_commands()])

@@ -867,6 +867,12 @@ class SessionWebSocketService {
     }
   }
 
+  Future<void> cancelSession() async {
+    if (_isConnected) {
+      await _send({'type': 'session_cancel'});
+    }
+  }
+
   Future<void> getContext() async {
     if (_isConnected) {
       await _send({'type': 'get_context'});
