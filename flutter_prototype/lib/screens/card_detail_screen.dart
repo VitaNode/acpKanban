@@ -57,6 +57,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   bool _isEditingSummary = false;
   bool _isSavingSummary = false;
 
+  String? _projectName;
   late TextEditingController _contextController;
   bool _isShowingContext = false;
   bool _isEditingContext = false;
@@ -149,6 +150,7 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   Future<void> _loadEnvironmentInfo() async {
     try {
+      final project = await _projectService.getProject(widget.projectId);
       final providers = await ACPClient().listProviders();
       final Map<String, String> nameMap = {};
       for (var p in providers) {
@@ -180,6 +182,7 @@ class _CardDetailViewState extends State<CardDetailView> {
 
       if (mounted) {
         setState(() {
+          _projectName = project?.name;
           _providerNameMap.addAll(nameMap);
           _targetProviderId = targetProviderId;
         });
@@ -630,6 +633,33 @@ class _CardDetailViewState extends State<CardDetailView> {
     _hideCommandsOverlay();
   }
 
+  Future<void> _handleStop() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Stop Agent'),
+        content: const Text('Are you sure you want to interrupt the agent?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Stop', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _wsService.cancelSession();
+      if (mounted) {
+        setState(() => _isAgentProcessing = false);
+      }
+    }
+  }
+
   void _sendContextPrompt() {
     final contextText = _contextController.text.trim();
     if (contextText.isEmpty) {
@@ -736,42 +766,48 @@ class _CardDetailViewState extends State<CardDetailView> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _card.shortId.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.primary,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
+                  if (_projectName != null) ...[
+                    Text(
+                      _projectName!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _card.columnName ?? 'Detail',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
+                    ),
+                  ],
+                  if (_card.columnName != null && _card.columnName!.isNotEmpty) ...[
+                    Text(
+                      _card.columnName!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _card.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
+                    ),
+                  ],
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _card.shortId.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.primary,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1126,10 +1162,16 @@ class _CardDetailViewState extends State<CardDetailView> {
                           onSubmitted: (_) => _handleSend())),
                   const SizedBox(width: AppConstants.space8),
                   IconButton.filled(
-                    onPressed: _isAgentConnected ? _handleSend : null,
-                    icon: const Icon(Icons.arrow_upward_rounded),
+                    onPressed: _isAgentProcessing 
+                        ? _handleStop 
+                        : (_isAgentConnected ? _handleSend : null),
+                    icon: Icon(_isAgentProcessing 
+                        ? Icons.stop_rounded 
+                        : Icons.arrow_upward_rounded),
                     style: IconButton.styleFrom(
-                      backgroundColor: _isAgentConnected ? colorScheme.primary : colorScheme.surfaceContainerHigh,
+                      backgroundColor: _isAgentProcessing 
+                          ? colorScheme.error 
+                          : (_isAgentConnected ? colorScheme.primary : colorScheme.surfaceContainerHigh),
                       foregroundColor: colorScheme.onPrimary,
                     ),
                   ),
