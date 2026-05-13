@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/kanban_card.dart';
+import '../models/project.dart';
 import '../models/kanban_column.dart';
 import '../models/card_message.dart';
 import '../models/agent_plan.dart';
