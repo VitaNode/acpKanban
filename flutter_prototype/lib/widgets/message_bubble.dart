@@ -219,7 +219,7 @@ class MessageBubble extends StatelessWidget {
         ),
         child: MarkdownBody(
           data: markdownData,
-          selectable: true,
+          selectable: false,
           styleSheet: _getMarkdownStyle(context, isUser),
         ),
       );
