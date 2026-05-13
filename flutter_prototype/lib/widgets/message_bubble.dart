@@ -83,12 +83,8 @@ class MessageBubble extends StatelessWidget {
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.85,
         ),
-        margin: EdgeInsets.only(
-          top: AppConstants.space8,
-          bottom: AppConstants.space8,
-          left: isUser ? AppConstants.space16 : 0, // Align strictly to left for agent side
-          right: isUser ? AppConstants.space16 : AppConstants.space16,
-        ),
+        margin: const EdgeInsets.symmetric(
+            vertical: AppConstants.space8, horizontal: AppConstants.space16),
         child: Column(
           crossAxisAlignment:
               isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
