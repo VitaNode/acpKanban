@@ -231,47 +231,48 @@ class MessageDispatcher:
         if not card_id or not isinstance(data, dict):
             return
 
-        # VERY LOUD DEBUG
-        logger.debug(f"[TOKEN DEBUG] Analyzing data for {card_id}: keys={list(data.keys())}")
+        def get_tokens(d):
+            # Exhaustive search for input and output token keys
+            i_keys = ["inputTokens", "input_tokens", "prompt_tokens", "input", "used"]
+            o_keys = ["outputTokens", "output_tokens", "completion_tokens", "output"]
+            i, o = 0, 0
+            for k in i_keys:
+                v = d.get(k)
+                if v is not None and isinstance(v, (int, float)):
+                    i = int(v); break
+            for k in o_keys:
+                v = d.get(k)
+                if v is not None and isinstance(v, (int, float)):
+                    o = int(v); break
+            return i, o
 
-        in_val = 0
-        out_val = 0
+        in_val, out_val = get_tokens(data)
 
-        # Check in result (RPC response)
+        # Check nested structures
         result = data.get("result") if isinstance(data.get("result"), dict) else {}
         usage = result.get("usage") or data.get("usage") or {}
         meta = result.get("_meta") or data.get("_meta") or {}
 
-        # 1. OpenCode/Common format: usage.inputTokens / usage.outputTokens
         if usage:
-            in_val = usage.get("inputTokens", 0) or usage.get("input_tokens", 0)
-            out_val = usage.get("outputTokens", 0) or usage.get("output_tokens", 0)
-            # Add support for 'used' field seen in some adapters/logs
-            if in_val == 0 and "used" in usage:
-                in_val = usage.get("used", 0)
+            i, o = get_tokens(usage)
+            in_val = max(in_val, i)
+            out_val = max(out_val, o)
         
-        # Check direct fields (for usage_update notifications or flat results)
-        if in_val == 0 and "used" in data:
-            in_val = data.get("used", 0)
-        if in_val == 0 and "inputTokens" in data:
-            in_val = data.get("inputTokens", 0)
-        if out_val == 0 and "outputTokens" in data:
-            out_val = data.get("outputTokens", 0)
-        
-        # 2. Gemini/Qwen format in meta
         if meta:
-            # Gemini quota
+            # Qwen/OpenClaw style: _meta.usage
+            m_usage = meta.get("usage", {})
+            if m_usage:
+                i, o = get_tokens(m_usage)
+                in_val = max(in_val, i)
+                out_val = max(out_val, o)
+            
+            # Gemini style: _meta.quota.token_count
             quota = meta.get("quota", {})
             tc = quota.get("token_count", {})
             if tc:
-                in_val = max(in_val, tc.get("input_tokens", 0))
-                out_val = max(out_val, tc.get("output_tokens", 0))
-            
-            # Qwen/Common usage in meta
-            q_usage = meta.get("usage", {})
-            if q_usage:
-                in_val = max(in_val, q_usage.get("inputTokens", 0) or q_usage.get("input_tokens", 0))
-                out_val = max(out_val, q_usage.get("outputTokens", 0) or q_usage.get("output_tokens", 0))
+                i, o = get_tokens(tc)
+                in_val = max(in_val, i)
+                out_val = max(out_val, o)
 
         if in_val > 0 or out_val > 0:
             # Use delta-based updates to handle cumulative usage reporting in chunks

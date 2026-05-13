@@ -185,10 +185,9 @@ class ACPProtocolAdapter:
                 },
             )
             
-            if "error" in response:
-                return response
-            
-            return {"result": {"status": "ok", "session_id": session_id}}
+            # Return the full response (which contains result with stopReason and usage/meta)
+            # instead of a dummy status: ok response.
+            return response
             
         except Exception as e:
             return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
