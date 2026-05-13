@@ -1006,6 +1006,7 @@ class _MainScreenState extends State<MainScreen> {
         await _loadProjectData(_currentProject!.id);
       },
       child: ReorderableListView.builder(
+        key: PageStorageKey('board_list_${_currentProject?.id}'),
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8),
         itemCount: _columns.length,

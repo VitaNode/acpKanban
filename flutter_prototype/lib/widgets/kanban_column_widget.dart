@@ -55,6 +55,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
           _buildHeader(context, activeCards.length),
           Expanded(
             child: ListView.builder(
+              key: PageStorageKey('column_list_${widget.column.id}'),
               padding: const EdgeInsets.symmetric(
                   horizontal: AppConstants.space8, vertical: AppConstants.space4),
               itemCount: activeCards.length * 2 + 1 + (completedCards.isNotEmpty ? 2 : 0),
