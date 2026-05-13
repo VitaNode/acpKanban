@@ -149,21 +149,20 @@ class _CardDetailViewState extends State<CardDetailView> {
       debugPrint('Error loading roadmap data: $e');
     }
   }
-Future<void> _loadEnvironmentInfo() async {
-  try {
-    var project = await _projectService.getProject(widget.projectId);
+  Future<void> _loadEnvironmentInfo() async {
+    try {
+      var project = await _projectService.getProject(widget.projectId);
 
-    // Robust fallback for project name
-    if (project == null) {
-      final allProjects = await _projectService.getProjects();
-      project = allProjects.cast<Project?>().firstWhere(
-        (p) => p?.id == widget.projectId,
-        orElse: () => null,
-      );
-    }
+      // Robust fallback for project name
+      if (project == null) {
+        final allProjects = await _projectService.getProjects();
+        project = allProjects.cast<Project?>().firstWhere(
+          (p) => p?.id == widget.projectId,
+          orElse: () => null,
+        );
+      }
 
-    final providers = await ACPClient().listProviders();
-...
+      final providers = await ACPClient().listProviders();
       final Map<String, String> nameMap = {};
       for (var p in providers) {
         if (p is Map<String, dynamic>) {
@@ -344,17 +343,17 @@ Future<void> _loadEnvironmentInfo() async {
         inputTokens: _inputTokens,
         outputTokens: _outputTokens,
       );
-if (updatedCard.availableCommands != null) {
-  _availableCommands = updatedCard.availableCommands!;
-}
 
-if (updatedCard.columnName != null &&
-    updatedCard.columnName!.isNotEmpty &&
-    updatedCard.columnName!.toLowerCase() != 'detail') {
-  _columnName = updatedCard.columnName;
-}
-});
-}
+      if (updatedCard.availableCommands != null) {
+        _availableCommands = updatedCard.availableCommands!;
+      }
+
+      if (updatedCard.columnName != null &&
+          updatedCard.columnName!.isNotEmpty &&
+          updatedCard.columnName!.toLowerCase() != 'detail') {
+        _columnName = updatedCard.columnName;
+      }
+
       // Only change connection status if sessionId was explicitly part of this update
       if (sessionId != null) {
         if (sessionId.isEmpty) {
