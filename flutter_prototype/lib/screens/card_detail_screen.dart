@@ -151,10 +151,9 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
   Future<void> _loadEnvironmentInfo() async {
+    // 1. Fetch Project Name (Critical for breadcrumb)
     try {
       var project = await _projectService.getProject(widget.projectId);
-
-      // Robust fallback for project name
       if (project == null) {
         final allProjects = await _projectService.getProjects();
         project = allProjects.cast<Project?>().firstWhere(
@@ -162,48 +161,59 @@ class _CardDetailViewState extends State<CardDetailView> {
           orElse: () => null,
         );
       }
+      if (mounted && project != null) {
+        setState(() {
+          _projectName = project!.name;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading project info: $e');
+    }
 
+    // 2. Fetch Column Name (Critical for breadcrumb)
+    try {
+      final columns = await _projectService.getColumns(widget.projectId);
+      String? actualColumnName;
+      String? targetProviderId;
+      for (var col in columns) {
+        if (col.id == _card.columnId) {
+          actualColumnName = col.name;
+          targetProviderId = col.acpProviderId;
+          break;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          if (actualColumnName != null) {
+            _columnName = actualColumnName;
+          }
+          _targetProviderId = targetProviderId;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading column info: $e');
+    }
+
+    // 3. Fetch Provider Info (Non-critical, depends on Bridge)
+    try {
       final providers = await ACPClient().listProviders();
       final Map<String, String> nameMap = {};
       for (var p in providers) {
         if (p is Map<String, dynamic>) {
-          final idValue = p['id'];
-          final nameValue = p['name'];
-          String? id;
-          String? name;
-          if (idValue is String) {
-            id = idValue;
-          }
-          if (nameValue is String) {
-            name = nameValue;
-          }
+          final id = p['id']?.toString();
+          final name = p['name']?.toString();
           if (id != null && name != null) {
             nameMap[id] = name;
           }
         }
       }
-      
-      final columns = await ProjectService().getColumns(widget.projectId);
-      String? targetProviderId;
-      String? actualColumnName;
-      for (var col in columns) {
-        if (col.id == _card.columnId) {
-          targetProviderId = col.acpProviderId;
-          actualColumnName = col.name;
-          break;
-        }
-      }
-
       if (mounted) {
         setState(() {
-          _projectName = project?.name;
-          _columnName = actualColumnName;
           _providerNameMap.addAll(nameMap);
-          _targetProviderId = targetProviderId;
         });
       }
     } catch (e) {
-      debugPrint('Error loading env info: $e');
+      debugPrint('Error loading provider info: $e');
     }
   }
 
