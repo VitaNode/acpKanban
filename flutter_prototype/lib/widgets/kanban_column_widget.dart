@@ -110,7 +110,6 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
               },
             ),
           ),
-          _buildFooter(context),
         ],
       ),
     );
@@ -205,8 +204,10 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
   Widget _buildHeader(BuildContext context, int activeCount) {
     final theme = Theme.of(context);
     final color = _parseColor(widget.column.color);
+    final colorScheme = theme.colorScheme;
+    
     return Container(
-      padding: const EdgeInsets.all(AppConstants.space16),
+      padding: const EdgeInsets.fromLTRB(AppConstants.space16, AppConstants.space8, AppConstants.space8, AppConstants.space8),
       child: Row(
         children: [
           Container(
@@ -219,38 +220,53 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
           ),
           const SizedBox(width: AppConstants.space12),
           Expanded(
-            child: Text(
-              widget.column.name.toUpperCase(),
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontSize: 14,
-                letterSpacing: 1.2,
-                color: theme.colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: 2),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(AppConstants.radiusFull),
-            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (widget.column.acpProviderId != null) ...[
-                  _buildProviderBadge(widget.column.acpProviderId!),
-                  const SizedBox(width: 4),
-                ],
-                Text(
-                  '$activeCount',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+                Flexible(
+                  child: Text(
+                    widget.column.name.toUpperCase(),
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontSize: 14,
+                      letterSpacing: 1.2,
+                      overflow: TextOverflow.ellipsis,
+                      color: colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(AppConstants.radiusFull),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.column.acpProviderId != null) ...[
+                        _buildProviderBadge(widget.column.acpProviderId!),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        '$activeCount',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+          ),
+          IconButton(
+            onPressed: widget.onAddCard,
+            icon: Icon(Icons.add_rounded, size: 20, color: colorScheme.primary),
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Add Card',
           ),
         ],
       ),
@@ -279,34 +295,6 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
         color = Colors.grey;
     }
     return Icon(icon, size: 14, color: color);
-  }
-
-  Widget _buildFooter(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.all(AppConstants.space8),
-      child: InkWell(
-        onTap: widget.onAddCard,
-        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: AppConstants.space8, horizontal: AppConstants.space12),
-          child: Row(
-            children: [
-              Icon(Icons.add_rounded, size: 20, color: colorScheme.primary),
-              const SizedBox(width: AppConstants.space8),
-              Text(
-                'Add Card',
-                style: TextStyle(
-                  color: colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Color _parseColor(String? colorHex) {
