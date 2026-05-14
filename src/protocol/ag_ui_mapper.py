@@ -350,6 +350,31 @@ class AGUIMapper:
                 exec_text = f"\n\n### Command Execution\n\n```bash\n{command}\n```\n"
                 if exec_text not in text:
                     text += exec_text
+            
+            # --- Phase 4 Enhancement: Better details for 'other' kind ---
+            elif tool_kind == "other" or tool_kind == "unknown":
+                raw_input = tool_call.get("rawInput", {})
+                if raw_input:
+                    detail_text = "\n\n### Tool Call Details\n"
+                    # Try to extract common fields
+                    path = raw_input.get("filePath") or raw_input.get("path") or raw_input.get("filepath")
+                    if path:
+                        detail_text += f"**Target Path:** `{path}`\n"
+                    
+                    parent = raw_input.get("parentDir") or raw_input.get("cwd")
+                    if parent:
+                        detail_text += f"**Location:** `{parent}`\n"
+                    
+                    # If nothing else extracted, or just to be safe, show JSON
+                    if len(detail_text) < 30: # Only header present
+                        try:
+                            detail_text += f"\n```json\n{json.dumps(raw_input, indent=2)}\n```"
+                        except:
+                            detail_text += f"\n{raw_input}"
+                    
+                    if detail_text not in text:
+                        text += detail_text
+            # ----------------------------------------------------------
 
             # === 特殊处理：如果是 Plan 或具有 content blocks 的通用工具调用 ===
             tool_content = tool_call.get("content", [])

@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Optional, List, Dict, Any, Callable
 from src.protocol.client import ACPClient
 from src.protocol.adapter import ACPProtocolAdapter
+from src.protocol.drivers import get_driver
 from src.protocol.tool_registry import tool_registry
 from src.persistence.database import KanbanDB
 from src.config.manager import config
@@ -32,6 +33,7 @@ class SessionEngine:
         self.last_active = time.time()
         self.acp_client: Optional[ACPClient] = None
         self.adapter: Optional[ACPProtocolAdapter] = None
+        self.driver = get_driver(provider_id)
         self.acp_session_id: Optional[str] = None
         self.column_prompt_template: Optional[str] = None
         self.column_approval_mode: Optional[str] = None

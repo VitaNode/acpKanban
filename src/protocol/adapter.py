@@ -53,7 +53,11 @@ class ACPProtocolAdapter:
                                         self.log(f"[*] Dispatching nested request to handler: {method}")
                                         result = await self.on_request(method, params)
                                         self.log(f"[*] Nested request handler returned: {result}")
-                                        await self.acp.respond(req_id, result=result)
+                                        
+                                        if isinstance(result, dict) and "error" in result:
+                                            await self.acp.respond(req_id, error=result["error"])
+                                        else:
+                                            await self.acp.respond(req_id, result=result)
                                     except Exception as re:
                                         self.log(f"[*] Nested request handler error: {re}")
                                         await self.acp.respond(req_id, error={"code": -32000, "message": str(re)})

@@ -231,50 +231,15 @@ class MessageDispatcher:
         if not card_id or not isinstance(data, dict):
             return
 
-        def get_tokens(d):
-            # Exhaustive search for input and output token keys
-            i_keys = ["inputTokens", "input_tokens", "prompt_tokens", "input", "used"]
-            o_keys = ["outputTokens", "output_tokens", "completion_tokens", "output"]
-            i, o = 0, 0
-            for k in i_keys:
-                v = d.get(k)
-                if v is not None and isinstance(v, (int, float)):
-                    i = int(v); break
-            for k in o_keys:
-                v = d.get(k)
-                if v is not None and isinstance(v, (int, float)):
-                    o = int(v); break
-            return i, o
+        engine = self.engines.get(card_id)
+        if not engine or not engine.driver:
+            return
 
-        in_val, out_val = get_tokens(data)
-
-        # Check nested structures
-        result = data.get("result") if isinstance(data.get("result"), dict) else {}
-        usage = result.get("usage") or data.get("usage") or {}
-        meta = result.get("_meta") or data.get("_meta") or {}
-
-        if usage:
-            i, o = get_tokens(usage)
-            in_val = max(in_val, i)
-            out_val = max(out_val, o)
-        
-        if meta:
-            # Qwen/OpenClaw style: _meta.usage
-            m_usage = meta.get("usage", {})
-            if m_usage:
-                i, o = get_tokens(m_usage)
-                in_val = max(in_val, i)
-                out_val = max(out_val, o)
-            
-            # Gemini style: _meta.quota.token_count
-            quota = meta.get("quota", {})
-            tc = quota.get("token_count", {})
-            if tc:
-                i, o = get_tokens(tc)
-                in_val = max(in_val, i)
-                out_val = max(out_val, o)
+        # Delegate token extraction to the agent-specific driver
+        in_val, out_val = engine.driver.extract_usage(data)
 
         if in_val > 0 or out_val > 0:
+
             # Use delta-based updates to handle cumulative usage reporting in chunks
             if not hasattr(self, '_current_turn_usage'):
                 self._current_turn_usage = {}
@@ -365,7 +330,16 @@ class MessageDispatcher:
                 req_params["id"] = rid # Ensure ID consistency
                 
                 logger.info(f"[DEBUG] Creating interactive_request for {method_name} (rid: {rid})")
-                ag_event = AGUIMapper.map_request(method_name, req_params, rid)
+                
+                # Try driver mapping first
+                ag_event = None
+                engine = self.engines.get(current_card_id)
+                if engine and engine.driver:
+                    ag_event = engine.driver.map_request(method_name, req_params, rid)
+                
+                if not ag_event:
+                    ag_event = AGUIMapper.map_request(method_name, req_params, rid)
+                
                 seq_id = await self._get_next_seq(current_card_id)
                 await asyncio.to_thread(
                     self.db.sessions.add_message, 
@@ -558,20 +532,27 @@ class MessageDispatcher:
         try:
             async def handle_nested_request(inner_method, inner_params):
                 logger.info(f"[*] Nested request from engine for card {card_id}: {inner_method}")
+                engine = self.engines.get(card_id)
+                if not engine or not engine.driver:
+                    return {"error": {"code": -32000, "message": "Engine or Driver not available"}}
+
                 if inner_method == "session/request_permission":
                     inner_params["card_id"] = card_id
 
                     # YOLO 模式：检查列的 approval_mode，自动放行权限请求
-                    engine = self.engines.get(card_id)
-                    if engine and engine.column_id:
+                    if engine.column_id:
                         column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
                         if column and column.get("approval_mode") == "yolo":
                             logger.info(f"[*] YOLO mode detected for card {card_id}, auto-approving permission.")
-                            return {"outcome": {"optionId": "allow"}}
+                            # Use driver to get the correct YOLO option
+                            return engine.driver.get_yolo_option(inner_method, inner_params)
 
                     # Use centralized wrapped_request for persistence and forwarding
                     # on_output_with_helpers is actually the wrapped_output from dispatch()
-                    return await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
+                    ui_result = await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
+                    
+                    # Use driver to translate UI result back to agent format
+                    return engine.driver.translate_ui_result(inner_method, ui_result, inner_params)
 
                 if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
                     inner_params["_request_id"] = inner_params.get("id")
@@ -665,22 +646,17 @@ class MessageDispatcher:
         update = params.get("update", {})
         utype = update.get("sessionUpdate")
 
-        # Support multiple chunk formats
-        chunk_text = ""
-        if utype == "agent_message_chunk":
-            chunk_text = update.get("content", {}).get("text", "")
-        elif utype == "content_block_delta":
-            delta = update.get("delta", {})
-            if isinstance(delta, dict):
-                chunk_text = delta.get("text", "")
-        elif method == "_qwencode/slash_command":
-            chunk_text = params.get("message", "")
-
-        logger.debug(f"[FLOW] Notification for {card_id}: utype={utype}, method={method}, ui_format={ui_format}")
-
         # AG-UI Path: Try to map ANY notification to AG-UI event
         if ui_format == "ag_ui":
-            ag_event = AGUIMapper.map_notification(n)
+            # 1. Try agent-specific driver mapping first
+            ag_event = None
+            if engine and engine.driver:
+                ag_event = engine.driver.map_notification(n)
+            
+            # 2. Fallback to global AGUIMapper
+            if not ag_event:
+                ag_event = AGUIMapper.map_notification(n)
+            
             if ag_event:
                 logger.debug(f"[FLOW] AG-UI Path SUCCESS for {card_id}: event={ag_event.get('event')}")
                 # Buffer all AG-UI events for consistent sequencing and persistence
@@ -697,6 +673,19 @@ class MessageDispatcher:
                     return
             else:
                 logger.debug(f"[FLOW] AG-UI Path FAILED for {card_id}, trying fallback")
+
+        # Support multiple chunk formats (Legacy/Standard)
+        chunk_text = ""
+        if utype == "agent_message_chunk":
+            chunk_text = update.get("content", {}).get("text", "")
+        elif utype == "content_block_delta":
+            delta = update.get("delta", {})
+            if isinstance(delta, dict):
+                chunk_text = delta.get("text", "")
+        
+        # 3. Try agent-specific driver for non-standard chunks
+        if not chunk_text and engine and engine.driver:
+            chunk_text = engine.driver.extract_chunk_text(n)
 
         # Fallback/ACP Path (Non-AG-UI or non-mappable)
         if utype == "agent_thought_chunk":

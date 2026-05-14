@@ -40,7 +40,7 @@ class TestACPPermission(unittest.TestCase):
             if data.get("id") == 1: break
 
         # 2. New Session
-        self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {}}) + "\n")
+        self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": os.getcwd()}}) + "\n")
         self.process.stdin.flush()
         while True:
             line = self.process.stdout.readline()
