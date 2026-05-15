@@ -18,6 +18,7 @@ from api.dependencies import (
     general_exception_handler,
     HTTPError,
 )
+from src.config.manager import config
 
 
 @asynccontextmanager
@@ -34,10 +35,10 @@ async def lifespan(app: FastAPI):
         import run_bridge
         from src.transport.bridge import UnifiedBridge
         
-        # In a real app, these would come from config or env
-        user_id = os.getenv("MYBOT_USER_ID", "user_683652")
-        relay_url = os.getenv("MYBOT_RELAY_URL", "ws://35.211.219.123:8766")
-        token = os.getenv("MYBOT_TOKEN", "8c939a7d-e31b-4e1d-b26c-57b4589519e1")
+        # Pull credentials from central ConfigManager
+        user_id = config.user_id
+        relay_url = config.relay_url
+        token = config.relay_token
         workspace_cwd = os.getenv("MYBOT_WORKSPACE_CWD")
         
         print(f"[*] Starting Integrated Bridge for user: {user_id}")

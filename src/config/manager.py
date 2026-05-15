@@ -1,5 +1,7 @@
 import os
 import json
+import secrets
+import string
 from src.logger import setup_logger
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -22,17 +24,17 @@ class ConfigManager:
             return
             
         # Point to the actual project root (mybot/)
-        # src/config/manager.py -> src/config -> src -> root
         self.project_root = Path(__file__).parent.parent.parent.absolute()
-        self.config_path = self.project_root / "acp_config.json"
+        self.config_path = self.project_root / "config.json"
+        self.old_config_path = self.project_root / "acp_config.json"
+        
         self._config: Dict[str, Any] = {}
         self._load_defaults()
-        
-        # Also ensure the DB path defaults to the project root or a specific data dir
-        self._config["system"]["db_path"] = str(self.project_root / "src/config/kanban.db")
-        
+        self._migrate_old_config()
         self._load_from_file()
         self._load_from_env()
+        self._ensure_credentials()
+        self._save_to_file()
         
         self._initialized = True
         logger.info(f"ConfigManager initialized. Project root: {self.project_root}")
@@ -44,11 +46,13 @@ class ConfigManager:
                 "db_path": str(self.project_root / "kanban.db"),
                 "workspace_root": str(Path.home()),
                 "log_level": "INFO",
+                "max_sessions": 30,
+                "session_idle_timeout_minutes": 30
             },
             "relay": {
                 "url": "wss://mybot.siliconpulse.cc",
-                "token": "default_secret",
-                "user_id": "test_user",
+                "token": "",
+                "user_id": "",
             },
             "providers": {
                 "default": "gemini",
@@ -61,25 +65,39 @@ class ConfigManager:
             }
         }
 
+    def _migrate_old_config(self):
+        """Migrate settings from acp_config.json if config.json doesn't exist."""
+        if not self.config_path.exists() and self.old_config_path.exists():
+            try:
+                with open(self.old_config_path, "r") as f:
+                    old_data = json.load(f)
+                
+                if "providers" in old_data:
+                    self._config["providers"]["list"] = old_data["providers"]
+                if "default_provider" in old_data:
+                    self._config["providers"]["default"] = old_data["default_provider"]
+                if "max_sessions" in old_data:
+                    self._config["system"]["max_sessions"] = old_data["max_sessions"]
+                if "session_idle_timeout_minutes" in old_data:
+                    self._config["system"]["session_idle_timeout_minutes"] = old_data["session_idle_timeout_minutes"]
+                
+                logger.info(f"Migrated old config from {self.old_config_path}")
+            except Exception as e:
+                logger.error(f"Failed to migrate old config: {e}")
+
     def _load_from_file(self):
-        """Load configuration from acp_config.json if it exists."""
+        """Load configuration from config.json if it exists."""
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r") as f:
                     file_config = json.load(f)
-                    
-                # Map old acp_config.json structure to new unified structure
-                if "providers" in file_config:
-                    self._config["providers"]["list"] = file_config["providers"]
-                if "default_provider" in file_config:
-                    self._config["providers"]["default"] = file_config["default_provider"]
-                if "max_sessions" in file_config:
-                    self._config["system"]["max_sessions"] = file_config["max_sessions"]
                 
-                # Merge other root-level keys if any
-                for key in ["relay", "system", "cloud"]:
-                    if key in file_config:
+                # Deep merge for top-level keys
+                for key in ["system", "relay", "providers", "cloud"]:
+                    if key in file_config and isinstance(file_config[key], dict):
                         self._config[key].update(file_config[key])
+                    elif key in file_config:
+                        self._config[key] = file_config[key]
                         
                 logger.info(f"Loaded config from {self.config_path}")
             except Exception as e:
@@ -100,6 +118,42 @@ class ConfigManager:
             self._config["relay"]["token"] = os.getenv("RELAY_TOKEN")
         if os.getenv("USER_ID"):
             self._config["relay"]["user_id"] = os.getenv("USER_ID")
+
+    def _ensure_credentials(self):
+        """Ensure USER_ID and RELAY_TOKEN exist, generating them if necessary."""
+        # 1. Check current hardcoded values in use to avoid breaking changes for existing user
+        # These are fallback defaults if nothing else is found
+        current_user_id = os.getenv("MYBOT_USER_ID", "user_683652")
+        current_token = os.getenv("RELAY_TOKEN", "default_secret")
+
+        if not self._config["relay"]["user_id"]:
+            self._config["relay"]["user_id"] = current_user_id
+            logger.info(f"Using inherited/default USER_ID: {self._config['relay']['user_id']}")
+
+        if not self._config["relay"]["token"] or self._config["relay"]["token"] == "default_secret":
+            # If it's still default_secret, we should probably generate a new one if it's a fresh install
+            # But for this specific user, we keep their secret if they were using it.
+            self._config["relay"]["token"] = current_token
+            logger.info("Using inherited/default RELAY_TOKEN")
+
+        # If it's still empty (shouldn't happen with fallbacks above, but for safety):
+        if not self._config["relay"]["user_id"]:
+            random_suffix = ''.join(secrets.choice(string.digits) for _ in range(6))
+            self._config["relay"]["user_id"] = f"user_{random_suffix}"
+            logger.info(f"Generated new USER_ID: {self._config['relay']['user_id']}")
+
+        if not self._config["relay"]["token"]:
+            self._config["relay"]["token"] = secrets.token_urlsafe(32)
+            logger.info("Generated new strong RELAY_TOKEN")
+
+    def _save_to_file(self):
+        """Persist current configuration to config.json."""
+        try:
+            with open(self.config_path, "w") as f:
+                json.dump(self._config, f, indent=2)
+            logger.info(f"Saved config to {self.config_path}")
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
 
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -133,6 +187,13 @@ class ConfigManager:
     @property
     def user_id(self) -> str:
         return self._config["relay"]["user_id"]
+
+    @property
+    def relay_token(self) -> str:
+        return self._config["relay"]["token"]
+
+# Global instance
+config = ConfigManager()
 
 # Global instance
 config = ConfigManager()

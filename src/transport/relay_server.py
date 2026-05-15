@@ -9,16 +9,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    stream=sys.stdout
-)
-logger = logging.getLogger("RelayServer")
+from src.config.manager import config
+from src.logger import setup_logger
+
+logger = setup_logger("RelayServer")
 
 # Configuration
-RELAY_TOKEN = os.getenv("RELAY_TOKEN", "default_secret")
+RELAY_TOKEN = config.relay_token
 
 # Map to store active relay pairs: { user_id: {"mac": websocket, "app": websocket} }
 relays = {}
