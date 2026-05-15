@@ -916,20 +916,14 @@ class _CardDetailViewState extends State<CardDetailView> {
                       child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
                     ),
                   ],
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                  Expanded(
                     child: Text(
-                      _card.shortId.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 10,
+                      '${_card.title} (${_card.shortId.toUpperCase()})',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurface,
                         fontWeight: FontWeight.bold,
-                        color: colorScheme.primary,
-                        fontFamily: 'monospace',
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -1054,27 +1048,6 @@ class _CardDetailViewState extends State<CardDetailView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: _titleController,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-            decoration: const InputDecoration(
-              hintText: 'Card Title',
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const SizedBox(height: AppConstants.space8),
-          Row(
-            children: [
-              Icon(Icons.access_time, size: 14, color: colorScheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Text(
-                'Created ${DateFormatter.formatRelative(_card.createdAt)}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
             decoration: BoxDecoration(
@@ -1189,6 +1162,21 @@ class _CardDetailViewState extends State<CardDetailView> {
                 borderSide: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.05)),
               ),
             ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Icon(Icons.access_time, size: 12, color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
+              const SizedBox(width: 4),
+              Text(
+                'Created ${DateFormatter.formatShortDate(_card.createdAt)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant.withOpacity(0.6),
+                  fontSize: 10,
+                ),
+              ),
+            ],
           ),
         ],
       ),
