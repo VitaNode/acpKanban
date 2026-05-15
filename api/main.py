@@ -47,6 +47,12 @@ async def lifespan(app: FastAPI):
         
         # Start bridge without blocking
         asyncio.create_task(bridge.start(run_forever=False))
+
+        # Phase: Global Optimization - Pre-warm providers for the current project on startup
+        current_project_id = db.get_setting("current_project_id")
+        if current_project_id:
+            print(f"[*] Proactively pre-warming providers for current project: {current_project_id}")
+            asyncio.create_task(bridge.dispatcher.pre_warm_providers(current_project_id))
         
     except Exception as e:
         print(f"[!] Startup initialization failed: {e}")

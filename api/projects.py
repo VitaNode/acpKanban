@@ -742,6 +742,11 @@ async def switch_project(project_id: str):
 
     timeline = db.get_timeline(project_id, limit=20)
 
+    # Phase: Global Optimization - Pre-warm providers in the background
+    import run_bridge
+    if run_bridge.bridge_instance:
+        asyncio.create_task(run_bridge.bridge_instance.dispatcher.pre_warm_providers(project_id))
+
     return {
         "project": {
             "id": project_id,

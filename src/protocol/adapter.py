@@ -115,6 +115,7 @@ class ACPProtocolAdapter:
             self._workspace_cwd = params["cwd"]
 
         acp_params = {
+            "protocolVersion": 0,
             "capabilities": params.get("capabilities", {}),
             "clientInfo": {
                 "name": "Kanban-Bridge",

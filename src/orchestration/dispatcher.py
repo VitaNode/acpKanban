@@ -122,8 +122,9 @@ class MessageDispatcher:
         columns = await asyncio.to_thread(self.db.columns.get_all, pid)
         provider_ids = set()
         for col in columns:
-            p_id = col.get("acp_provider_id") or config.default_provider
-            provider_ids.add(p_id)
+            p_id = col.get("acp_provider_id")
+            if p_id:
+                provider_ids.add(p_id)
             
         results = []
         for p_id in provider_ids:
@@ -180,7 +181,7 @@ class MessageDispatcher:
                 
                 adapter = ACPProtocolAdapter(client, provider_id=provider_id, workspace_cwd=cwd)
                 # Send initialize request
-                await adapter.handle_request("initialize", {
+                await adapter.initialize({
                     "capabilities": {},
                     "clientInfo": {"name": "Kanban-Init-Check", "version": "1.0.0"}
                 })
@@ -189,6 +190,7 @@ class MessageDispatcher:
                 await client.stop()
                 
                 state["status"] = "ready"
+                state["protocolVersion"] = 0 # Phase: Protocol Fix
                 state["last_success_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 state["last_error"] = None
                 self.provider_states[provider_id] = state
@@ -213,8 +215,9 @@ class MessageDispatcher:
         columns = await asyncio.to_thread(self.db.columns.get_all, project_id)
         provider_ids = set()
         for col in columns:
-            p_id = col.get("acp_provider_id") or config.default_provider
-            provider_ids.add(p_id)
+            p_id = col.get("acp_provider_id")
+            if p_id:
+                provider_ids.add(p_id)
             
         for p_id in provider_ids:
             # Check if already ready
@@ -584,6 +587,17 @@ class MessageDispatcher:
         
         return {"error": {"code": -32601, "message": f"Method {method} not handled"}}
 
+    async def _on_provider_status_change(self, provider_id: str, status: str, error: Optional[str] = None):
+        """Callback for engines to report provider health updates."""
+        self.provider_states[provider_id] = {
+            "provider_id": provider_id,
+            "status": status,
+            "last_error": error,
+            "last_error_at": time.strftime("%Y-%m-%d %H:%M:%S") if error else self.provider_states.get(provider_id, {}).get("last_error_at"),
+            "last_success_at": time.strftime("%Y-%m-%d %H:%M:%S") if status == "ready" else self.provider_states.get(provider_id, {}).get("last_success_at")
+        }
+        logger.debug(f"[*] Provider {provider_id} status updated to {status} (error: {error})")
+
     async def _get_or_create_engine(self, card_id: str, on_nested_request: Optional[Callable] = None, on_output: Optional[Callable] = None, is_quiet: bool = False) -> (SessionEngine, bool):
         card = await asyncio.to_thread(self.db.cards.get_by_id, card_id)
         if not card: raise ValueError(f"Card {card_id} not found")
@@ -594,10 +608,10 @@ class MessageDispatcher:
         async def stable_notif_handler(n):
             if "params" in n:
                 n["params"]["card_id"] = card_id
-            
+
             # Get ui_format for this card (default to "acp")
             card_ui_format = self._card_ui_formats.get(card_id, "acp")
-            
+
             # ALWAYS forward to logic, even if on_output is None
             # This ensures bus.publish is called for background events
             await self._forward_notification(card_id, n, on_output, ui_format=card_ui_format)
@@ -612,7 +626,7 @@ class MessageDispatcher:
                         existing_engine.set_on_request(on_nested_request)
                     if on_output:
                         existing_engine.set_on_notification(stable_notif_handler)
-                    
+
                     if existing_engine.acp_session_id and on_output:
                         # Always advertise commands on connection to ensure UI is in sync
                         await self._advertise_commands(existing_engine.acp_session_id, on_output, card_id=card_id)
@@ -630,9 +644,24 @@ class MessageDispatcher:
             workspace_path = config.get("system.workspace_root")
             project = await asyncio.to_thread(self.db.projects.get_by_id, column["project_id"])
             if project and project.get("workspace_path"): workspace_path = project["workspace_path"]
-            engine = SessionEngine(card_id, target_provider_id, workspace_path, card["column_id"], db=self.db)
+
+            # Phase: Global Optimization - Pass the status change callback to the engine
+            engine = SessionEngine(
+                card_id, 
+                target_provider_id, 
+                workspace_path, 
+                card["column_id"], 
+                db=self.db,
+                on_status_change=self._on_provider_status_change
+            )
             engine.acp_session_id = card.get("acp_session_id")
-            await engine.start(on_request=on_nested_request, on_notification=stable_notif_handler, is_quiet=is_quiet)
+
+            try:
+                await engine.start(on_request=on_nested_request, on_notification=stable_notif_handler, is_quiet=is_quiet)
+            except Exception:
+                # The engine already calls self._notify_status("degraded", ...)
+                raise
+
             self.engines[card_id] = engine
             if engine.acp_session_id and on_output:
                 await self._advertise_commands(engine.acp_session_id, on_output, card_id=card_id)

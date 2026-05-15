@@ -398,8 +398,8 @@ class UnifiedBridge:
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": {
-                    "protocolVersion": 1,
-                    "agentCapabilities": {
+                    "protocolVersion": 0,
+                    "capabilities": {
                         "tools": {"supported": True},
                         "resources": {"supported": True}
                     }

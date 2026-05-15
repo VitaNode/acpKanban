@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
 import '../services/project_service.dart';
@@ -352,12 +353,49 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
   final _projectService = ProjectService();
   late List<KanbanColumn> _columns;
   bool _isLoading = false;
+  Map<String, dynamic> _providerStatuses = {};
+  Timer? _statusTimer;
 
   @override
   void initState() {
     super.initState();
     _columns = List.from(widget.columns)
       ..sort((a, b) => a.position.compareTo(b.position));
+    _loadProviderStatuses();
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadProviderStatuses());
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadProviderStatuses() async {
+    try {
+      final data = await _projectService.getProviderInitStatus(widget.projectId);
+      if (data != null && data['providers'] != null && mounted) {
+        final Map<String, dynamic> statuses = {};
+        for (var p in data['providers']) {
+          statuses[p['provider_id']] = p;
+        }
+        setState(() => _providerStatuses = statuses);
+      }
+    } catch (e) {
+      debugPrint('Error loading provider statuses: $e');
+    }
+  }
+
+  Future<void> _initializeProvider(String providerId) async {
+    try {
+      setState(() => _providerStatuses[providerId] = {...(_providerStatuses[providerId] ?? {}), 'status': 'initializing'});
+      await _projectService.initializeProvider(providerId);
+      _loadProviderStatuses();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to initialize: $e')));
+      }
+    }
   }
 
   Future<void> _onReorder(int oldIndex, int newIndex) async {
@@ -475,6 +513,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         _columns = updated..sort((a, b) => a.position.compareTo(b.position));
         _isLoading = false;
       });
+      _loadProviderStatuses();
       widget.onUpdated();
     }
   }
@@ -517,6 +556,10 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                         onReorder: _onReorder,
                         itemBuilder: (context, index) {
                           final col = _columns[index];
+                          final providerId = col.acpProviderId;
+                          final statusInfo = providerId != null ? _providerStatuses[providerId] : null;
+                          final status = statusInfo?['status'] ?? 'unknown';
+
                           return Container(
                             key: ValueKey(col.id),
                             margin: const EdgeInsets.symmetric(vertical: AppConstants.space4),
@@ -527,7 +570,28 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                             child: ListTile(
                               leading: Icon(Icons.drag_indicator_rounded, 
                                   color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
-                              title: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              title: Row(
+                                children: [
+                                  Expanded(child: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                                  if (providerId != null) ...[
+                                    _buildStatusBadge(status, theme, colorScheme),
+                                    const SizedBox(width: 8),
+                                    if (status != 'ready' && status != 'initializing')
+                                      TextButton(
+                                        onPressed: () => _initializeProvider(providerId),
+                                        style: TextButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                          minimumSize: Size.zero,
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                        ),
+                                        child: const Text('INIT'),
+                                      )
+                                    else if (status == 'initializing')
+                                      const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                                  ],
+                                ],
+                              ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -560,6 +624,42 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Close')),
       ],
+    );
+  }
+
+  Widget _buildStatusBadge(String status, ThemeData theme, ColorScheme colorScheme) {
+    Color color;
+    String label;
+    switch (status) {
+      case 'ready':
+        color = Colors.green;
+        label = 'READY';
+        break;
+      case 'degraded':
+        color = Colors.orange;
+        label = 'ERR';
+        break;
+      case 'initializing':
+        color = colorScheme.primary;
+        label = 'INIT...';
+        break;
+      case 'uninitialized':
+        color = Colors.grey;
+        label = 'OFFLINE';
+        break;
+      default:
+        color = Colors.grey;
+        label = status.toUpperCase();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.3), width: 0.5),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.bold)),
     );
   }
 }

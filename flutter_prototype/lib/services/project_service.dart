@@ -519,6 +519,32 @@ class ProjectService {
     }
   }
 
+  Future<Map<String, dynamic>?> getProviderInitStatus(String projectId) async {
+    try {
+      final response = await _get('/api/providers/init-status?project_id=$projectId');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('getProviderInitStatus error: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> initializeProvider(String providerId) async {
+    try {
+      final response = await _post('/api/providers/$providerId/initialize', {});
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('initializeProvider error: $e');
+      return null;
+    }
+  }
+
   Future<List<TimelineEvent>> getTimeline(String projectId,
       {int limit = 100}) async {
     try {
