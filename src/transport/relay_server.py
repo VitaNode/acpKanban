@@ -20,7 +20,7 @@ RELAY_TOKEN = config.relay_token
 # Map to store active relay pairs: { user_id: {"mac": websocket, "app": websocket} }
 relays = {}
 
-async def process_request(connection, request):
+async def process_request(websocket, request):
     """Intercept unauthorized requests during handshake (websockets 14.0+ API)."""
     path = request.path
     headers = request.headers
@@ -40,6 +40,8 @@ async def process_request(connection, request):
     if auth_header != expected and query_token != RELAY_TOKEN:
         logger.warning(f"Handshake Auth failed for path: {path}")
         return (401, [], b"Unauthorized\n")
+    
+    logger.debug(f"Handshake path authenticated: {path}")
     return None
 
 def is_alive(ws):
@@ -77,12 +79,6 @@ async def handle_relay_logic(websocket, role, user_id):
     finally:
         if relays.get(user_id) and relays[user_id].get(role) == websocket:
             relays[user_id][role] = None
-
-async def process_request(path, request_headers):
-    """Log incoming handshake for debugging."""
-    logger.debug(f"Handshake path: {path}")
-    logger.debug(f"Headers: {dict(request_headers)}")
-    return None # Proceed with default upgrade
 
 async def handler(websocket):
     """Main handler (websockets 14.0+ API)."""
