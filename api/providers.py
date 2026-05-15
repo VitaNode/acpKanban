@@ -1,6 +1,6 @@
 import json
 import os
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Path
 from api.models import ProviderListResponse
 from api.dependencies import HTTPError
 
@@ -29,7 +29,9 @@ async def get_providers():
 
 
 @router.get("/providers/init-status")
-async def get_provider_init_status(project_id: str):
+async def get_provider_init_status(
+    project_id: str = Query(..., min_length=1, max_length=50, description="The ID of the project to check")
+):
     import run_bridge
     bridge = run_bridge.bridge_instance
     if not bridge:
@@ -38,7 +40,9 @@ async def get_provider_init_status(project_id: str):
 
 
 @router.post("/providers/{provider_id}/initialize")
-async def initialize_provider(provider_id: str):
+async def initialize_provider(
+    provider_id: str = Path(..., min_length=1, max_length=50, description="The ID of the provider to initialize")
+):
     import run_bridge
     bridge = run_bridge.bridge_instance
     if not bridge:

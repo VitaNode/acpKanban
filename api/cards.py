@@ -173,7 +173,7 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
                 db.add_session_message(
                     card_id=card_id,
                     role="assistant",
-                    content=f"🔄 **Agent switched** from `{old_name}` to `{new_name}` due to column move. Please re-initialize the session.",
+                    content=f"🔄 **Agent switched** from `{old_name}` to `{new_name}` due to column move. A new session will be established on your next message.",
                     is_milestone=True
                 )
                 

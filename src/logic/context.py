@@ -49,24 +49,15 @@ class ContextBuilder:
             if display_cwd:
                 sections.append(f"Root Workspace: {display_cwd}")
 
-            # Guidelines on how to explore efficiently
-            sections.append("""## Efficiency Guidelines
-- Use `search_code` for semantic discovery.
-- Read specific symbols with `get_symbol_code` instead of full files.""")
-
         # --- Level 1.5: Project Roadmap & Progress ---
         if project_id:
             roadmap = self._get_roadmap_context(project_id, card.get("feature_id"))
             if roadmap:
                 sections.append(f"## Project Roadmap & Progress\n{roadmap}")
 
-        agent_md = self._load_agent_md(project.get("workspace_path") if project else None)
-        if agent_md:
-            content = agent_md
-            if len(agent_md) > MAX_AGENT_MD_CHARS:
-                content = agent_md[:MAX_AGENT_MD_CHARS] + f"\n\n[WARNING: agent.md content truncated at {MAX_AGENT_MD_CHARS} chars for efficiency]"
-                logger.warning(f"agent.md truncated ({len(agent_md)} -> {MAX_AGENT_MD_CHARS})")
-            sections.append(f"## System Guidelines (agent.md)\n{content}")
+        # Phase: Optimization - Removed automatic agent.md and Efficiency Guidelines injection.
+        # These are now opt-in or moved to specialized prompts.
+
         # --- Level 2: Related Context (Semantic Search) ---
         related_summaries = await self._get_related_summaries(card, project_id)
         if related_summaries:

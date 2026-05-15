@@ -41,6 +41,10 @@ class SessionEngine:
         self.available_commands = [] # Phase 6: Agent-specific slash commands
         self._is_cancelling = False
         self._lock = asyncio.Lock()
+        
+        # Recovery tracking (Optimization Phase)
+        self._recovery_attempts = 0
+        self._max_recovery_attempts = 3
 
     @property
     def is_cancelling(self) -> bool:
@@ -320,9 +324,12 @@ class SessionEngine:
         self.last_active = time.time()
         self._is_cancelling = False
         
-        # Phase 5.3: If this is the first prompt in a new session (no messages yet after start),
-        # insert a milestone message to mark the new stage boundary.
-        # Use lock to prevent race conditions during the check-and-insert phase.
+        # Check recovery limits
+        if self._recovery_attempts >= self._max_recovery_attempts:
+            self.logger.error(f"Max recovery attempts ({self._max_recovery_attempts}) reached for card {self.card_id}")
+            raise Exception(f"Provider {self.provider_id} is consistently failing. Please check your configuration or local process.")
+
+        # Phase 5.3: Milestone insertion
         async with self._lock:
             if self.acp_session_id and not hasattr(self, "_milestone_inserted"):
                 mode_name = "Default"
@@ -344,11 +351,16 @@ class SessionEngine:
             try:
                 res = await self.adapter.handle_request(method, params, on_notification=on_notification)
                 if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
+                # Reset attempts on success
+                self._recovery_attempts = 0
                 return res
             except Exception as e:
                 # Recovery Logic (Phase: Global Optimization)
-                # If prompt fails, try to re-initialize and retry once.
-                self.logger.warning(f"Prompt failed ({e}), attempting auto-recovery...")
+                self._recovery_attempts += 1
+                wait_time = 2 ** self._recovery_attempts # Exponential backoff
+                
+                self.logger.warning(f"Prompt failed ({e}), attempt {self._recovery_attempts}/{self._max_recovery_attempts}. Waiting {wait_time}s before retry...")
+                await asyncio.sleep(wait_time)
                 
                 # Clear session state and restart
                 self.acp_session_id = None
@@ -360,7 +372,10 @@ class SessionEngine:
                     self.acp_client = None
                 
                 # Re-start (will create a new session)
-                await self.start()
+                try:
+                    await self.start()
+                except Exception as start_err:
+                    raise Exception(f"Auto-recovery failed to start engine: {start_err}. Original error: {e}")
                 
                 if self.acp_session_id:
                     self.logger.info(f"Recovery successful, retrying prompt with new session: {self.acp_session_id[:8]}")
@@ -372,7 +387,11 @@ class SessionEngine:
                     raise Exception(f"Recovery failed: Could not establish new session. Original error: {e}")
         except Exception as e:
             self.state = SessionState.ERROR
-            raise
+            self.logger.error(f"Engine processing error for card {self.card_id}: {e}", exc_info=True)
+            # Re-wrap error for cleaner API response
+            if "AI Engine Error" in str(e):
+                raise
+            raise Exception(f"AI Engine Error [{self.provider_id}]: {str(e)}") from e
         finally:
             if self.state != SessionState.ERROR: self.state = SessionState.IDLE
 

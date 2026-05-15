@@ -232,7 +232,8 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                             "sessionId": engine.acp_session_id,
                             "config_options": engine.current_config_options,
                             "is_alive": True,
-                            "ui_format": ui_format # Confirm format to client
+                            "ui_format": ui_format, # Confirm format to client
+                            "auto_inject_context": False # Phase: Optimization
                         }))
                     except Exception as e:
                         logger.error(f"ERROR in session_init: {e}")

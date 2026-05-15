@@ -2,8 +2,10 @@ import asyncio
 import json
 import uuid
 import re
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable, Set
+from typing import Dict, Any, Optional, Callable, Set, List
+
 from src.logic.engine import SessionEngine, SessionState, SummaryService
 from src.persistence.database import KanbanDB
 from src.logic.context import ContextBuilder
@@ -11,6 +13,10 @@ from src.protocol.ag_ui_mapper import AGUIMapper
 from src.config.manager import config
 from src.logger import setup_logger, set_request_id
 from src.transport.bus import bus
+
+# Constants for Configuration (Optimization Phase)
+AG_UI_FLUSH_INTERVAL_MS = 500
+AG_UI_BUFFER_CAPACITY = 20
 
 logger = setup_logger("Dispatcher")
 
@@ -61,12 +67,13 @@ class MessageDispatcher:
         self._card_ui_formats: Dict[str, str] = {}  # card_id -> "acp" or "ag_ui"
         
         # AG-UI Configuration
-        self._ag_ui_flush_interval_ms = 500  # Time-based flush trigger
-        self._ag_ui_buffer_capacity = 20  # Capacity-based flush trigger (chunks)
+        self._ag_ui_flush_interval_ms = AG_UI_FLUSH_INTERVAL_MS
+        self._ag_ui_buffer_capacity = AG_UI_BUFFER_CAPACITY
         
         # Provider Initialization States (Phase: Global Optimization)
         self.provider_states: Dict[str, Dict[str, Any]] = {}
         self._provider_locks: Dict[str, asyncio.Lock] = {}
+        self._pre_warm_tasks: Set[asyncio.Task] = set()
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -106,7 +113,7 @@ class MessageDispatcher:
             }
         }
 
-    async def _handle_provider_init_status(self, params, rid):
+    async def _handle_provider_init_status(self, params: Dict[str, Any], rid: Optional[str]):
         pid = params.get("project_id")
         if not pid:
             return {"error": "Missing project_id"}
@@ -119,13 +126,12 @@ class MessageDispatcher:
             provider_ids.add(p_id)
             
         results = []
-        import time
         for p_id in provider_ids:
             status = await self.get_provider_status(p_id)
             results.append(status)
         return {"providers": results}
 
-    async def _handle_provider_initialize(self, params, rid):
+    async def _handle_provider_initialize(self, params: Dict[str, Any], rid: Optional[str]):
         p_id = params.get("provider_id")
         if not p_id:
             return {"error": "Missing provider_id"}
@@ -140,13 +146,12 @@ class MessageDispatcher:
             "last_error_at": None
         })
 
-    async def initialize_provider(self, provider_id: str) -> Dict[str, Any]:
+    async def initialize_provider(self, provider_id: str, workspace_cwd: Optional[str] = None) -> Dict[str, Any]:
         if provider_id not in self._provider_locks:
             self._provider_locks[provider_id] = asyncio.Lock()
         
         async with self._provider_locks[provider_id]:
-            logger.info(f"[*] Initializing provider: {provider_id}")
-            import time
+            logger.info(f"[*] Initializing provider: {provider_id} (cwd: {workspace_cwd})")
             
             # Update state to initializing
             state = self.provider_states.get(provider_id, {
@@ -168,8 +173,8 @@ class MessageDispatcher:
                 if not cfg:
                     raise ValueError(f"Provider {provider_id} not found in configuration")
                 
-                # Use project root as CWD for discovery
-                cwd = str(config.project_root)
+                # Use provided workspace_cwd or fallback to project root
+                cwd = workspace_cwd or str(config.project_root)
                 client = ACPClient(cfg["command"], cwd)
                 await client.start()
                 
@@ -201,6 +206,10 @@ class MessageDispatcher:
     async def pre_warm_providers(self, project_id: str):
         """Pre-warm providers for a project in the background."""
         logger.info(f"[*] Pre-warming providers for project {project_id}")
+        
+        project = await asyncio.to_thread(self.db.projects.get_by_id, project_id)
+        workspace_cwd = project.get("workspace_path") if project else None
+        
         columns = await asyncio.to_thread(self.db.columns.get_all, project_id)
         provider_ids = set()
         for col in columns:
@@ -213,8 +222,10 @@ class MessageDispatcher:
             if status["status"] == "ready":
                 continue
                 
-            # Don't block the whole thing if one fails
-            asyncio.create_task(self.initialize_provider(p_id))
+            # Track pre-warm tasks
+            task = asyncio.create_task(self.initialize_provider(p_id, workspace_cwd=workspace_cwd))
+            self._pre_warm_tasks.add(task)
+            task.add_done_callback(self._pre_warm_tasks.discard)
 
     async def _handle_get_progress(self, params, rid):
         pid = params.get("project_id")
@@ -641,7 +652,7 @@ class MessageDispatcher:
         except Exception:
             return False
 
-    async def _process_engine_request(self, card_id, method, params, request_id, on_output_with_helpers):
+    async def _process_engine_request(self, card_id: str, method: str, params: Dict[str, Any], request_id: str, on_output_with_helpers: Callable):
         task_key = f"{card_id}_{request_id}"
         session_id = params.get("sessionId")
         is_internal = session_id in self._internal_sessions
@@ -678,10 +689,6 @@ class MessageDispatcher:
                 return await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
 
             engine, is_new = await self._get_or_create_engine(card_id, on_nested_request=handle_nested_request, on_output=on_output_with_helpers)
-            # if is_new or not engine.acp_session_id:
-            #     # Serial: wait for context injection to complete before processing user prompt.
-            #     # This prevents concurrent prompt collision on the same ACP session.
-            #     await self._inject_context_async(card_id, engine, on_output_with_helpers)
 
             async def forward_notif(n):
                 if "params" in n: n["params"]["card_id"] = card_id
@@ -720,27 +727,6 @@ class MessageDispatcher:
             logger.error(f"Engine error: {e}")
             await on_output({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}})
         finally: self.tasks.remove(task_key)
-
-    async def _inject_context_async(self, card_id: str, engine: SessionEngine, on_output: Optional[Callable] = None):
-        if not engine.is_alive or not engine.acp_session_id:
-            return
-
-        # 获取列的 prompt_template
-        column_prompt = None
-        if engine.column_id:
-            column = await asyncio.to_thread(self.db.columns.get_by_id, engine.column_id)
-            if column:
-                column_prompt = column.get("prompt_template")
-
-        # Pass resolved_agent_cwd to builder (Phase: Remote Workspace Support)
-        agent_cwd = getattr(engine, "resolved_agent_cwd", None)
-        context = await self.context_builder.build_initial_context(card_id, column_prompt=column_prompt, agent_cwd=agent_cwd)
-
-        # 用真实的 ACP sessionId 注入 context
-        await engine.process_prompt("session/prompt", {
-            "sessionId": engine.acp_session_id,
-            "prompt": [{"type": "text", "text": f"[SYSTEM CONTEXT]\n{context}\n\nPlease acknowledge."}]
-        }, on_notification=on_output)
 
     async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None, ui_format: str = "acp"):
         """Shared notification forwarding logic for both user and system prompts."""
@@ -1362,13 +1348,6 @@ class MessageDispatcher:
         logger.info(f"[*] Command /help")
         return {"message": msg}
 
-    async def shutdown(self):
-        # Flush AG-UI buffers before shutdown
-        await self.shutdown_ag_ui_buffers()
-        
-        await self.tasks.cancel_all()
-        await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)
-
     async def shutdown_ag_ui_buffers(self):
         """Phase: Robustness - Flush all pending buffers on shutdown."""
         logger.info("[AG-UI] Shutting down buffers...")
@@ -1377,3 +1356,14 @@ class MessageDispatcher:
                 await self._trigger_flush(card_id, "shutdown")
             except Exception as e:
                 logger.error(f"Failed to flush buffer for {card_id} during shutdown: {e}")
+
+    async def shutdown(self):
+        # Flush AG-UI buffers before shutdown
+        await self.shutdown_ag_ui_buffers()
+        
+        await self.tasks.cancel_all()
+        # Cancel pre-warm tasks (Optimization Phase)
+        for task in list(self._pre_warm_tasks):
+            task.cancel()
+        
+        await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)
