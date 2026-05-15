@@ -109,17 +109,42 @@ class EmbeddingService:
             return None
 
     def generate_summary(self, title: str, messages: List[Dict[str, Any]], model: str = "gpt-4o-mini") -> Optional[str]:
-        """Summarizes a session history into a concise progress update."""
+        """Summarizes a session history into a structured technical handoff."""
         history_text = ""
-        for msg in messages[-20:]: # Last 20 messages for context
+        for msg in messages[-30:]: # Increased to 30 for better context
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            history_text += f"{role}: {content[:200]}\n"
+            # Truncate content but keep more than 200 chars if possible
+            history_text += f"{role}: {content[:500]}\n"
 
-        prompt = f"Summarize the technical progress for the task: '{title}'.\n\nHistory:\n{history_text}\n\nProvide a one-paragraph summary of what was achieved or the current status."
+        prompt = f"""Summarize the technical progress for the task: '{title}'.
+
+History:
+{history_text}
+
+Provide a structured technical handoff in Markdown using exactly these sections:
+
+### 📝 Phase Summary
+{{One-sentence core progress}}
+
+### 🛠 Technical Decisions
+- **Decision**: {{What}} -> **Why**: {{Reasoning}}
+
+### ⚠️ Lessons & Blacklist
+- {{Failed attempts, bugs found, or paths to avoid to save time for the next Agent}}
+
+### 🚧 Status & Issues
+- **Completed**: {{Brief list of achieved items}}
+- **Pending**: {{Blockers or remaining todos}}
+
+### ⏭ Next Actions
+- {{Concrete next steps for the next Agent}}
+
+Keep it concise but technically rich. Avoid generic fluff.
+"""
         
         return self.completion([
-            {"role": "system", "content": "You are a senior technical lead summarizing task progress."},
+            {"role": "system", "content": "You are a senior technical lead providing a handoff for another AI agent."},
             {"role": "user", "content": prompt}
         ], model=model)
 

@@ -131,7 +131,71 @@ class ProjectRepository(BaseRepository):
 
     def delete(self, project_id: str):
         with self.db.get_connection() as conn:
-            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                # 1. Delete dependent project data in order of constraints
+                
+                # Delete project agent status
+                conn.execute("DELETE FROM project_agent_status WHERE project_id = ?", (project_id,))
+                
+                # Delete timeline events
+                conn.execute("DELETE FROM project_timeline WHERE project_id = ?", (project_id,))
+                
+                # Delete file index and code symbols
+                conn.execute("DELETE FROM file_index WHERE project_id = ?", (project_id,))
+                conn.execute("DELETE FROM code_symbols WHERE project_id = ?", (project_id,))
+                
+                # Delete card sessions and summaries for all cards in this project
+                conn.execute("""
+                    DELETE FROM card_sessions WHERE card_id IN (
+                        SELECT c.id FROM cards c 
+                        JOIN columns col ON c.column_id = col.id 
+                        WHERE col.project_id = ?
+                    )
+                """, (project_id,))
+                
+                conn.execute("""
+                    DELETE FROM summaries WHERE card_id IN (
+                        SELECT c.id FROM cards c 
+                        JOIN columns col ON c.column_id = col.id 
+                        WHERE col.project_id = ?
+                    )
+                """, (project_id,))
+                
+                conn.execute("""
+                    DELETE FROM summary_history WHERE card_id IN (
+                        SELECT c.id FROM cards c 
+                        JOIN columns col ON c.column_id = col.id 
+                        WHERE col.project_id = ?
+                    )
+                """, (project_id,))
+                
+                # Delete cards
+                conn.execute("""
+                    DELETE FROM cards WHERE column_id IN (
+                        SELECT id FROM columns WHERE project_id = ?
+                    )
+                """, (project_id,))
+                
+                # Delete features and milestones
+                conn.execute("""
+                    DELETE FROM features WHERE milestone_id IN (
+                        SELECT id FROM milestones WHERE project_id = ?
+                    )
+                """, (project_id,))
+                conn.execute("DELETE FROM milestones WHERE project_id = ?", (project_id,))
+                
+                # Delete columns
+                conn.execute("DELETE FROM columns WHERE project_id = ?", (project_id,))
+                
+                # 2. Finally delete the project itself
+                conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+                
+                conn.execute("COMMIT")
+            except Exception as e:
+                conn.execute("ROLLBACK")
+                logger.error(f"Failed to delete project {project_id}: {e}")
+                raise
 
 class MilestoneRepository(BaseRepository):
     def create(self, project_id: str, title: str, description: str = None, target_date: str = None) -> str:
@@ -1071,4 +1135,12 @@ class KanbanDB:
     def complete_card(self, card_id): return self.cards.update(card_id, status='completed')
     def uncomplete_card(self, card_id): return self.cards.update(card_id, status='active')
     def mark_session_complete(self, card_id): return self.sessions.mark_complete(card_id)
-    def update_card_summary(self, card_id, summary): return self.summaries.upsert(card_id, summary)
+    def update_card_summary(self, card_id: str, summary: str, sync_to_card: bool = True):
+        """Update the source of truth summary and optionally sync to card front for UI display."""
+        # 1. Update summaries table (History)
+        self.summaries.upsert(card_id, summary)
+        
+        # 2. Optionally sync to cards table (UI Display)
+        if sync_to_card:
+            with self.get_connection() as conn:
+                conn.execute("UPDATE cards SET last_summary = ?, updated_at = ? WHERE id = ?", (summary, datetime.now().isoformat(), card_id))

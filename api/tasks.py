@@ -39,9 +39,9 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 summary = summary_obj['summary']
                 logger.info(f"Summary already exists for card {card_id}")
                 
-                # Ensure card table also has it (if we still use that field)
-                # Note: db.summaries.update_card_summary currently calls upsert internally
-                await asyncio.to_thread(db.summaries.update_card_summary, card_id, summary)
+                # Check status to decide sync
+                sync_to_card = card.get("status") != "completed"
+                await asyncio.to_thread(db.update_card_summary, card_id, summary, sync_to_card=sync_to_card)
                 break # Move to embedding phase
             
             # 4. Generate summary using LLM
@@ -57,7 +57,8 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 raise Exception("LLM returned empty summary")
             
             # 5. Save summary to database
-            await asyncio.to_thread(db.summaries.upsert, card_id, summary)
+            sync_to_card = card.get("status") != "completed"
+            await asyncio.to_thread(db.update_card_summary, card_id, summary, sync_to_card=sync_to_card)
             
             logger.info(f"Summary generated and saved for card {card_id}")
             break # Success, move to embedding phase

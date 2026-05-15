@@ -185,17 +185,27 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
                 try:
                     await generate_card_summary_task(card_id)
                     db = get_db()
+                    card = db.get_card(card_id)
+                    if not card: return
+
                     summary_obj = db.summaries.get(card_id)
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    transition_header = f"> 🔄 Moved from **{from_col}** to **{to_col}** at {now_str}\n\n"
+                    
                     if summary_obj:
-                        wrapped_summary = f"Transition: {from_col} -> {to_col}\nProgress: {summary_obj['summary']}"
-                        db.update_card_summary(card_id, wrapped_summary)
+                        wrapped_summary = f"{transition_header}{summary_obj['summary']}"
                     else:
-                        # If no summary was generated (maybe because there were no messages), create one from the card's basic info
-                        card = db.get_card(card_id)
-                        if card:
-                            basic_summary = f"Title: {card['title']}\nDescription: {card.get('description', '')}"
-                            wrapped_summary = f"Transition: {from_col} -> {to_col}\nProgress: {basic_summary}"
-                            db.update_card_summary(card_id, wrapped_summary)
+                        # Fallback if no history yet
+                        basic_info = f"Title: {card['title']}\nDescription: {card.get('description', '')}"
+                        wrapped_summary = f"{transition_header}{basic_info}"
+                    
+                    # Sync to card display ONLY if NOT completed
+                    sync_to_card = card.get("status") != "completed"
+                    db.update_card_summary(card_id, wrapped_summary, sync_to_card=sync_to_card)
+                    
+                    if sync_to_card:
+                        bus.publish(card_id, {"type": "refresh"})
+                        
                 except Exception as e:
                     print(f"[ERROR] Failed to generate summary for moved card {card_id}: {e}")
 
@@ -355,11 +365,15 @@ async def complete_card(card_id: str, background_tasks: BackgroundTasks):
             try:
                 logger.info(f"[Complete Card] Starting summary generation for card {card_id}")
                 await generate_card_summary_task(card_id, max_retries=2)
+                
+                # Fetch generated summary and ensure it's NOT synced to card front
                 summary_obj = db.summaries.get(card_id)
                 if summary_obj:
-                    logger.info(f"[Complete Card] Summary generated for card {card_id}")
+                    # Sync to card is FALSE for completed cards
+                    db.update_card_summary(card_id, summary_obj['summary'], sync_to_card=False)
+                    logger.info(f"[Complete Card] Summary generated and archived (not synced to UI) for card {card_id}")
                 else:
-                    logger.warning(f"[Complete Card] No summary generated for card {card_id} (possibly no messages)")
+                    logger.warning(f"[Complete Card] No summary generated for card {card_id}")
             except Exception as e:
                 logger.error(f"[Complete Card] Error generating summary for card {card_id}: {e}")
         
