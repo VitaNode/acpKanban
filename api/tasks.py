@@ -79,7 +79,7 @@ async def generate_card_summary_task(card_id: str, max_retries: int = 3):
                 logger.info(f"Generating embedding for card {card_id} (Attempt {emb_attempt+1})")
                 emb = await asyncio.to_thread(embedding_service.get_embedding, summary)
                 if emb:
-                    await asyncio.to_thread(db.cards.upsert_card_embedding, card_id, emb)
+                    await asyncio.to_thread(db.cards.update_card_embedding, card_id, emb)
                     logger.info(f"Embedding generated and saved for card {card_id}")
                     return # Success
                 else:
