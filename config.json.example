@@ -1,0 +1,30 @@
+{
+  "system": {
+    "db_path": "kanban.db",
+    "workspace_root": "",
+    "log_level": "INFO",
+    "max_sessions": 30,
+    "session_idle_timeout_minutes": 30
+  },
+  "relay": {
+    "url": "wss://mybot.siliconpulse.cc",
+    "token": "YOUR_STRONG_TOKEN",
+    "user_id": "user_XXXXXX"
+  },
+  "providers": {
+    "default": "gemini",
+    "list": [
+      {
+        "id": "gemini",
+        "name": "Gemini CLI",
+        "command": ["gemini", "--acp"],
+        "icon": "bolt"
+      }
+    ]
+  },
+  "cloud": {
+    "api_key": "",
+    "base_url": "https://api.openai.com/v1",
+    "model_id": "gpt-4o-mini"
+  }
+}
