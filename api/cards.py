@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional
 import os
 import json
+from datetime import datetime
 from src.logic.engine import SessionEngine, SummaryService
 from src.transport.bus import bus
 from api.models import (
