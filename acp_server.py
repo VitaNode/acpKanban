@@ -14,7 +14,6 @@ class ACPServer:
         self._notification_queues = {}
         self._request_futures = {}
         self._next_request_id = 1
-        self._loop = asyncio.get_event_loop()
 
     def log(self, msg: str): 
         sys.stderr.write(f"[{datetime.now().isoformat()}] {msg}\n")
@@ -38,7 +37,7 @@ class ACPServer:
     async def send_request(self, method: str, params: Dict[str, Any]) -> Any:
         rid = self._next_request_id
         self._next_request_id += 1
-        future = self._loop.create_future()
+        future = asyncio.get_running_loop().create_future()
         self._request_futures[rid] = future
         print(json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}), flush=True)
         try:

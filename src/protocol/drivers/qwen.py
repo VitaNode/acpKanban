@@ -27,15 +27,8 @@ class QwenDriver(BaseAgentDriver):
         Qwen/OpenClaw often expect simple boolean 'allow' for some requests,
         but standardized outcome for session/request_permission.
         """
-        if method == "session/request_permission":
-            # Ensure outcome is present
-            if "outcome" in ui_result:
-                return ui_result
-            # Fallback for older UI versions or simplified responses
-            option_id = ui_result.get("optionId") or "allow"
-            return {"outcome": {"optionId": option_id}}
-            
-        return ui_result
+        # Call base to get standardized 'outcome': {'outcome': 'selected', 'optionId': ...}
+        return super().translate_ui_result(method, ui_result, original_params)
 
     def extract_chunk_text(self, n: Dict[str, Any]) -> Optional[str]:
         if n.get("method") == "_qwencode/slash_command":

@@ -165,7 +165,8 @@ class ACPClient:
         else:
             response_obj["result"] = result or {}
         
-        self.logger.debug(f"SEND RESP: {response_obj}")
+        # Always log at INFO for now to debug permission issues
+        self.logger.info(f"BRIDGE -> ACP: {json.dumps(response_obj)}")
         self.process.stdin.write((json.dumps(response_obj) + "\n").encode())
         await self.process.stdin.drain()
 

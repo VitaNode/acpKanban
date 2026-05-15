@@ -59,7 +59,44 @@ class BaseAgentDriver:
         Default implementation (ACP 1.0 style):
         Returns the result as-is.
         """
+        if method == "session/request_permission":
+            # 0. Check if it's an error response
+            if isinstance(ui_result, dict) and "code" in ui_result and "message" in ui_result:
+                # If the UI returned an error, return it as-is for the bridge to wrap
+                return ui_result
+
+            # Normalize UI results to standard ACP outcome structure
+            outcome = ui_result.get("outcome", {}) if isinstance(ui_result, dict) else {}
+            if outcome.get("cancelled"):
+                return self.build_cancel_response()
+            
+            option_id = outcome.get("optionId")
+            if option_id:
+                return self.build_permission_response(option_id)
+        
         return ui_result
+
+    def build_permission_response(self, option_id: str) -> Dict[str, Any]:
+        """
+        Construct a standard ACP permission response.
+        Ensures 'outcome': 'selected' is present.
+        """
+        return {
+            "outcome": {
+                "outcome": "selected",
+                "optionId": option_id
+            }
+        }
+
+    def build_cancel_response(self) -> Dict[str, Any]:
+        """
+        Construct a standard ACP cancel response.
+        """
+        return {
+            "outcome": {
+                "outcome": "cancelled"
+            }
+        }
 
     def get_yolo_option(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -67,17 +104,23 @@ class BaseAgentDriver:
         """
         if method == "session/request_permission":
             options = params.get("options", [])
+            selected_id = None
             # Prefer 'always' then 'once' then 'allow'
             for kind in ["allow_always", "allow_once", "allow"]:
                 for opt in options:
                     if opt.get("kind") == kind or kind in (opt.get("optionId") or ""):
-                        return {"outcome": {"optionId": opt.get("optionId")}}
+                        selected_id = opt.get("optionId")
+                        break
+                if selected_id: break
             
             # Fallback to first option if nothing matched
-            if options:
-                return {"outcome": {"optionId": options[0].get("optionId")}}
+            if not selected_id and options:
+                selected_id = options[0].get("optionId")
+            
+            if not selected_id:
+                selected_id = "allow"
                 
-            return {"outcome": {"optionId": "allow"}}
+            return self.build_permission_response(selected_id)
         
         return {"status": "success"}
 

@@ -50,16 +50,18 @@ class ACPProtocolAdapter:
                             if self.on_request:
                                 async def handle_and_respond(req_id, method, params):
                                     try:
-                                        self.log(f"[*] Dispatching nested request to handler: {method}")
+                                        now = time.strftime("%H:%M:%S")
+                                        self.log(f"[{now}] [*] Dispatching nested request to handler: {method}")
                                         result = await self.on_request(method, params)
-                                        self.log(f"[*] Nested request handler returned: {result}")
+                                        self.log(f"[{now}] [*] Nested request handler returned: {result}")
                                         
                                         if isinstance(result, dict) and "error" in result:
                                             await self.acp.respond(req_id, error=result["error"])
                                         else:
                                             await self.acp.respond(req_id, result=result)
                                     except Exception as re:
-                                        self.log(f"[*] Nested request handler error: {re}")
+                                        now = time.strftime("%H:%M:%S")
+                                        self.log(f"[{now}] [*] Nested request handler error: {re}")
                                         await self.acp.respond(req_id, error={"code": -32000, "message": str(re)})
                                 asyncio.create_task(handle_and_respond(data["id"], data["method"], data.get("params", {})))
                             else:

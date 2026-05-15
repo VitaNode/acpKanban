@@ -69,10 +69,9 @@ class TestACPPermission(unittest.TestCase):
 
         self.assertIsNotNone(server_req)
         req_id = server_req["id"]
-        print(f"Received Permission Request from Server: {req_id}")
 
         # 5. Respond DENY
-        deny_res = {"jsonrpc": "2.0", "id": req_id, "result": {"allow": False}}
+        deny_res = {"jsonrpc": "2.0", "id": req_id, "result": {"outcome": {"outcome": "selected", "optionId": "deny"}}}
         self.process.stdin.write(json.dumps(deny_res) + "\n")
         self.process.stdin.flush()
 
