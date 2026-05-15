@@ -21,13 +21,14 @@ class SessionState(Enum):
     ERROR = "error"
 
 class SessionEngine:
-    def __init__(self, card_id: str, provider_id: str, workspace_path: str, column_id: str, db: Optional[KanbanDB] = None):
+    def __init__(self, card_id: str, provider_id: str, workspace_path: str, column_id: str, db: Optional[KanbanDB] = None, on_status_change: Optional[Callable[[str, str, Optional[str]], Any]] = None):
         self.card_id = card_id
         self.provider_id = provider_id
         self.workspace_path = workspace_path
         self.resolved_agent_cwd = workspace_path # Default to project path
         self.column_id = column_id
         self.db = db
+        self.on_status_change = on_status_change
         self.logger = setup_logger(f"SessionEngine[{card_id[:8]}]")
         self.state = SessionState.IDLE
         self.last_active = time.time()
@@ -75,6 +76,15 @@ class SessionEngine:
             self.adapter.on_notification = on_notification
         self.logger.debug(f"[*] on_notification callback updated for card {self.card_id}")
 
+    def _notify_status(self, status: str, error: Optional[str] = None):
+        if self.on_status_change:
+            try:
+                res = self.on_status_change(self.provider_id, status, error)
+                if asyncio.iscoroutine(res):
+                    asyncio.create_task(res)
+            except Exception as e:
+                self.logger.error(f"Failed to notify status change: {e}")
+
     async def start(self, fallback_command=None, on_request: Optional[Callable] = None, on_notification: Optional[Callable] = None, is_quiet: bool = False):
         async with self._lock:
             self._is_cancelling = False
@@ -110,6 +120,13 @@ class SessionEngine:
                 await self.acp_client.start()
                 self.adapter = ACPProtocolAdapter(self.acp_client, workspace_cwd=agent_cwd, provider_id=self.provider_id, on_request=on_request, on_notification=on_notification)
 
+                # Phase: ACP Compliance - Explicitly call initialize before any session requests
+                self.logger.info(f"[*] Initializing provider {self.provider_id}")
+                await self.adapter.initialize({
+                    "workspace_path": agent_cwd,
+                    "capabilities": {}
+                })
+
                 # Try to restore previous session if we have a saved sessionId
                 if self.acp_session_id:
                     self.logger.info(f"Attempting to restore session: {self.acp_session_id}")
@@ -133,6 +150,7 @@ class SessionEngine:
                             self._save_config_options_to_db()
                             self.logger.info(f"Session restored successfully: {self.acp_session_id} (configOptions: {len(self.current_config_options)}, commands: {len(self.available_commands)})")
                             self.state = SessionState.IDLE
+                            self._notify_status("ready")
                             return self.acp_session_id
                         else:
                             self.logger.warning(f"Session load failed, creating new session")
@@ -151,6 +169,7 @@ class SessionEngine:
                 self._save_config_options_to_db()
 
                 self.state = SessionState.IDLE
+                self._notify_status("ready")
                 
                 return {
                     "sessionId": self.acp_session_id,
@@ -158,6 +177,7 @@ class SessionEngine:
                 }
             except Exception as e:
                 self.state = SessionState.ERROR
+                self._notify_status("degraded", error=str(e))
                 raise
 
     async def stop(self):
@@ -410,8 +430,13 @@ class SummaryService:
             await generate_card_summary_task(card_id)
             
     async def summarize_move(self, card_id: str, from_col: str, to_col: str):
-        await self.generate_and_save_summary(card_id)
-        obj = await asyncio.to_thread(self.db.summaries.get, card_id)
-        if obj:
-            wrapped = f"Transition: {from_col} -> {to_col}\nProgress: {obj['summary']}"
-            await asyncio.to_thread(self.db.update_card_summary, card_id, wrapped)
+        try:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            header = f"> 🔄 Moved from **{from_col}** to **{to_col}** at {now_str}\n\n"
+            
+            from api.tasks import generate_card_summary_task
+            await generate_card_summary_task(card_id, transition_header=header)
+            
+            logger.info(f"[SummaryService] Move summary generated for card {card_id}")
+        except Exception as e:
+            logger.error(f"[SummaryService] Failed to generate move summary: {e}")
