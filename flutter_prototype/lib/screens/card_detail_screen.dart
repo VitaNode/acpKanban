@@ -75,6 +75,8 @@ class _CardDetailViewState extends State<CardDetailView> {
   String? _targetProviderId;
   final Map<String, String> _providerNameMap = {};
   bool _isInitializing = false;
+  bool _isStartingSession = false;
+  String? _statusMessage;
   bool _isAgentConnected = false;
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
@@ -245,7 +247,14 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   void _setupWebSocket() {
-    _wsService.connect(_card.id);
+    _wsService.connect(_card.id).then((success) {
+      if (success && mounted) {
+        // Only auto-initialize if a provider is assigned (not None)
+        if (_card.acpProviderId != null || _targetProviderId != null) {
+          _initializeAgent();
+        }
+      }
+    });
     _messageSub = _wsService.messages.listen((msgs) {
       if (!mounted) return;
 
@@ -372,6 +381,22 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   void _onCardUpdate(KanbanCard updatedCard) {
     if (!mounted) return;
+    final bool wasConnected = _isAgentConnected;
+    final bool columnChanged = updatedCard.columnId != _card.columnId;
+
+    if (columnChanged) {
+      // Re-fetch column provider if column changed
+      _projectService.getColumns(widget.projectId).then((cols) {
+        if (!mounted) return;
+        for (var col in cols) {
+          if (col.id == updatedCard.columnId) {
+            setState(() => _targetProviderId = col.acpProviderId);
+            break;
+          }
+        }
+      });
+    }
+
     setState(() {
       // Sync Agent Session state
       final sessionId = updatedCard.acpSessionId;
@@ -398,6 +423,11 @@ class _CardDetailViewState extends State<CardDetailView> {
         _columnName = updatedCard.columnName;
       }
 
+      // Auto-initialize if a provider becomes available and not connected
+      if (!_isAgentConnected && !_isStartingSession && (updatedCard.acpProviderId != null || _targetProviderId != null)) {
+         _initializeAgent();
+      }
+
       // Only change connection status if sessionId was explicitly part of this update
       if (sessionId != null) {
         if (sessionId.isEmpty) {
@@ -405,6 +435,15 @@ class _CardDetailViewState extends State<CardDetailView> {
           _configOptions = [];
         } else {
           _isAgentConnected = true;
+          _isStartingSession = false; // Phase: UX Optimization
+          // Phase: UX Optimization - Use a persistent status message instead of blocking SnackBar
+          if (!wasConnected) {
+             _statusMessage = 'Session ready. Manual context only.';
+             // Auto-hide status message after 5s
+             Timer(const Duration(seconds: 5), () {
+               if (mounted) setState(() => _statusMessage = null);
+             });
+          }
         }
       }
       
@@ -467,6 +506,7 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   Future<void> _initializeAgent() async {
     if (_isAgentConnected) return;
+    setState(() => _isStartingSession = true);
     await _wsService.sendInit();
   }
 
@@ -779,7 +819,6 @@ class _CardDetailViewState extends State<CardDetailView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-
     return SelectionArea(
       child: Column(
         children: [
@@ -912,16 +951,16 @@ class _CardDetailViewState extends State<CardDetailView> {
       onSelected: (val) {
         if (val == 'delete') _onDelete();
         if (val == 'complete') _onToggleComplete();
-        if (val == 'roadmap') _showRoadmapPicker();
+        if (val == 'move') _showMoveColumnDialog();
       },
       itemBuilder: (context) => [
         PopupMenuItem(
-          value: 'roadmap',
+          value: 'move',
           child: Row(
             children: [
-              const Icon(Icons.alt_route_rounded, size: 18),
+              const Icon(Icons.drive_file_move_outlined, size: 18),
               const SizedBox(width: 12),
-              Text(_selectedFeature != null ? 'Change Feature' : 'Link to Feature'),
+              const Text('Move to Column'),
             ],
           ),
         ),
@@ -936,18 +975,76 @@ class _CardDetailViewState extends State<CardDetailView> {
           ),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'delete',
           child: Row(
             children: [
-              Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
+              Icon(Icons.delete_outline_rounded, size: 18, color: colorScheme.error),
               const SizedBox(width: 12),
-              Text('Delete Card', style: TextStyle(color: Colors.red)),
+              Text('Delete Card', style: TextStyle(color: colorScheme.error)),
             ],
           ),
         ),
       ],
     );
+  }
+
+  void _showMoveColumnDialog() async {
+    final colorScheme = Theme.of(context).colorScheme;
+    
+    try {
+      final columns = await _projectService.getColumns(widget.projectId);
+      if (!mounted) return;
+      
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Move to Column'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: columns.length,
+              itemBuilder: (context, index) {
+                final col = columns[index];
+                final isCurrent = col.id == _card.columnId;
+                
+                return ListTile(
+                  leading: Icon(
+                    isCurrent ? Icons.radio_button_checked : Icons.radio_button_off,
+                    color: isCurrent ? colorScheme.primary : null,
+                  ),
+                  title: Text(col.name, style: TextStyle(
+                    fontWeight: isCurrent ? FontWeight.bold : null,
+                  )),
+                  enabled: !isCurrent,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final success = await _projectService.moveCard(_card.id, col.id, null);
+                    if (success && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Moved to ${col.name}'))
+                      );
+                      widget.onBack?.call();
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load columns: $e'))
+      );
+    }
   }
 
   Widget _buildHeader() {
@@ -978,66 +1075,74 @@ class _CardDetailViewState extends State<CardDetailView> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              // Milestone Dropdown
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<ProjectMilestone>(
-                    value: _selectedMilestone,
-                    isDense: true,
-                    hint: const Text('Milestone', style: TextStyle(fontSize: 12)),
-                    style: Theme.of(context).textTheme.bodySmall,
-                    items: [
-                      const DropdownMenuItem<ProjectMilestone>(
-                        value: null,
-                        child: Text('Uncategorized', style: TextStyle(fontSize: 12)),
-                      ),
-                      ..._milestones.map((m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(m.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                          )),
-                    ],
-                    onChanged: (m) {
-                      setState(() {
-                        _selectedMilestone = m;
-                        _selectedFeature = null;
-                      });
-                      if (m == null) _onFeatureSelected(null);
-                    },
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+              border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+            ),
+            child: Row(
+              children: [
+                // Milestone Dropdown
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<ProjectMilestone>(
+                      value: _selectedMilestone,
+                      isDense: true,
+                      hint: const Text('Milestone', style: TextStyle(fontSize: 12)),
+                      style: Theme.of(context).textTheme.bodySmall,
+                      items: [
+                        const DropdownMenuItem<ProjectMilestone>(
+                          value: null,
+                          child: Text('Uncategorized', style: TextStyle(fontSize: 12)),
+                        ),
+                        ..._milestones.map((m) => DropdownMenuItem(
+                              value: m,
+                              child: Text(m.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                            )),
+                      ],
+                      onChanged: (m) {
+                        setState(() {
+                          _selectedMilestone = m;
+                          _selectedFeature = null;
+                        });
+                        if (m == null) _onFeatureSelected(null);
+                      },
+                    ),
                   ),
                 ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 4),
-                child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
-              ),
-              // Feature Dropdown
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<ProjectFeature>(
-                    value: _selectedFeature,
-                    isDense: true,
-                    hint: const Text('Feature', style: TextStyle(fontSize: 12)),
-                    style: Theme.of(context).textTheme.bodySmall,
-                    disabledHint: const Text('Select Milestone', style: TextStyle(fontSize: 12)),
-                    items: _selectedMilestone == null
-                        ? []
-                        : [
-                            const DropdownMenuItem<ProjectFeature>(
-                              value: null,
-                              child: Text('None', style: TextStyle(fontSize: 12)),
-                            ),
-                            ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
-                                  value: f,
-                                  child: Text(f.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                )),
-                          ],
-                    onChanged: _selectedMilestone == null ? null : (f) => _onFeatureSelected(f),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
+                ),
+                // Feature Dropdown
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<ProjectFeature>(
+                      value: _selectedFeature,
+                      isDense: true,
+                      hint: const Text('Feature', style: TextStyle(fontSize: 12)),
+                      style: Theme.of(context).textTheme.bodySmall,
+                      disabledHint: const Text('Select Milestone', style: TextStyle(fontSize: 12)),
+                      items: _selectedMilestone == null
+                          ? []
+                          : [
+                              const DropdownMenuItem<ProjectFeature>(
+                                value: null,
+                                child: Text('None', style: TextStyle(fontSize: 12)),
+                              ),
+                              ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
+                                    value: f,
+                                    child: Text(f.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                  )),
+                            ],
+                      onChanged: _selectedMilestone == null ? null : (f) => _onFeatureSelected(f),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           if (_selectedMilestone != null && _selectedFeature != null)
             Padding(
@@ -1121,10 +1226,8 @@ class _CardDetailViewState extends State<CardDetailView> {
             ]),
           ]),
           const SizedBox(height: AppConstants.space4),
-          Text('Confirm or edit the progress summary before initializing the agent.', 
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic)),
-          const SizedBox(height: AppConstants.space12),
           if (_isEditingSummary)
+
             TextField(
               controller: _summaryController,
               maxLines: null,
@@ -1186,7 +1289,8 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   Widget _buildInputArea() {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         decoration: BoxDecoration(
@@ -1198,40 +1302,46 @@ class _CardDetailViewState extends State<CardDetailView> {
           children: [
             if (_isAgentConnected && _contextController.text.isNotEmpty)
               _buildContextPanel(),
-            if (!_isAgentConnected)
+            
+            // Phase: UX Refinement - Slim initialization indicator
+            if (_isStartingSession)
               Padding(
-                padding: const EdgeInsets.only(bottom: AppConstants.space12),
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: const LinearProgressIndicator(minHeight: 2),
+                ),
+              ),
+
+            // Phase: UX Refinement - Ultra-compact status line
+            if (_statusMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4, left: 4),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline_rounded, size: 16),
-                    const SizedBox(width: AppConstants.space8),
+                    Icon(Icons.info_outline, size: 10, color: colorScheme.secondary),
+                    const SizedBox(width: 6),
                     Expanded(
-                      child: Text(
-                          (_targetProviderId != null || _card.acpProviderId != null)
-                              ? 'Agent [${_providerDisplayName.toUpperCase()}] is ready in this column.'
-                              : 'No default agent for this column.',
-                          style: Theme.of(context).textTheme.bodySmall),
+                      child: Text(_statusMessage!, 
+                        style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: colorScheme.secondary.withOpacity(0.8))),
                     ),
-                    if (_targetProviderId != null || _card.acpProviderId != null)
-                      _isInitializing
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : TextButton(
-                            onPressed: _initializeAgent,
-                            style: TextButton.styleFrom(
-                              backgroundColor: colorScheme.primary.withOpacity(0.1),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: Text('INITIALIZE ${_providerDisplayName.toUpperCase()}'),
-                          ),
                   ],
                 ),
               ),
+            
             Stack(
               children: [
                 Row(children: [
-                  if (_isAgentConnected)
+                  if (_isAgentConnected) ...[
+                    IconButton(
+                      icon: Icon(Icons.psychology_outlined, 
+                        color: _contextController.text.isNotEmpty 
+                          ? colorScheme.primary 
+                          : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                      onPressed: () => _wsService.getContext(),
+                      tooltip: 'Inject System Context',
+                      visualDensity: VisualDensity.compact,
+                    ),
                     IconButton(
                       icon: Icon(Icons.bolt_rounded, 
                         color: _commandOverlay != null 
@@ -1241,6 +1351,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                       tooltip: 'Slash Commands',
                       visualDensity: VisualDensity.compact,
                     ),
+                  ],
                   Expanded(
                       child: TextField(
                           controller: _chatController,
