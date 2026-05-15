@@ -139,8 +139,11 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
 
     try {
       final result = await AuthService().pairWithCode(host, code);
+      if (!mounted) return;
+      
       if (result.success && result.config != null) {
         await _loadConfig(); // Refresh UI with new config
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Pairing successful! Settings updated.')),
         );
@@ -231,13 +234,12 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         setState(() {
           _connectionStatus = 'Connected';
         });
-      }
-      widget.onConnectionChanged?.call(
-        widget.acpClient.activeMode,
-        widget.acpClient.activeUrl,
-      );
+        
+        widget.onConnectionChanged?.call(
+          widget.acpClient.activeMode,
+          widget.acpClient.activeUrl,
+        );
 
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Connected successfully!')),
         );
@@ -247,8 +249,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         setState(() {
           _connectionStatus = 'Failed: ${e.toString()}';
         });
-      }
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Connection failed: $e')),
         );
