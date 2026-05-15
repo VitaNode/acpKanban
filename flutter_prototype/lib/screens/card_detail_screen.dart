@@ -881,58 +881,83 @@ class _CardDetailViewState extends State<CardDetailView> {
       ),
       child: SafeArea(
         bottom: false,
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: widget.onBack ?? () => Navigator.pop(context),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: widget.onBack ?? () => Navigator.pop(context),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (_projectName != null) ...[
+                        Text(
+                          _projectName!,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
+                        ),
+                      ],
+                      if (_columnName != null && _columnName!.isNotEmpty && _columnName!.toLowerCase() != 'detail')
+                        Text(
+                          _columnName!,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (_isSavingCard)
+                  const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 8),
+                _buildActionMenu(colorScheme),
+              ],
             ),
-            const SizedBox(width: 8),
-            Expanded(
+            Padding(
+              padding: const EdgeInsets.only(left: 12, top: 4),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_projectName != null) ...[
-                    Text(
-                      _projectName!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
-                    ),
-                  ],
-                  if (_columnName != null && _columnName!.isNotEmpty && _columnName!.toLowerCase() != 'detail') ...[
-                    Text(
-                      _columnName!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
-                    ),
-                  ],
                   Expanded(
-                    child: Text(
-                      '${_card.title} (${_card.shortId.toUpperCase()})',
-                      style: theme.textTheme.labelSmall?.copyWith(
+                    child: TextField(
+                      controller: _titleController,
+                      maxLines: null,
+                      style: theme.textTheme.titleMedium?.copyWith(
                         color: colorScheme.onSurface,
                         fontWeight: FontWeight.bold,
                       ),
-                      overflow: TextOverflow.ellipsis,
+                      decoration: const InputDecoration.collapsed(
+                        hintText: 'Card title...',
+                      ),
+                      textInputAction: TextInputAction.newline,
                     ),
                   ),
+                  if (_card.shortId.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, left: 8),
+                      child: Text(
+                        _card.shortId.toUpperCase(),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withOpacity(0.5),
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            if (_isSavingCard)
-              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-            const SizedBox(width: 8),
-            _buildActionMenu(colorScheme),
           ],
         ),
       ),
