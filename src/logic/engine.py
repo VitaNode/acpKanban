@@ -340,9 +340,39 @@ class SessionEngine:
         self.state = SessionState.THINKING
         try:
             if self.acp_session_id: params["sessionId"] = self.acp_session_id
-            res = await self.adapter.handle_request(method, params, on_notification=on_notification)
-            if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
-            return res
+            
+            try:
+                res = await self.adapter.handle_request(method, params, on_notification=on_notification)
+                if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
+                return res
+            except Exception as e:
+                # Recovery Logic (Phase: Global Optimization)
+                # If prompt fails, try to re-initialize and retry once.
+                self.logger.warning(f"Prompt failed ({e}), attempting auto-recovery...")
+                
+                # Clear session state and restart
+                self.acp_session_id = None
+                if self.adapter:
+                    self.adapter.stop()
+                    self.adapter = None
+                if self.acp_client:
+                    await self.acp_client.stop()
+                    self.acp_client = None
+                
+                # Re-start (will create a new session)
+                await self.start()
+                
+                if self.acp_session_id:
+                    self.logger.info(f"Recovery successful, retrying prompt with new session: {self.acp_session_id[:8]}")
+                    params["sessionId"] = self.acp_session_id
+                    res = await self.adapter.handle_request(method, params, on_notification=on_notification)
+                    if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
+                    return res
+                else:
+                    raise Exception(f"Recovery failed: Could not establish new session. Original error: {e}")
+        except Exception as e:
+            self.state = SessionState.ERROR
+            raise
         finally:
             if self.state != SessionState.ERROR: self.state = SessionState.IDLE
 

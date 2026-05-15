@@ -312,6 +312,11 @@ async def get_project(project_id: str):
     db = get_db()
     project = validate_project_exists(project_id, db)
 
+    # Phase: Global Optimization - Pre-warm providers
+    import run_bridge
+    if run_bridge.bridge_instance:
+        asyncio.create_task(run_bridge.bridge_instance.dispatcher.pre_warm_providers(project_id))
+
     with db.get_connection() as conn:
         cursor = conn.execute(
             "SELECT COUNT(*) as count FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.project_id = ?",

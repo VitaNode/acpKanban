@@ -26,3 +26,21 @@ async def get_providers():
         "providers": config.get("providers", []),
         "default_provider": config.get("default_provider", "gemini"),
     }
+
+
+@router.get("/providers/init-status")
+async def get_provider_init_status(project_id: str):
+    import run_bridge
+    bridge = run_bridge.bridge_instance
+    if not bridge:
+        raise HTTPError(503, "Bridge not connected")
+    return await bridge.dispatcher._handle_provider_init_status({"project_id": project_id}, None)
+
+
+@router.post("/providers/{provider_id}/initialize")
+async def initialize_provider(provider_id: str):
+    import run_bridge
+    bridge = run_bridge.bridge_instance
+    if not bridge:
+        raise HTTPError(503, "Bridge not connected")
+    return await bridge.dispatcher.initialize_provider(provider_id)

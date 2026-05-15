@@ -571,6 +571,8 @@ class UnifiedBridge:
             pid = params.get("project_id")
             # Logic from api/projects.py: just mark as current
             self.db.set_setting("current_project_id", pid)
+            # Phase: Global Optimization - Pre-warm providers
+            asyncio.create_task(self.dispatcher.pre_warm_providers(pid))
             await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True, "project_id": pid}})
             return
 

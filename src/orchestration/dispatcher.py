@@ -63,6 +63,10 @@ class MessageDispatcher:
         # AG-UI Configuration
         self._ag_ui_flush_interval_ms = 500  # Time-based flush trigger
         self._ag_ui_buffer_capacity = 20  # Capacity-based flush trigger (chunks)
+        
+        # Provider Initialization States (Phase: Global Optimization)
+        self.provider_states: Dict[str, Dict[str, Any]] = {}
+        self._provider_locks: Dict[str, asyncio.Lock] = {}
 
     def _setup_local_commands(self):
         self.commands.register("/status", self._handle_status_cmd)
@@ -74,6 +78,8 @@ class MessageDispatcher:
     def _setup_handlers(self):
         self._handlers = {
             "initialize": self._handle_initialize,
+            "provider/init-status": self._handle_provider_init_status,
+            "provider/initialize": self._handle_provider_initialize,
             "kanban/progress/get": self._handle_get_progress,
             "kanban/milestone/create": self._handle_create_milestone,
             "kanban/milestone/update": self._handle_update_milestone,
@@ -99,6 +105,116 @@ class MessageDispatcher:
                 "version": "1.0.0"
             }
         }
+
+    async def _handle_provider_init_status(self, params, rid):
+        pid = params.get("project_id")
+        if not pid:
+            return {"error": "Missing project_id"}
+        
+        # Get providers referenced in this project
+        columns = await asyncio.to_thread(self.db.columns.get_all, pid)
+        provider_ids = set()
+        for col in columns:
+            p_id = col.get("acp_provider_id") or config.default_provider
+            provider_ids.add(p_id)
+            
+        results = []
+        import time
+        for p_id in provider_ids:
+            status = await self.get_provider_status(p_id)
+            results.append(status)
+        return {"providers": results}
+
+    async def _handle_provider_initialize(self, params, rid):
+        p_id = params.get("provider_id")
+        if not p_id:
+            return {"error": "Missing provider_id"}
+        return await self.initialize_provider(p_id)
+
+    async def get_provider_status(self, provider_id: str) -> Dict[str, Any]:
+        return self.provider_states.get(provider_id, {
+            "provider_id": provider_id,
+            "status": "uninitialized",
+            "last_success_at": None,
+            "last_error": None,
+            "last_error_at": None
+        })
+
+    async def initialize_provider(self, provider_id: str) -> Dict[str, Any]:
+        if provider_id not in self._provider_locks:
+            self._provider_locks[provider_id] = asyncio.Lock()
+        
+        async with self._provider_locks[provider_id]:
+            logger.info(f"[*] Initializing provider: {provider_id}")
+            import time
+            
+            # Update state to initializing
+            state = self.provider_states.get(provider_id, {
+                "provider_id": provider_id,
+                "status": "uninitialized",
+                "last_success_at": None,
+                "last_error": None,
+                "last_error_at": None
+            })
+            
+            try:
+                # To "initialize" a provider, we try to start a dummy session
+                # and immediately stop it. This verifies the executable works.
+                from src.protocol.client import ACPClient
+                from src.protocol.adapter import ACPProtocolAdapter
+                
+                providers = config.providers
+                cfg = next((p for p in providers if isinstance(p, dict) and p.get("id") == provider_id), None)
+                if not cfg:
+                    raise ValueError(f"Provider {provider_id} not found in configuration")
+                
+                # Use project root as CWD for discovery
+                cwd = str(config.project_root)
+                client = ACPClient(cfg["command"], cwd)
+                await client.start()
+                
+                adapter = ACPProtocolAdapter(client, provider_id=provider_id, workspace_cwd=cwd)
+                # Send initialize request
+                await adapter.handle_request("initialize", {
+                    "capabilities": {},
+                    "clientInfo": {"name": "Kanban-Init-Check", "version": "1.0.0"}
+                })
+                
+                # If we reach here, it worked!
+                await client.stop()
+                
+                state["status"] = "ready"
+                state["last_success_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                state["last_error"] = None
+                self.provider_states[provider_id] = state
+                logger.info(f"[+] Provider {provider_id} is READY")
+                return state
+                
+            except Exception as e:
+                logger.error(f"[!] Provider {provider_id} initialization FAILED: {e}")
+                state["status"] = "degraded"
+                state["last_error"] = str(e)
+                state["last_error_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                self.provider_states[provider_id] = state
+                return state
+
+    async def pre_warm_providers(self, project_id: str):
+        """Pre-warm providers for a project in the background."""
+        logger.info(f"[*] Pre-warming providers for project {project_id}")
+        columns = await asyncio.to_thread(self.db.columns.get_all, project_id)
+        provider_ids = set()
+        for col in columns:
+            p_id = col.get("acp_provider_id") or config.default_provider
+            provider_ids.add(p_id)
+            
+        for p_id in provider_ids:
+            # Check if already ready
+            status = await self.get_provider_status(p_id)
+            if status["status"] == "ready":
+                continue
+                
+            # Don't block the whole thing if one fails
+            asyncio.create_task(self.initialize_provider(p_id))
 
     async def _handle_get_progress(self, params, rid):
         pid = params.get("project_id")
@@ -1252,3 +1368,12 @@ class MessageDispatcher:
         
         await self.tasks.cancel_all()
         await asyncio.gather(*[eng.stop() for eng in self.engines.values()], return_exceptions=True)
+
+    async def shutdown_ag_ui_buffers(self):
+        """Phase: Robustness - Flush all pending buffers on shutdown."""
+        logger.info("[AG-UI] Shutting down buffers...")
+        for card_id in list(self._chunk_buffers.keys()):
+            try:
+                await self._trigger_flush(card_id, "shutdown")
+            except Exception as e:
+                logger.error(f"Failed to flush buffer for {card_id} during shutdown: {e}")

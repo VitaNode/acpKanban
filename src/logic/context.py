@@ -51,9 +51,8 @@ class ContextBuilder:
 
             # Guidelines on how to explore efficiently
             sections.append("""## Efficiency Guidelines
-    1. **Don't read full files immediately.** Use `code-tools` to get the project outline first.
-    2. **Use `get_symbol_code`** to read specific classes/functions instead of whole files.
-    3. **Semantic Search**: Use `search_code` if you are unsure where a feature is implemented.""")
+- Use `search_code` for semantic discovery.
+- Read specific symbols with `get_symbol_code` instead of full files.""")
 
         # --- Level 1.5: Project Roadmap & Progress ---
         if project_id:
