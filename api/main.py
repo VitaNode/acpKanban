@@ -21,6 +21,10 @@ from api.dependencies import (
 from src.config.manager import config
 
 
+from src.utils.error_codes import ErrorCode
+from src.utils.task_manager import task_manager
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Performance Optimization: Only initialize if needed
@@ -47,13 +51,13 @@ async def lifespan(app: FastAPI):
         run_bridge.bridge_instance = bridge
         
         # Start bridge without blocking
-        asyncio.create_task(bridge.start(run_forever=False))
+        task_manager.start_task("bridge", bridge.start(run_forever=False))
 
         # Phase: Global Optimization - Pre-warm providers for the current project on startup
         current_project_id = db.get_setting("current_project_id")
         if current_project_id:
             print(f"[*] Proactively pre-warming providers for current project: {current_project_id}")
-            asyncio.create_task(bridge.dispatcher.pre_warm_providers(current_project_id))
+            task_manager.start_task("pre_warm", bridge.dispatcher.pre_warm_providers(current_project_id))
         
     except Exception as e:
         print(f"[!] Startup initialization failed: {e}")
@@ -64,12 +68,10 @@ async def lifespan(app: FastAPI):
     
     # Shutdown logic
     import run_bridge
-    from api.projects import index_task_manager
     
-    # 1. Cancel all background indexing tasks
-    print("[*] Cleaning up background indexing tasks...")
-    for pid in list(index_task_manager._tasks.keys()):
-        await index_task_manager.cancel_task(pid)
+    # 1. Cancel all background tasks via TaskManager
+    print("[*] Cleaning up background tasks...")
+    await task_manager.shutdown()
 
     if run_bridge.bridge_instance:
         print("[*] Stopping Integrated Bridge...")
@@ -134,14 +136,34 @@ async def get_system_config():
 
 @app.get("/health")
 async def health_check():
+    import run_bridge
+    health = {
+        "status": "healthy",
+        "service": "kanban-api",
+        "subsystems": {
+            "database": "unknown",
+            "bridge": "disconnected"
+        }
+    }
     try:
         db = get_db()
         db.get_projects()
-        return {"status": "healthy", "service": "kanban-api", "database": "ok"}
+        health["subsystems"]["database"] = "ok"
+        
+        if run_bridge.bridge_instance:
+            # Check if relay is connected
+            health["subsystems"]["bridge"] = "connected"
+            
+        return health
     except Exception as e:
         return JSONResponse(
             status_code=503,
-            content={"status": "unhealthy", "service": "kanban-api", "error": str(e)},
+            content={
+                "status": "unhealthy", 
+                "service": "kanban-api", 
+                "error": str(e),
+                "error_code": ErrorCode.INTERNAL_ERROR
+            },
         )
 
 

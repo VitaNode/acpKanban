@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes
 from src.orchestration.dispatcher import MessageDispatcher
 from src.persistence.database import KanbanDB
 from src.transport.bus import bus
-from src.logger import setup_logger
+from src.logger import setup_logger, set_context_ids, clear_context
 
 class UnifiedBridge:
     def __init__(self, user_id, relay_url, token=None, session_key=None, workspace_cwd=None):
@@ -329,320 +329,27 @@ class UnifiedBridge:
         return False
 
     async def handle_rpc(self, data: Dict[str, Any], send_output: Callable):
-        # Wrap the output to await it correctly
+        # Set context IDs for logging
+        method = data.get("method")
+        params = data.get("params", {})
+        request_id = data.get("id")
+        
+        set_context_ids(
+            request_id=str(request_id) if request_id else None,
+            project_id=params.get("project_id"),
+            card_id=params.get("card_id")
+        )
+
         async def safe_send(msg):
             try: await send_output(msg)
             except Exception as e:
                 self.logger.error(f"Failed to send output: {e}")
 
-        method = data.get("method")
-        params = data.get("params", {})
-        request_id = data.get("id")
-
-        # 1. Handle Response (Result/Error) from UI
-        if request_id and ("result" in data or "error" in data):
-            future = self._pending_ui_requests.pop(str(request_id), None)
-            if future and not future.done():
-                future.set_result(data.get("result") if "result" in data else data.get("error"))
-            return
-
-        # 2. Handle E2EE Envelope
-        if method == "e2ee/envelope":
-            payload = params.get("payload")
-            # We need to know which client sent this to find the right secret.
-            # For Relay, there's only one "client" (the App). 
-            # We'll use a special marker or store the last secret.
-            secret = getattr(self, "_relay_e2ee_secret", None)
-            if not secret:
-                self.logger.error("Received E2EE envelope but no relay secret established")
-                return
-
-            from src.transport.e2ee import decrypt_message
-            try:
-                decrypted_str = decrypt_message(payload, secret)
-                decrypted_data = json.loads(decrypted_str)
-                # Re-route decrypted content
-                await self.handle_rpc(decrypted_data, send_output)
-                return
-            except Exception as e:
-                self.logger.error(f"Failed to decrypt relay message: {e}")
-                return
-
-        # 2. Handle Pairing (ECDH)
-        if method == "pairing/exchange":
-            client_pub_hex = params.get("publicKey")
-            if not client_pub_hex:
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing publicKey"}})
-                return
-
-            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
-            
-            client_pub = X25519PublicKey.from_public_bytes(bytes.fromhex(client_pub_hex))
-            shared_secret = self._bridge_private_key.exchange(client_pub)
-            
-            # Store secret for this connection (Relay mode uses a single secret for now)
-            self._relay_e2ee_secret = shared_secret
-            
-            await safe_send({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {"publicKey": self._bridge_public_key_hex}
-            })
-            self.logger.info(f"Relay E2EE Pairing established with client")
-            return
-
-        # 3. Handle Initialize
-        if method == "initialize":
-            await safe_send({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "protocolVersion": 0,
-                    "capabilities": {
-                        "tools": {"supported": True},
-                        "resources": {"supported": True}
-                    }
-                }
-            })
-            return
-
-        # 4. Handle API Proxying
-        if method == "http/proxy":
-            path = params.get("path")
-            http_method = params.get("method", "GET").upper()
-            body = params.get("body")
-            headers = params.get("headers", {})
-
-            self.logger.debug(f"Proxying {http_method} {path}")
-            try:
-                response = await self._proxy_client.request(
-                    method=http_method,
-                    url=path,
-                    json=body,
-                    headers=headers
-                )
-                
-                # Check if it's JSON
-                try:
-                    resp_data = response.json()
-                except:
-                    resp_data = response.text
-
-                await safe_send({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {
-                        "statusCode": response.status_code,
-                        "body": resp_data if isinstance(resp_data, str) else json.dumps(resp_data)
-                    }
-                })
-            except Exception as e:
-                self.logger.error(f"Proxy error: {e}")
-                await safe_send({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {"code": 500, "message": f"Proxy error: {str(e)}"}
-                })
-            return
-
-        if method == "session/ws_proxy":
-            action = params.get("action")
-            card_id = params.get("card_id")
-            if not card_id:
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing card_id"}})
-                return
-
-            if action == "connect":
-                ws_url = f"ws://127.0.0.1:8000/api/ws/session/{card_id}"
-                self.logger.info(f"Connecting proxy WS to {ws_url}")
-                try:
-                    # Clean up old session if exists
-                    if card_id in self._card_sessions:
-                        await self._card_sessions[card_id].close()
-                    
-                    ws = await websockets.connect(ws_url)
-                    self._card_sessions[card_id] = ws
-                    
-                    # Spawn listener for this card session
-                    async def ws_listener():
-                        try:
-                            async for message in ws:
-                                # Relay back to mobile via ACP Notification
-                                notification = {
-                                    "jsonrpc": "2.0",
-                                    "method": "session/ws_event",
-                                    "params": {
-                                        "card_id": card_id,
-                                        "payload": message
-                                    }
-                                }
-                                await safe_send(notification)
-                        except Exception as e:
-                            self.logger.warning(f"WS Proxy Listener error for {card_id}: {e}")
-                        finally:
-                            self._card_sessions.pop(card_id, None)
-                            self.logger.info(f"WS Proxy session closed for {card_id}")
-                    
-                    asyncio.create_task(ws_listener())
-                    await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
-                except Exception as e:
-                    self.logger.error(f"WS Proxy Connect error: {e}")
-                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
-                return
-
-            if action == "send":
-                data = params.get("data")
-                ws = self._card_sessions.get(card_id)
-                if ws:
-                    try:
-                        await ws.send(json.dumps(data) if isinstance(data, dict) else data)
-                        await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
-                    except Exception as e:
-                        await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
-                else:
-                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected"}})
-                return
-
-            if action == "disconnect":
-                ws = self._card_sessions.pop(card_id, None)
-                if ws:
-                    await ws.close()
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
-                return
-
-        # 5. Handle system-level RPCs
-        if method == "system/config/get":
-            config_str = self.db.get_setting("system_config", "{}")
-            try:
-                config = json.loads(config_str)
-            except:
-                config = {}
-            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": config})
-            return
-
-        if method == "projects/list":
-            projects = self.db.get_projects()
-            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": projects})
-            return
-
-        if method == "provider/list":
-            # Proxy to local API or read config directly
-            try:
-                from api.providers import get_providers
-                res = await get_providers()
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": res})
-            except Exception as e:
-                self.logger.error(f"Error in provider/list: {e}")
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
-            return
-
-        if method == "kanban/progress/get":
-            pid = params.get("project_id")
-            if not pid:
-                # Use current project if not specified
-                pid = self.db.get_setting("current_project_id")
-            
-            if pid:
-                progress = self.db.get_project_progress(pid)
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": progress})
-            else:
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "No active project"}})
-            return
-
-        if method == "projects/status":
-            # This handles getAllProjectStatuses for iPhone UI
-            try:
-                projects = self.db.get_projects()
-                status = []
-                for p in projects:
-                    status.append({
-                        "id": p["id"],
-                        "name": p["name"],
-                        "status": "ready" # Simple status for now
-                    })
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": status})
-            except Exception as e:
-                self.logger.error(f"Error getting project status: {e}")
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
-            return
-
-        if method == "projects/switch":
-            pid = params.get("project_id")
-            # Logic from api/projects.py: just mark as current
-            self.db.set_setting("current_project_id", pid)
-            # Phase: Global Optimization - Pre-warm providers
-            asyncio.create_task(self.dispatcher.pre_warm_providers(pid))
-            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True, "project_id": pid}})
-            return
-
-        if method == "cards/create":
-            # Direct DB creation
-            card = self.db.create_card(
-                column_id=params.get("column_id"),
-                title=params.get("title"),
-                description=params.get("description", ""),
-                position=params.get("position", 0)
-            )
-            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": card})
-            return
-
-        if method == "cards/move":
-            card_id = params.get("card_id")
-            column_id = params.get("column_id")
-            position = params.get("position")
-            success = self.db.move_card(card_id, column_id, position)
-            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": success}})
-            return
-
-        if method == "projects/get":
-            pid = params.get("project_id")
-            project = self.db.get_project(pid)
-            if project:
-                # 1. Fetch Columns
-                raw_cols = self.db.get_columns(pid)
-                full_columns = []
-                for c in raw_cols:
-                    # Normalize ID
-                    if 'column_id' in c and 'id' not in c:
-                        c['id'] = c['column_id']
-                    
-                    # 2. Fetch Cards for each column (Flutter expects this in project/get)
-                    cards = self.db.get_cards_by_column(c['id'])
-                    # Normalize Card IDs too
-                    for card in cards:
-                        if 'card_id' in card and 'id' not in card:
-                            card['id'] = card['card_id']
-                        # Ensure column_id is present
-                        if 'column_id' not in card:
-                            card['column_id'] = c['id']
-                    
-                    c['cards'] = cards
-                    full_columns.append(c)
-                
-                project["columns"] = full_columns
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": project})
-            else:
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Project not found"}})
-            return
-
-        if method == "cards/list":
-            cid = params.get("column_id")
-            # Corrected method name: get_cards -> get_cards_by_column
-            raw_cards = self.db.get_cards_by_column(cid)
-            normalized_cards = []
-            for c in raw_cards:
-                if 'card_id' in c and 'id' not in c:
-                    c['id'] = c['card_id']
-                normalized_cards.append(c)
-            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": normalized_cards})
-            return
-
-        async def on_ui_request(method, params):
-            rid = params.get("id") or str(uuid.uuid4())
+        async def on_ui_request(m, p):
+            rid = p.get("id") or str(uuid.uuid4())
             fut = asyncio.get_event_loop().create_future()
             self._pending_ui_requests[rid] = fut
-            await safe_send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+            await safe_send({"jsonrpc": "2.0", "id": rid, "method": m, "params": p})
             try:
                 # Support long-cycle async: 24h timeout
                 return await asyncio.wait_for(fut, timeout=3600.0 * 24)
@@ -650,32 +357,120 @@ class UnifiedBridge:
                 self._pending_ui_requests.pop(rid, None)
                 return {"error": {"code": -32000, "message": "UI Request Timeout"}}
 
-        # 6. Dispatch to Core Logic (with error boundary)
         try:
+            # 1. Handle Response (Result/Error) from UI
+            if request_id and ("result" in data or "error" in data):
+                future = self._pending_ui_requests.pop(str(request_id), None)
+                if future and not future.done():
+                    future.set_result(data.get("result") if "result" in data else data.get("error"))
+                return
+
+            # 2. Handle E2EE Envelope
+            if method == "e2ee/envelope":
+                payload = params.get("payload")
+                secret = getattr(self, "_relay_e2ee_secret", None)
+                if not secret:
+                    self.logger.error("Received E2EE envelope but no relay secret established")
+                    return
+                from src.transport.e2ee import decrypt_message
+                try:
+                    decrypted_str = decrypt_message(payload, secret)
+                    decrypted_data = json.loads(decrypted_str)
+                    await self.handle_rpc(decrypted_data, send_output)
+                    return
+                except Exception as e:
+                    self.logger.error(f"Failed to decrypt relay message: {e}")
+                    return
+
+            # 3. Handle Pairing (ECDH)
+            if method == "pairing/exchange":
+                client_pub_hex = params.get("publicKey")
+                if not client_pub_hex:
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing publicKey"}})
+                    return
+                from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+                client_pub = X25519PublicKey.from_public_bytes(bytes.fromhex(client_pub_hex))
+                shared_secret = self._bridge_private_key.exchange(client_pub)
+                self._relay_e2ee_secret = shared_secret
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"publicKey": self._bridge_public_key_hex}})
+                self.logger.info(f"Relay E2EE Pairing established with client")
+                return
+
+            # 4. Handle Initialize
+            if method == "initialize":
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": 0, "capabilities": {"tools": {"supported": True}, "resources": {"supported": True}}}})
+                return
+
+            # 5. Handle API Proxying
+            if method == "http/proxy":
+                path = params.get("path")
+                http_method = params.get("method", "GET").upper()
+                body = params.get("body")
+                headers = params.get("headers", {})
+                self.logger.debug(f"Proxying {http_method} {path}")
+                try:
+                    response = await self._proxy_client.request(method=http_method, url=path, json=body, headers=headers)
+                    try: resp_data = response.json()
+                    except: resp_data = response.text
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"statusCode": response.status_code, "body": resp_data if isinstance(resp_data, str) else json.dumps(resp_data)}})
+                except Exception as e:
+                    self.logger.error(f"Proxy error: {e}")
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": f"Proxy error: {str(e)}"}})
+                return
+
+            # 6. WS Proxy
+            if method == "session/ws_proxy":
+                action = params.get("action")
+                card_id = params.get("card_id")
+                if not card_id:
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing card_id"}})
+                    return
+                if action == "connect":
+                    ws_url = f"ws://127.0.0.1:8000/api/ws/session/{card_id}"
+                    try:
+                        if card_id in self._card_sessions: await self._card_sessions[card_id].close()
+                        ws = await websockets.connect(ws_url)
+                        self._card_sessions[card_id] = ws
+                        async def ws_listener():
+                            try:
+                                async for message in ws:
+                                    await safe_send({"jsonrpc": "2.0", "method": "session/ws_event", "params": {"card_id": card_id, "payload": message}})
+                            except: pass
+                            finally: self._card_sessions.pop(card_id, None)
+                        asyncio.create_task(ws_listener())
+                        await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                    except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+                    return
+                if action == "send":
+                    data_to_send = params.get("data")
+                    ws = self._card_sessions.get(card_id)
+                    if ws:
+                        try:
+                            await ws.send(json.dumps(data_to_send) if isinstance(data_to_send, dict) else data_to_send)
+                            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                        except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+                    else: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected"}})
+                    return
+                if action == "disconnect":
+                    ws = self._card_sessions.pop(card_id, None)
+                    if ws: await ws.close()
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                    return
+
+            # 7. Other methods dispatch
             result = await self.dispatcher.dispatch(data, on_ui_request)
-            
-            # If dispatcher returned an error, send it back to the client
-            if result and "error" in result:
-                request_id = data.get("id")
-                if request_id is not None:
-                    error_response = {
-                        "jsonrpc": "2.0",
-                        "id": request_id,
-                        "error": result["error"]
-                    }
-                    await safe_send(error_response)
-                    self.logger.warning(f"Sent error to client: {result['error']}")
-            
+            if result and request_id is not None:
+                if isinstance(result, dict) and "error" in result:
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "error": result["error"]})
+                else:
+                    await safe_send({"jsonrpc": "2.0", "id": request_id, "result": result})
             return result
         except Exception as e:
-            self.logger.error(f"Fatal error in dispatcher for {method}: {e}", exc_info=True)
+            self.logger.error(f"Fatal error in bridge for {method}: {e}", exc_info=True)
             if request_id is not None:
-                await safe_send({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {"code": -32603, "message": f"Bridge internal error: {str(e)}"}
-                })
-            return {"error": {"code": -32603, "message": str(e)}}
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": f"Bridge internal error: {str(e)}"}})
+        finally:
+            clear_context()
 
     async def shutdown(self):
         await self.dispatcher.shutdown()

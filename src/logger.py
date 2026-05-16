@@ -4,15 +4,19 @@ import sys
 import contextvars
 from datetime import datetime
 
-# Context variable to store the current request ID
+# Context variables to store the current IDs
 request_id_var = contextvars.ContextVar("request_id", default=None)
+project_id_var = contextvars.ContextVar("project_id", default=None)
+card_id_var = contextvars.ContextVar("card_id", default=None)
 
 class RequestIdFilter(logging.Filter):
     """
-    Logging filter that adds the current request_id to the log record.
+    Logging filter that adds the current IDs to the log record.
     """
     def filter(self, record):
         record.request_id = request_id_var.get() or "N/A"
+        record.project_id = project_id_var.get() or "N/A"
+        record.card_id = card_id_var.get() or "N/A"
         return True
 
 def setup_logger(name="Kanban", level="INFO"):
@@ -26,9 +30,9 @@ def setup_logger(name="Kanban", level="INFO"):
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         
-        # Define a structured format: [Timestamp] [Level] [RequestID] [Logger] Message
+        # Define a structured format: [Timestamp] [Level] [ReqID] [PID] [CID] [Logger] Message
         formatter = logging.Formatter(
-            "%(asctime)s [%(levelname)s] [%(request_id)s] [%(name)s] %(message)s"
+            "%(asctime)s [%(levelname)s] [%(request_id)s] [%(project_id)s] [%(card_id)s] [%(name)s] %(message)s"
         )
         handler.setFormatter(formatter)
         
@@ -42,6 +46,15 @@ def setup_logger(name="Kanban", level="INFO"):
         
     return logger
 
+def set_context_ids(request_id: str = None, project_id: str = None, card_id: str = None):
+    """Set the current context IDs."""
+    if request_id:
+        request_id_var.set(request_id)
+    if project_id:
+        project_id_var.set(project_id)
+    if card_id:
+        card_id_var.set(card_id)
+
 def set_request_id(req_id: str = None):
     """Set the current request ID in the context."""
     if not req_id:
@@ -49,9 +62,11 @@ def set_request_id(req_id: str = None):
     request_id_var.set(req_id)
     return req_id
 
-def clear_request_id():
-    """Clear the request ID from the context."""
+def clear_context():
+    """Clear all context IDs."""
     request_id_var.set(None)
+    project_id_var.set(None)
+    card_id_var.set(None)
 
 # Global base logger
 logger = setup_logger()
