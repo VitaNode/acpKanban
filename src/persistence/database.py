@@ -871,7 +871,8 @@ class CodeSymbolRepository(BaseRepository):
                     emb = json.loads(row['embedding'])
                     dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(query_vector, emb)))
                     results.append({'file_path': row['file_path'], 'symbol_name': row['symbol_name'], 'distance': dist})
-                    except Exception: continue
+                except (json.JSONDecodeError, ValueError, KeyError):
+                    continue
             results.sort(key=lambda x: x['distance'])
             return results[:limit]
 
