@@ -50,7 +50,7 @@ class ConfigManager:
                 "session_idle_timeout_minutes": 30
             },
             "relay": {
-                "url": "wss://mybot.siliconpulse.cc",
+                "url": "",
                 "token": "",
                 "user_id": "",
             },

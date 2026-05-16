@@ -55,11 +55,11 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     super.initState();
     _selectedMode = widget.currentMode;
     _localIpController = TextEditingController();
-    _relayHostController = TextEditingController(text: '35.211.219.123');
+    _relayHostController = TextEditingController();
     _relayTokenController = TextEditingController();
     _userIdController = TextEditingController(text: widget.userId);
     _cloudUrlController =
-        TextEditingController(text: 'ws://35.211.219.123:8766/direct');
+        TextEditingController();
     _localPortController = TextEditingController(text: '8766');
     _relayPortController = TextEditingController(text: '8766');
     _apiPortController = TextEditingController(text: '8000');
@@ -81,11 +81,10 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     setState(() {
       _selectedMode = config.preferredMode;
       _localIpController.text = config.localIp ?? '';
-      _relayHostController.text = config.relayHost ?? '35.211.219.123';
+      _relayHostController.text = config.relayHost ?? '';
       _relayTokenController.text = config.relayToken ?? '';
       _userIdController.text = (config.userId == null || config.userId!.isEmpty) ? widget.userId : config.userId!;
-      _cloudUrlController.text =
-          config.cloudUrl ?? 'ws://35.211.219.123:8766/direct';
+      _cloudUrlController.text = config.cloudUrl ?? '';
       _localPortController.text = (config.localPort ?? 8766).toString();
       _relayPortController.text = (config.relayPort ?? 8766).toString();
       _apiPortController.text = (config.apiPort ?? 8000).toString();
@@ -712,6 +711,13 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                     : const Text('PAIR'),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+       ],
           ),
         ],
       ),

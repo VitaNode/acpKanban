@@ -7,7 +7,7 @@
     "session_idle_timeout_minutes": 30
   },
   "relay": {
-    "url": "ws://35.211.219.123:8766",
+    "url": "",
     "token": "",
     "user_id": ""
   },
