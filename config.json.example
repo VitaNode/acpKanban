@@ -7,9 +7,9 @@
     "session_idle_timeout_minutes": 30
   },
   "relay": {
-    "url": "wss://mybot.siliconpulse.cc",
-    "token": "YOUR_STRONG_TOKEN",
-    "user_id": "user_XXXXXX"
+    "url": "ws://35.211.219.123:8766",
+    "token": "",
+    "user_id": ""
   },
   "providers": {
     "default": "gemini",

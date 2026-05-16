@@ -121,28 +121,17 @@ class ConfigManager:
 
     def _ensure_credentials(self):
         """Ensure USER_ID and RELAY_TOKEN exist, generating them if necessary."""
-        # 1. Check current hardcoded values in use to avoid breaking changes for existing user
-        # These are fallback defaults if nothing else is found
-        current_user_id = os.getenv("MYBOT_USER_ID", "user_683652")
-        current_token = os.getenv("RELAY_TOKEN", "default_secret")
+        # 1. First check if they are already in the config (loaded from file or env)
+        user_id = self._config["relay"].get("user_id")
+        token = self._config["relay"].get("token")
 
-        if not self._config["relay"]["user_id"]:
-            self._config["relay"]["user_id"] = current_user_id
-            logger.info(f"Using inherited/default USER_ID: {self._config['relay']['user_id']}")
-
-        if not self._config["relay"]["token"] or self._config["relay"]["token"] == "default_secret":
-            # If it's still default_secret, we should probably generate a new one if it's a fresh install
-            # But for this specific user, we keep their secret if they were using it.
-            self._config["relay"]["token"] = current_token
-            logger.info("Using inherited/default RELAY_TOKEN")
-
-        # If it's still empty (shouldn't happen with fallbacks above, but for safety):
-        if not self._config["relay"]["user_id"]:
+        # 2. If missing, generate strong random ones
+        if not user_id:
             random_suffix = ''.join(secrets.choice(string.digits) for _ in range(6))
             self._config["relay"]["user_id"] = f"user_{random_suffix}"
             logger.info(f"Generated new USER_ID: {self._config['relay']['user_id']}")
 
-        if not self._config["relay"]["token"]:
+        if not token:
             self._config["relay"]["token"] = secrets.token_urlsafe(32)
             logger.info("Generated new strong RELAY_TOKEN")
 
@@ -191,9 +180,6 @@ class ConfigManager:
     @property
     def relay_token(self) -> str:
         return self._config["relay"]["token"]
-
-# Global instance
-config = ConfigManager()
 
 # Global instance
 config = ConfigManager()

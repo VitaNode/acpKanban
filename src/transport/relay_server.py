@@ -9,13 +9,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.config.manager import config
 from src.logger import setup_logger
 
 logger = setup_logger("RelayServer")
 
-# Configuration
-RELAY_TOKEN = config.relay_token
+# Configuration - Must be provided via .env or shell environment
+RELAY_TOKEN = os.getenv("RELAY_TOKEN")
+
+if not RELAY_TOKEN:
+    logger.warning("RELAY_TOKEN not set in environment! Relay will be unauthorized.")
 
 # Map to store active relay pairs: { user_id: {"mac": websocket, "app": websocket} }
 relays = {}

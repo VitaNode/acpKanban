@@ -93,11 +93,11 @@ class ConnectionConfig {
       preferredMode: ConnectionMode.local,
       localPort: 8766,
       apiPort: 8000,
-      relayHost: '35.211.219.123',
+      relayHost: '',
       relayPort: 8766,
-      cloudUrl: 'ws://35.211.219.123:8766/direct',
+      cloudUrl: '',
       autoFallback: false,
-      userId: userId,
+      userId: userId ?? '',
       systemConfig: const SystemAgentConfig(),
     );
   }

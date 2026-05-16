@@ -112,9 +112,27 @@ class _MainScreenState extends State<MainScreen> {
       final savedConfig = await configManager.loadConfig();
       _userId = savedConfig.userId;
 
+      // Check if credentials are missing or default
+      if (_userId == null || _userId!.isEmpty || 
+          savedConfig.relayToken == null || savedConfig.relayToken!.isEmpty) {
+        debugPrint('Missing credentials, redirecting to settings');
+        if (mounted) {
+          setState(() {
+            _currentView = 'connection';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please configure your User ID and Token to continue.'),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+
       final acpConfig = ACPConfig.fromConnectionConfig(
         savedConfig,
-        _userId ?? 'test_user',
+        _userId!,
       );
       await _acpClient.smartConnect(acpConfig);
       

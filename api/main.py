@@ -12,7 +12,6 @@ from api.cards import router as cards_router
 from api.projects import router as projects_router
 from api.sessions import router as sessions_router
 from api.providers import router as providers_router
-from api.auth import router as auth_router
 from api.dependencies import (
     get_db,
     http_exception_handler,
@@ -101,7 +100,6 @@ app.include_router(cards_router)
 app.include_router(projects_router)
 app.include_router(sessions_router)
 app.include_router(providers_router)
-app.include_router(auth_router)
 
 
 @app.get("/")

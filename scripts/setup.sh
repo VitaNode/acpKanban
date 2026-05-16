@@ -43,7 +43,7 @@ echo -e "[*] Installing dependencies..."
 # 5. Initialize Database & Config
 echo -e "[*] Initializing system configuration..."
 export PYTHONPATH=$PYTHONPATH:.
-./.venv/bin/python3 -c "from src.config.manager import config; print(f'USER_ID: {config.user_id}'); print(f'RELAY_TOKEN: {config.relay_token}')"
+./.venv/bin/python3 -c "from src.config.manager import config"
 
 # 6. Create Runner Script
 echo -e "[*] Creating start.sh..."
@@ -64,4 +64,5 @@ echo -e ""
 echo -e "Your credentials (saved in config.json):"
 ./.venv/bin/python3 -c "from src.config.manager import config; print(f'USER_ID: {config.user_id}'); print(f'RELAY_TOKEN: {config.relay_token}')"
 echo -e ""
+echo -e "Please copy these credentials and enter them into the mobile app's Connection Settings."
 echo -e "If you are using Tailscale, use your Tailscale IP and the port 8000 in the mobile app."

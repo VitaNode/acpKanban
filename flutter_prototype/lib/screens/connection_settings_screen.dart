@@ -49,10 +49,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   String _connectionStatus = 'Disconnected';
   bool _isScanning = false;
   String? _scannedIp;
-  bool _isPairing = false;
-
-  final TextEditingController _pairingHostController = TextEditingController();
-  final TextEditingController _pairingCodeController = TextEditingController();
 
   @override
   void initState() {
@@ -87,7 +83,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       _localIpController.text = config.localIp ?? '';
       _relayHostController.text = config.relayHost ?? '35.211.219.123';
       _relayTokenController.text = config.relayToken ?? '';
-      _userIdController.text = config.userId ?? widget.userId;
+      _userIdController.text = (config.userId == null || config.userId!.isEmpty) ? widget.userId : config.userId!;
       _cloudUrlController.text =
           config.cloudUrl ?? 'ws://35.211.219.123:8766/direct';
       _localPortController.text = (config.localPort ?? 8766).toString();
@@ -119,42 +115,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _systemApiKeyController.dispose();
     _summaryModelController.dispose();
     _embeddingModelController.dispose();
-    _pairingHostController.dispose();
-    _pairingCodeController.dispose();
     super.dispose();
-  }
-
-  Future<void> _startPairing() async {
-    final host = _pairingHostController.text.trim();
-    final code = _pairingCodeController.text.trim();
-
-    if (host.isEmpty || code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter both Host IP and Pairing Code')),
-      );
-      return;
-    }
-
-    setState(() => _isPairing = true);
-
-    try {
-      final result = await AuthService().pairWithCode(host, code);
-      if (!mounted) return;
-      
-      if (result.success && result.config != null) {
-        await _loadConfig(); // Refresh UI with new config
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pairing successful! Settings updated.')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Pairing failed: ${result.message}')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isPairing = false);
-    }
   }
 
   Future<void> _scanMdns() async {
@@ -284,7 +245,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                 ),
           ),
           const SizedBox(height: AppConstants.space24),
-          _buildPairingSection(),
+          _buildGuidanceCard(),
           const SizedBox(height: AppConstants.space32),
           Text(
             'CONNECTION MODE',
@@ -325,6 +286,41 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
             ),
           ),
           const SizedBox(height: AppConstants.space32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuidanceCard() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.space16),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: colorScheme.primary.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.help_outline_rounded, color: colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'How to get Credentials?',
+                style: TextStyle(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.space12),
+          const Text(
+            '1. Start the MyBot API on your computer.\n2. Open "config.json" in the project root.\n3. Find "user_id" and "token" under the "relay" section.\n4. Copy and paste them into the fields below.',
+            style: TextStyle(fontSize: 13, height: 1.5),
+          ),
         ],
       ),
     );
