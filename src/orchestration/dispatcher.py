@@ -543,7 +543,7 @@ class MessageDispatcher:
                                 with open(ref_path, 'r', encoding='utf-8') as f:
                                     params["prompt"].append({"type": "resource", "resource": {"uri": f"file://{ref}", "text": f.read(), "mimeType": "text/plain"}})
                     except Exception:
- pass
+                        pass
 
             handler = self.commands.get_handler(prompt_text)
             if handler:
