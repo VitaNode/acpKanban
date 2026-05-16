@@ -650,21 +650,32 @@ class UnifiedBridge:
                 self._pending_ui_requests.pop(rid, None)
                 return {"error": {"code": -32000, "message": "UI Request Timeout"}}
 
-        result = await self.dispatcher.dispatch(data, on_ui_request)
-        
-        # If dispatcher returned an error, send it back to the client
-        if result and "error" in result:
-            request_id = data.get("id")
+        # 6. Dispatch to Core Logic (with error boundary)
+        try:
+            result = await self.dispatcher.dispatch(data, on_ui_request)
+            
+            # If dispatcher returned an error, send it back to the client
+            if result and "error" in result:
+                request_id = data.get("id")
+                if request_id is not None:
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": result["error"]
+                    }
+                    await safe_send(error_response)
+                    self.logger.warning(f"Sent error to client: {result['error']}")
+            
+            return result
+        except Exception as e:
+            self.logger.error(f"Fatal error in dispatcher for {method}: {e}", exc_info=True)
             if request_id is not None:
-                error_response = {
+                await safe_send({
                     "jsonrpc": "2.0",
                     "id": request_id,
-                    "error": result["error"]
-                }
-                await safe_send(error_response)
-                self.logger.warning(f"Sent error to client: {result['error']}")
-        
-        return result
+                    "error": {"code": -32603, "message": f"Bridge internal error: {str(e)}"}
+                })
+            return {"error": {"code": -32603, "message": str(e)}}
 
     async def shutdown(self):
         await self.dispatcher.shutdown()

@@ -36,8 +36,8 @@ def test_acp_kanban():
         "params": {"message": "帮我创建一个新任务，标题是‘实现移动端看板 UI’，描述是‘使用 Flutter 开发’"}
     }
     chat_res = send_request(chat_req)
-    if chat_res and 'result' in chat_res:
-        print(f"Chat Response: {chat_res['result']['message']}")
+    if chat_res and 'result' in chat_res and chat_res['result']:
+        print(f"Chat Response: {chat_res['result'].get('message', 'No message')}")
     else:
         print(f"Chat Error/Invalid Response: {chat_res}")
 

@@ -4,15 +4,30 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.protocol.client import ACPClient
-async def test_acp(name, command, cwd=None):
+import pytest
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name, command", [
+    ("Gemini CLI", ["gemini", "--acp"]),
+    ("Qwen Code", ["qwen", "--acp"]),
+    ("OpenClaw", ["openclaw", "acp"]),
+    ("OpenCode", ["opencode", "acp"]),
+])
+async def test_acp_capabilities(name, command):
+    test_cwd = os.getcwd()
     print(f"\n{'='*60}")
     print(f"Testing {name}: {' '.join(command)}")
     print('='*60)
     
-    client = ACPClient(command=command, cwd=cwd, name=name)
+    client = ACPClient(command=command, cwd=test_cwd, name=name)
     session_id = None
     
     try:
+        # Check if command exists first to avoid hang
+        import shutil
+        if not shutil.which(command[0]):
+            pytest.skip(f"Command {command[0]} not found")
+
         await client.start()
         await asyncio.sleep(2)  # Wait for process to stabilize
         
@@ -77,31 +92,3 @@ async def test_acp(name, command, cwd=None):
         return {"name": name, "error": str(e)}
     finally:
         await client.stop()
-async def main():
-    test_cwd = os.getcwd()
-    
-    acps = [
-        ("Gemini CLI", ["gemini", "--acp"]),
-        ("Qwen Code", ["qwen", "--acp"]),
-        ("OpenClaw", ["openclaw", "acp"]),
-        ("OpenCode", ["opencode", "acp"]),
-    ]
-    
-    results = []
-    for name, cmd in acps:
-        result = await test_acp(name, cmd, test_cwd)
-        results.append(result)
-    
-    print("\n" + "="*60)
-    print("SUMMARY")
-    print("="*60)
-    for r in results:
-        if "error" in r:
-            print(f"{r['name']}: ERROR - {r['error']}")
-        else:
-            print(f"{r['name']}:")
-            print(f"  session/list: {'✅' if r['session_list'] else '❌'}")
-            print(f"  session/load: {'✅' if r['load_session'] else '❌'}")
-            print(f"  session_id: {r['session_id']}")
-if __name__ == "__main__":
-    asyncio.run(main())

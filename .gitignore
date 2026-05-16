@@ -13,4 +13,4 @@ docs/
 .agents/
 .gemini/
 .qwen/
-conductor/config.json
+conductor/
