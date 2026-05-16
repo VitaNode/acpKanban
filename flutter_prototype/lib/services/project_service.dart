@@ -52,7 +52,6 @@ class ProjectService {
       } catch (e) {
         AppLogger.error('ACP projects/list failed', e);
       }
-      return [];
     }
 
     try {
