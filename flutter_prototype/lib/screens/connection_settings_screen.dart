@@ -4,7 +4,9 @@ import '../services/connection_config_manager.dart';
 import '../services/smart_connect.dart';
 import '../services/acp_client.dart';
 import '../constants/app_constants.dart';
+import '../constants/ui_copy.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_feedback.dart';
 
 class ConnectionSettingsView extends StatefulWidget {
   final ACPClient acpClient;
@@ -198,18 +200,14 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           widget.acpClient.activeUrl,
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Connected successfully!')),
-        );
+        AppFeedback.showSuccess(context, UICopy.connectedSuccessfully);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _connectionStatus = 'Failed: ${e.toString()}';
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connection failed: $e')),
-        );
+        AppFeedback.showError(context, '${UICopy.connectionFailed}: $e');
       }
     } finally {
       if (mounted) {

@@ -18,7 +18,9 @@ import '../widgets/plan_panel.dart';
 import '../widgets/config_options_bar.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
+import '../constants/ui_copy.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_feedback.dart';
 
 class CardDetailView extends StatefulWidget {
   final KanbanCard card;
@@ -298,10 +300,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     _errorSub = _wsService.errors.listen((err) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(err),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ));
+          AppFeedback.showError(context, err);
         }
       });
     });
@@ -497,7 +496,7 @@ class _CardDetailViewState extends State<CardDetailView> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+        AppFeedback.showError(context, 'Failed to save: $e');
       }
     } finally {
       if (mounted) setState(() => _isSavingCard = false);

@@ -21,7 +21,10 @@ import 'widgets/roadmap_manager_dialog.dart';
 import 'models/timeline_event.dart';
 import 'theme/app_theme.dart';
 import 'constants/app_constants.dart';
+import 'constants/ui_copy.dart';
 import 'services/theme_service.dart';
+import 'widgets/app_feedback.dart';
+import 'widgets/app_state_view.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +48,7 @@ class KanbanApp extends StatelessWidget {
             }
           },
           child: MaterialApp(
-            title: 'AI Kanban',
+            title: UICopy.appTitle,
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
@@ -120,12 +123,7 @@ class _MainScreenState extends State<MainScreen> {
           setState(() {
             _currentView = 'connection';
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Please configure your User ID and Token to continue.'),
-              duration: Duration(seconds: 5),
-            ),
-          );
+          AppFeedback.showInfo(context, UICopy.configureCredentials);
         }
         return;
       }
@@ -976,46 +974,27 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildBoardView() {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     if (_currentProject == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.folder_off_rounded, size: 64, color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
-            const SizedBox(height: AppConstants.space16),
-            Text('No project selected', style: theme.textTheme.bodyLarge),
-            const SizedBox(height: AppConstants.space8),
-            FilledButton.icon(
-              onPressed: _showCreateProjectDialog,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Create Project'),
-            ),
-          ],
+      return AppStateView.empty(
+        icon: Icons.folder_off_rounded,
+        message: UICopy.noProjectSelected,
+        action: FilledButton.icon(
+          onPressed: _showCreateProjectDialog,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text(UICopy.createProject),
         ),
       );
     }
 
     if (_isLoadingProjects && _columns.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return AppStateView.loading();
     }
 
     if (_columns.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('No columns found for this project.', style: theme.textTheme.bodyMedium),
-            const SizedBox(height: AppConstants.space8),
-            TextButton.icon(
-              onPressed: () => _loadProjectData(_currentProject!.id),
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
+      return AppStateView.empty(
+        icon: Icons.view_column_outlined,
+        message: UICopy.noColumnsFound,
+        onRetry: () => _loadProjectData(_currentProject!.id),
       );
     }
 
@@ -1046,9 +1025,7 @@ class _MainScreenState extends State<MainScreen> {
               if (updated != null) {
                 _loadProjectData(_currentProject!.id);
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Card "${card.title}" completed')),
-                  );
+                  AppFeedback.showSuccess(context, UICopy.cardCompleted);
                 }
               }
             },
@@ -1057,9 +1034,7 @@ class _MainScreenState extends State<MainScreen> {
               if (updated != null) {
                 _loadProjectData(_currentProject!.id);
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Card "${card.title}" reactivated')),
-                  );
+                  AppFeedback.showSuccess(context, UICopy.cardReactivated);
                 }
               }
             },
@@ -1067,13 +1042,13 @@ class _MainScreenState extends State<MainScreen> {
               final confirmed = await showDialog<bool>(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text('Delete Card'),
-                  content: Text('Are you sure you want to delete "${card.title}"?'),
+                  title: const Text(UICopy.deleteCard),
+                  content: const Text(UICopy.confirmDeleteCard),
                   actions: [
-                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(UICopy.cancel)),
                     TextButton(
                       onPressed: () => Navigator.pop(context, true), 
-                      child: Text('Delete', style: TextStyle(color: colorScheme.error)),
+                      child: Text(UICopy.delete, style: TextStyle(color: colorScheme.error)),
                     ),
                   ],
                 ),
@@ -1084,9 +1059,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (success) {
                   _loadProjectData(_currentProject!.id);
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Card "${card.title}" deleted')),
-                    );
+                    AppFeedback.showSuccess(context, UICopy.cardDeleted);
                   }
                 }
               }
