@@ -21,8 +21,11 @@ from api.dependencies import (
 from src.config.manager import config
 
 
+from src.logger import setup_logger, set_request_id, clear_context
 from src.utils.error_codes import ErrorCode
 from src.utils.task_manager import task_manager
+
+logger = setup_logger("API")
 
 
 @asynccontextmanager
@@ -32,7 +35,7 @@ async def lifespan(app: FastAPI):
         db = get_db()
         # Ensure all tables exist (including settings, summaries, etc.)
         db.init_db()
-        print("[*] Kanban API started successfully (DB Connected)")
+        logger.info("Kanban API started successfully (DB Connected)")
         
         # Phase 5.1: Integrated Bridge Startup
         # This ensures the API and Bridge share the same NotificationBus
@@ -45,7 +48,7 @@ async def lifespan(app: FastAPI):
         token = config.relay_token
         workspace_cwd = os.getenv("MYBOT_WORKSPACE_CWD")
         
-        print(f"[*] Starting Integrated Bridge for user: {user_id}")
+        logger.info(f"Starting Integrated Bridge for user: {user_id}")
         bridge = UnifiedBridge(user_id, relay_url, token=token, workspace_cwd=workspace_cwd)
         # Set the global bridge_instance so sessions.py can find it
         run_bridge.bridge_instance = bridge
@@ -56,13 +59,11 @@ async def lifespan(app: FastAPI):
         # Phase: Global Optimization - Pre-warm providers for the current project on startup
         current_project_id = db.get_setting("current_project_id")
         if current_project_id:
-            print(f"[*] Proactively pre-warming providers for current project: {current_project_id}")
+            logger.info(f"Proactively pre-warming providers for current project: {current_project_id}")
             task_manager.start_task("pre_warm", bridge.dispatcher.pre_warm_providers(current_project_id))
         
     except Exception as e:
-        print(f"[!] Startup initialization failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Startup initialization failed: {e}", exc_info=True)
         
     yield
     
@@ -70,14 +71,14 @@ async def lifespan(app: FastAPI):
     import run_bridge
     
     # 1. Cancel all background tasks via TaskManager
-    print("[*] Cleaning up background tasks...")
+    logger.info("Cleaning up background tasks...")
     await task_manager.shutdown()
 
     if run_bridge.bridge_instance:
-        print("[*] Stopping Integrated Bridge...")
+        logger.info("Stopping Integrated Bridge...")
         await run_bridge.bridge_instance.shutdown()
         await run_bridge.bridge_instance.stop()
-    print("[*] Kanban API shutdown")
+    logger.info("Kanban API shutdown")
 
 
 app = FastAPI(

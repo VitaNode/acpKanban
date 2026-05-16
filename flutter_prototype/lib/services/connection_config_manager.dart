@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/connection_config.dart';
 
-/// 连接配置存储管理器
+/// Connection configuration storage manager
 class ConnectionConfigManager {
   static const String _configKey = 'connection_config';
   static const String _tokenKey = 'connection_relay_token';
@@ -17,7 +17,7 @@ class ConnectionConfigManager {
 
   ConnectionConfigManager._();
 
-  /// 获取单例实例
+  /// Get singleton instance
   static Future<ConnectionConfigManager> getInstance() async {
     if (_instance == null) {
       _instance = ConnectionConfigManager._();
@@ -26,7 +26,7 @@ class ConnectionConfigManager {
     return _instance!;
   }
 
-  /// 获取或生成用户ID
+  /// Get or generate User ID
   Future<String> getUserId() async {
     String? userId = _prefs?.getString(_userIdKey);
     if (userId == null) {
@@ -42,7 +42,7 @@ class ConnectionConfigManager {
     return 'user_$random';
   }
 
-  /// 加载配置
+  /// Load configuration
   Future<ConnectionConfig> loadConfig() async {
     final userId = await getUserId();
     final jsonStr = _prefs?.getString(_configKey);
@@ -52,10 +52,10 @@ class ConnectionConfigManager {
 
     try {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-      // 从安全存储加载token
+      // Load token from secure storage
       final token = await _secureStorage.read(key: _tokenKey);
       final config = ConnectionConfig.fromJson(json);
-      // 确保 userId 存在
+      // Ensure userId exists
       final finalConfig =
           config.userId != null ? config : config.copyWith(userId: userId);
       return finalConfig.copyWith(relayToken: token);
@@ -64,17 +64,17 @@ class ConnectionConfigManager {
     }
   }
 
-  /// 保存配置
+  /// Save configuration
   Future<bool> saveConfig(ConnectionConfig config) async {
     try {
-      // 保存非敏感配置到shared_preferences
+      // Save non-sensitive config to shared_preferences
       final configToSave = config.copyWith(
         lastUpdated: DateTime.now(),
       );
       final jsonStr = jsonEncode(configToSave.toJson());
       await _prefs?.setString(_configKey, jsonStr);
 
-      // 保存敏感token到安全存储
+      // Save sensitive token to secure storage
       if (config.relayToken != null) {
         await _secureStorage.write(key: _tokenKey, value: config.relayToken);
       }
@@ -85,12 +85,12 @@ class ConnectionConfigManager {
     }
   }
 
-  /// 加载Relay Token
+  /// Load Relay Token
   Future<String?> loadRelayToken() async {
     return await _secureStorage.read(key: _tokenKey);
   }
 
-  /// 保存Relay Token
+  /// Save Relay Token
   Future<bool> saveRelayToken(String token) async {
     try {
       await _secureStorage.write(key: _tokenKey, value: token);
@@ -100,7 +100,7 @@ class ConnectionConfigManager {
     }
   }
 
-  /// 清除所有配置
+  /// Clear all configuration
   Future<bool> clearConfig() async {
     try {
       await _prefs?.remove(_configKey);
@@ -111,27 +111,27 @@ class ConnectionConfigManager {
     }
   }
 
-  /// 保存上次选择的 ACP Provider
+  /// Save last selected ACP Provider
   Future<void> setLastProvider(String providerId) async {
     await _prefs?.setString('last_acp_provider', providerId);
   }
 
-  /// 获取上次选择的 ACP Provider
+  /// Get last selected ACP Provider
   String? getLastProvider() {
     return _prefs?.getString('last_acp_provider');
   }
 
-  /// 保存上次选择的项目 ID
+  /// Save last selected Project ID
   Future<void> setLastProjectId(String projectId) async {
     await _prefs?.setString('last_project_id', projectId);
   }
 
-  /// 获取上次选择的项目 ID
+  /// Get last selected Project ID
   String? getLastProjectId() {
     return _prefs?.getString('last_project_id');
   }
 
-  /// 测试连接
+  /// Test connection
   Future<ConnectionTestResult> testConnection(
       ConnectionConfig config, String userId) async {
     switch (config.preferredMode) {
@@ -144,13 +144,13 @@ class ConnectionConfigManager {
     }
   }
 
-  /// 测试本地连接
+  /// Test local connection
   Future<ConnectionTestResult> _testLocalConnection(
       ConnectionConfig config) async {
     if (kIsWeb) {
       return const ConnectionTestResult(
         success: false,
-        message: 'Web平台不支持本地连接测试',
+        message: 'Web platform does not support local connection testing',
       );
     }
     return _testHostConnection(
@@ -160,13 +160,13 @@ class ConnectionConfigManager {
     );
   }
 
-  /// 测试中继连接
+  /// Test relay connection
   Future<ConnectionTestResult> _testRelayConnection(
       ConnectionConfig config, String userId) async {
     if (kIsWeb) {
       return const ConnectionTestResult(
         success: false,
-        message: 'Web平台不支持中继连接测试',
+        message: 'Web platform does not support relay connection testing',
       );
     }
     return _testHostConnection(
@@ -176,13 +176,13 @@ class ConnectionConfigManager {
     );
   }
 
-  /// 测试云端连接
+  /// Test cloud connection
   Future<ConnectionTestResult> _testCloudConnection(
       ConnectionConfig config) async {
     if (kIsWeb) {
       return const ConnectionTestResult(
         success: false,
-        message: 'Web平台不支持云端连接测试',
+        message: 'Web platform does not support cloud connection testing',
       );
     }
     return _testHostConnection(
@@ -192,7 +192,7 @@ class ConnectionConfigManager {
     );
   }
 
-  /// 通用 TCP 连接测试
+  /// General TCP connection test
   Future<ConnectionTestResult> _testHostConnection(
     String host,
     int port,
@@ -207,18 +207,18 @@ class ConnectionConfigManager {
       return ConnectionTestResult(
         success: true,
         latency: latency,
-        message: '$modeName 连接成功 (${latency}ms)',
+        message: '$modeName connected successfully (${latency}ms)',
       );
     } catch (e) {
       return ConnectionTestResult(
         success: false,
-        message: '$modeName 连接失败: ${e.toString()}',
+        message: '$modeName connection failed: ${e.toString()}',
       );
     }
   }
 }
 
-/// 连接测试结果
+/// Connection test result
 class ConnectionTestResult {
   final bool success;
   final int? latency;

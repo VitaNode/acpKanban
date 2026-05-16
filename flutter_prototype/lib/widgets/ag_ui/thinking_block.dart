@@ -106,7 +106,7 @@ class _ThinkingBlockState extends State<ThinkingBlock>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '思考过程',
+                      'Thinking Process',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,

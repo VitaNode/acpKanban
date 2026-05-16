@@ -32,7 +32,7 @@ class SmartConnect {
     String? cloudUrl,
   }) async {
     if (mode == ConnectionMode.local && kIsWeb) {
-      throw Exception('本地连接模式不支持 Web 平台，请选择中继或云端模式');
+      throw Exception('Local connection mode is not supported on Web, please select Relay or Cloud mode.');
     }
 
     switch (mode) {
@@ -179,20 +179,20 @@ class SmartConnect {
     final errorStr = error.toString();
     if (errorStr.contains('SocketException') || errorStr.contains('OSError')) {
       if (errorStr.contains('Connection refused')) {
-        return '无法连接到服务器，请确认：\n1. 服务器已启动\n2. 地址正确\n3. 防火墙未阻止连接';
+        return 'Unable to connect to server. Please ensure:\n1. Server is running\n2. Address is correct\n3. Firewall is not blocking the connection';
       }
       if (errorStr.contains('Connection timed out') ||
           errorStr.contains('TimeoutException')) {
-        return '连接超时，请检查网络或服务器状态';
+        return 'Connection timed out. Please check your network or server status.';
       }
       if (errorStr.contains('No route to host') ||
           errorStr.contains('Network is unreachable')) {
-        return '网络不可达，请检查网络连接';
+        return 'Network unreachable. Please check your connection.';
       }
-      return '网络错误：${errorStr.length > 100 ? errorStr.substring(0, 100) : errorStr}';
+      return 'Network error: ${errorStr.length > 100 ? errorStr.substring(0, 100) : errorStr}';
     }
     if (error is TimeoutException) {
-      return '连接超时，请检查网络或服务器状态';
+      return 'Connection timed out. Please check your network or server status.';
     }
     return errorStr;
   }

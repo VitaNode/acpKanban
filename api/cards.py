@@ -196,11 +196,11 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
                         bus.publish(card_id, {"type": "refresh"})
                         
                 except Exception as e:
-                    print(f"[ERROR] Failed to generate summary for moved card {card_id}: {e}")
+                    logger.error(f"Failed to generate summary for moved card {card_id}: {e}")
 
             background_tasks.add_task(summarize_move_background, card_id, source_column["name"], target_column["name"])
         except Exception as e:
-            print(f"[WARN] Non-critical post-move operations failed: {e}")
+            logger.warning(f"Non-critical post-move operations failed: {e}")
 
         card = db.get_card(card_id)
         if not card:
@@ -211,7 +211,7 @@ async def move_card(card_id: str, request: CardMoveRequest, background_tasks: Ba
     except HTTPError:
         raise
     except Exception as e:
-        print(f"[ERROR] Card move failed: {e}")
+        logger.error(f"Card move failed: {e}")
         raise HTTPError(400, str(e))
 
 

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
+import '../constants/ui_copy.dart';
+import 'app_feedback.dart';
 
 class ProjectSelector extends StatelessWidget {
   final Project? currentProject;
@@ -38,12 +40,12 @@ class ProjectSelector extends StatelessWidget {
       return TextButton.icon(
         onPressed: onCreateProject,
         icon: const Icon(Icons.add_rounded, size: 18),
-        label: const Text('New Project'),
+        label: const Text(UICopy.newProject),
       );
     }
 
     return PopupMenuButton<String>(
-      tooltip: 'Switch Project',
+      tooltip: UICopy.switchProject,
       offset: const Offset(0, 45),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       child: Container(
@@ -59,7 +61,7 @@ class ProjectSelector extends StatelessWidget {
             Icon(Icons.folder_rounded, size: 16, color: colorScheme.primary),
             const SizedBox(width: AppConstants.space8),
             Text(
-              currentProject?.name ?? 'Select Project',
+              currentProject?.name ?? UICopy.selectProject,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
@@ -97,7 +99,7 @@ class ProjectSelector extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'Last active: ${project.lastActive}',
+                        '${UICopy.lastActive}: ${project.lastActive}',
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
@@ -116,7 +118,7 @@ class ProjectSelector extends StatelessWidget {
             children: [
               Icon(Icons.settings_suggest_rounded, size: 20, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space12),
-              Text('Manage Projects...', style: theme.textTheme.bodyMedium),
+              Text(UICopy.manageProjects, style: theme.textTheme.bodyMedium),
             ],
           ),
         ),
@@ -126,7 +128,7 @@ class ProjectSelector extends StatelessWidget {
             children: [
               Icon(Icons.add_rounded, size: 20, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space12),
-              Text('New Project', style: theme.textTheme.bodyMedium),
+              Text(UICopy.newProject, style: theme.textTheme.bodyMedium),
             ],
           ),
         ),
@@ -174,9 +176,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
   void _handleCreate() {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a project name')),
-      );
+      AppFeedback.showError(context, UICopy.enterProjectName);
       return;
     }
 
@@ -202,7 +202,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
         children: [
           Icon(Icons.create_new_folder_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('New Project', style: theme.textTheme.headlineMedium),
+          Text(UICopy.newProject, style: theme.textTheme.headlineMedium),
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
@@ -220,7 +220,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
                 TextField(
                   controller: _nameController,
                   decoration: const InputDecoration(
-                    labelText: 'Project Name',
+                    labelText: UICopy.projectName,
                     hintText: 'e.g., My App Development',
                     prefixIcon: Icon(Icons.folder_rounded),
                   ),
@@ -231,22 +231,22 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
                 TextField(
                   controller: _descriptionController,
                   decoration: const InputDecoration(
-                    labelText: 'Project Description',
-                    hintText: 'Brief description...',
+                    labelText: UICopy.projectDescription,
+                    hintText: UICopy.briefDescription,
                     prefixIcon: Icon(Icons.description_rounded),
                   ),
                   maxLines: 3,
                 ),
                 const SizedBox(height: AppConstants.space8),
                 Text(
-                  '💡 Description is included in the AI context.',
+                  UICopy.descriptionHint,
                   style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
                   controller: _workspaceController,
                   decoration: const InputDecoration(
-                    labelText: 'Workspace Path',
+                    labelText: UICopy.workspacePath,
                     prefixIcon: Icon(Icons.folder_open_rounded),
                   ),
                 ),
@@ -258,7 +258,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
       actions: [
         TextButton(
           onPressed: _isCreating ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: const Text(UICopy.cancel),
         ),
         ElevatedButton(
           onPressed: _isCreating ? null : _handleCreate,
@@ -273,7 +273,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
-              : const Text('Create'),
+              : const Text(UICopy.create),
         ),
       ],
     );

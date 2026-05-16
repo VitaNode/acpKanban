@@ -9,6 +9,7 @@ import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
 import '../theme/app_theme.dart';
+import '../constants/ui_copy.dart';
 import '../widgets/ag_ui/thinking_block.dart';
 import '../widgets/ag_ui/tool_pill.dart';
 import '../widgets/ag_ui/interactive_request_block.dart';
@@ -166,7 +167,7 @@ class MessageBubble extends StatelessWidget {
               style: theme.textTheme.labelLarge),
         ],
         if (isUser) ...[
-          Text('YOU',
+          Text(UICopy.you,
               style: theme.textTheme.labelLarge?.copyWith(
                   color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))),
           const SizedBox(width: AppConstants.space4),
@@ -378,7 +379,7 @@ class MessageBubble extends StatelessWidget {
         visualDensity: VisualDensity.compact,
         leading: ToolPill(name: toolName, status: toolStatus),
         title: Text(
-          'TOOL LOG',
+          UICopy.toolLog,
           style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.bold,
@@ -399,7 +400,7 @@ class MessageBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (message.metadata?['arguments'] != null) ...[
-                  Text('ARGUMENTS',
+                  Text(UICopy.arguments,
                       style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
@@ -410,7 +411,7 @@ class MessageBubble extends StatelessWidget {
                   _buildCodeBlock(context, message.metadata!['arguments'].toString()),
                   const SizedBox(height: AppConstants.space8),
                 ],
-                Text('RESULT',
+                Text(UICopy.result,
                     style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.bold,
@@ -467,7 +468,7 @@ class MessageBubble extends StatelessWidget {
       );
     } catch (e) {
       debugPrint('Plan rendering error: $e');
-      return const Text('Failed to load plan');
+      return const Text(UICopy.failedToLoadPlan);
     }
   }
 }

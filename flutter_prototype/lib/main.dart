@@ -25,6 +25,7 @@ import 'constants/ui_copy.dart';
 import 'services/theme_service.dart';
 import 'widgets/app_feedback.dart';
 import 'widgets/app_state_view.dart';
+import 'models/app_funnel_state.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -76,6 +77,10 @@ class _MainScreenState extends State<MainScreen> {
   List<ProjectAgentStatus> _agentStatuses = [];
   String? _userId;
 
+  // App Journey state
+  AppFunnelState _funnelState = AppFunnelState.needsConnection;
+  String? _errorMessage;
+
   // Project state
   List<Project> _projects = [];
   Project? _currentProject;
@@ -121,6 +126,7 @@ class _MainScreenState extends State<MainScreen> {
         debugPrint('Missing credentials, redirecting to settings');
         if (mounted) {
           setState(() {
+            _funnelState = AppFunnelState.needsConnection;
             _currentView = 'connection';
           });
           AppFeedback.showInfo(context, UICopy.configureCredentials);
@@ -144,8 +150,28 @@ class _MainScreenState extends State<MainScreen> {
         _loadProjects(),
         _loadProviders(),
       ]);
+
+      if (mounted) {
+        setState(() {
+          if (_projects.isEmpty) {
+            _funnelState = AppFunnelState.noProjects;
+          } else if (_currentProject == null) {
+             _funnelState = AppFunnelState.noProjects; // Actually just no project selected
+          } else if (_columns.isEmpty) {
+            _funnelState = AppFunnelState.projectSelectedNoColumns;
+          } else {
+            _funnelState = AppFunnelState.ready;
+          }
+        });
+      }
     } catch (e) {
       debugPrint('Init Error: $e');
+      if (mounted) {
+        setState(() {
+          _funnelState = AppFunnelState.error;
+          _errorMessage = e.toString();
+        });
+      }
     }
   }
 
@@ -974,99 +1000,128 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildBoardView() {
-    if (_currentProject == null) {
-      return AppStateView.empty(
-        icon: Icons.folder_off_rounded,
-        message: UICopy.noProjectSelected,
-        action: FilledButton.icon(
-          onPressed: _showCreateProjectDialog,
-          icon: const Icon(Icons.add_rounded),
-          label: const Text(UICopy.createProject),
-        ),
-      );
-    }
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     if (_isLoadingProjects && _columns.isEmpty) {
       return AppStateView.loading();
     }
 
-    if (_columns.isEmpty) {
-      return AppStateView.empty(
-        icon: Icons.view_column_outlined,
-        message: UICopy.noColumnsFound,
-        onRetry: () => _loadProjectData(_currentProject!.id),
-      );
-    }
+    switch (_funnelState) {
+      case AppFunnelState.needsConnection:
+        return AppStateView.empty(
+          icon: Icons.link_off_rounded,
+          message: 'Connection required. Open Settings to configure your endpoint.',
+          action: FilledButton.icon(
+            onPressed: () => setState(() => _currentView = 'connection'),
+            icon: const Icon(Icons.settings_rounded),
+            label: const Text('Open Settings'),
+          ),
+        );
+      
+      case AppFunnelState.noProjects:
+        return AppStateView.empty(
+          icon: Icons.folder_off_rounded,
+          message: UICopy.noProjectSelected,
+          action: FilledButton.icon(
+            onPressed: _showCreateProjectDialog,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text(UICopy.createProject),
+          ),
+        );
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _loadProjectData(_currentProject!.id);
-      },
-      child: ReorderableListView.builder(
-        key: PageStorageKey('board_list_${_currentProject?.id}'),
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8),
-        itemCount: _columns.length,
-        onReorder: _onColumnReordered,
-        itemBuilder: (context, index) {
-          final column = _columns[index];
-          final columnCards =
-              _cards.where((c) => c.columnId == column.id).toList();
-          return KanbanColumnWidget(
-            key: ValueKey(column.id),
-            column: column,
-            cards: columnCards,
-            onCardTap: (card) => _openCardById(card.id),
-            onCardSessionTap: (card) => _openCardById(card.id),
-            onAddCard: () => _addCard(column),
-            onCardMoved: _onCardMoved,
-            onCardComplete: (card) async {
-              final updated = await _projectService.completeCard(card.id);
-              if (updated != null) {
-                _loadProjectData(_currentProject!.id);
-                if (mounted) {
-                  AppFeedback.showSuccess(context, UICopy.cardCompleted);
-                }
-              }
-            },
-            onCardUncomplete: (card) async {
-              final updated = await _projectService.uncompleteCard(card.id);
-              if (updated != null) {
-                _loadProjectData(_currentProject!.id);
-                if (mounted) {
-                  AppFeedback.showSuccess(context, UICopy.cardReactivated);
-                }
-              }
-            },
-            onCardDelete: (card) async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text(UICopy.deleteCard),
-                  content: const Text(UICopy.confirmDeleteCard),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(UICopy.cancel)),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, true), 
-                      child: Text(UICopy.delete, style: TextStyle(color: colorScheme.error)),
-                    ),
-                  ],
-                ),
-              );
+      case AppFunnelState.projectSelectedNoColumns:
+        return AppStateView.empty(
+          icon: Icons.view_column_outlined,
+          message: UICopy.noColumnsFound,
+          onRetry: () => _loadProjectData(_currentProject!.id),
+        );
 
-              if (confirmed == true) {
-                final success = await _projectService.deleteCard(card.id);
-                if (success) {
-                  _loadProjectData(_currentProject!.id);
-                  if (mounted) {
-                    AppFeedback.showSuccess(context, UICopy.cardDeleted);
-                  }
-                }
-              }
-            },
+      case AppFunnelState.error:
+        return AppStateView.error(
+          message: _errorMessage ?? 'An unknown error occurred during initialization.',
+          onRetry: _initApp,
+        );
+
+      case AppFunnelState.ready:
+        if (_columns.isEmpty) {
+          return AppStateView.empty(
+            icon: Icons.view_column_outlined,
+            message: UICopy.noColumnsFound,
+            onRetry: () => _loadProjectData(_currentProject!.id),
           );
-        },
-      ),
-    );
+        }
+        
+        return RefreshIndicator(
+          onRefresh: () async {
+            await _loadProjectData(_currentProject!.id);
+          },
+          child: ReorderableListView.builder(
+            key: PageStorageKey('board_list_${_currentProject?.id}'),
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8),
+            itemCount: _columns.length,
+            onReorder: _onColumnReordered,
+            itemBuilder: (context, index) {
+              final column = _columns[index];
+              final columnCards =
+                  _cards.where((c) => c.columnId == column.id).toList();
+              return KanbanColumnWidget(
+                key: ValueKey(column.id),
+                column: column,
+                cards: columnCards,
+                onCardTap: (card) => _openCardById(card.id),
+                onCardSessionTap: (card) => _openCardById(card.id),
+                onAddCard: () => _addCard(column),
+                onCardMoved: _onCardMoved,
+                onCardComplete: (card) async {
+                  final updated = await _projectService.completeCard(card.id);
+                  if (updated != null) {
+                    _loadProjectData(_currentProject!.id);
+                    if (mounted) {
+                      AppFeedback.showSuccess(context, UICopy.cardCompleted);
+                    }
+                  }
+                },
+                onCardUncomplete: (card) async {
+                  final updated = await _projectService.uncompleteCard(card.id);
+                  if (updated != null) {
+                    _loadProjectData(_currentProject!.id);
+                    if (mounted) {
+                      AppFeedback.showSuccess(context, UICopy.cardReactivated);
+                    }
+                  }
+                },
+                onCardDelete: (card) async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text(UICopy.deleteCard),
+                      content: const Text(UICopy.confirmDeleteCard),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(UICopy.cancel)),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, true), 
+                          child: Text(UICopy.delete, style: TextStyle(color: colorScheme.error)),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirmed == true) {
+                    final success = await _projectService.deleteCard(card.id);
+                    if (success) {
+                      _loadProjectData(_currentProject!.id);
+                      if (mounted) {
+                        AppFeedback.showSuccess(context, UICopy.cardDeleted);
+                      }
+                    }
+                  }
+                },
+              );
+            },
+          ),
+        );
+    }
   }
 }

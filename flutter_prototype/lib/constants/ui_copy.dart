@@ -15,6 +15,17 @@ class UICopy {
   static const String roadmap = 'Roadmap';
   static const String timeline = 'Timeline';
   static const String connection = 'Connection';
+  static const String switchProject = 'Switch Project';
+  static const String selectProject = 'Select Project';
+  static const String newProject = 'New Project';
+  static const String manageProjects = 'Manage Projects...';
+  static const String lastActive = 'Last active';
+  static const String enterProjectName = 'Please enter a project name';
+  static const String projectName = 'Project Name';
+  static const String projectDescription = 'Project Description';
+  static const String briefDescription = 'Brief description...';
+  static const String workspacePath = 'Workspace Path';
+  static const String descriptionHint = '💡 Description is included in the AI context.';
   static const String noProjectSelected = 'No project selected';
   static const String createProject = 'Create Project';
   static const String noColumnsFound = 'No columns found for this project.';
@@ -30,6 +41,8 @@ class UICopy {
   static const String cardCompleted = 'Card completed';
   static const String cardReactivated = 'Card reactivated';
   static const String cardDeleted = 'Card deleted';
+  static const String complete = 'Complete';
+  static const String reactivate = 'Reactivate';
 
   // Card Detail / Chat
   static const String startConversation = 'Start a conversation...';
@@ -46,6 +59,11 @@ class UICopy {
   static const String uncategorized = 'Uncategorized';
   static const String none = 'None';
   static const String thinkingProcess = 'Thinking Process';
+  static const String you = 'YOU';
+  static const String toolLog = 'TOOL LOG';
+  static const String arguments = 'ARGUMENTS';
+  static const String result = 'RESULT';
+  static const String failedToLoadPlan = 'Failed to load plan';
 
   // Connection Settings
   static const String connectionSettings = 'Connection Settings';
@@ -61,4 +79,12 @@ class UICopy {
   static const String deleteColumn = 'Delete Column';
   static const String cannotDeleteLastColumn = 'Cannot delete the last column';
   static const String dragToReorder = 'DRAG TO REORDER';
+  static const String columnName = 'Column Name';
+  static const String defaultAiProvider = 'Default AI Provider';
+  static const String noneManualSelection = 'None (Manual selection)';
+  static const String promptTemplate = 'Prompt Template';
+  static const String promptTemplateHint = 'Instructions for AI in this column...';
+  static const String customPromptDescription = '💡 Custom prompt for cards in this column.';
+  static const String targetColumn = 'Target Column';
+  static const String selectTargetColumn = 'Select target column';
 }

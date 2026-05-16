@@ -6,6 +6,8 @@ import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
 import '../models/acp_provider.dart';
 import '../theme/app_theme.dart';
+import '../constants/ui_copy.dart';
+import 'app_feedback.dart';
 
 class ColorEditResult {
   final String name;
@@ -84,7 +86,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
     final isMobile = size.width < 600;
 
     return AlertDialog(
-      title: const Text('Edit Column'),
+      title: const Text(UICopy.editColumn),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
@@ -101,7 +103,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 TextField(
                   controller: _nameController,
                   autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Column Name'),
+                  decoration: const InputDecoration(labelText: UICopy.columnName),
                 ),
                 const SizedBox(height: AppConstants.space24),
                 if (_isLoadingProviders)
@@ -111,13 +113,13 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                     value: _selectedProviderId,
                     isExpanded: true,
                     decoration: const InputDecoration(
-                      labelText: 'Default AI Provider',
+                      labelText: UICopy.defaultAiProvider,
                       hintText: 'Select an agent for this column',
                     ),
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text('None (Manual selection)', overflow: TextOverflow.ellipsis),
+                        child: Text(UICopy.noneManualSelection, overflow: TextOverflow.ellipsis),
                       ),
                       ..._providers.map((p) => DropdownMenuItem(
                             value: p.id,
@@ -135,14 +137,14 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 TextField(
                   controller: _promptTemplateController,
                   decoration: const InputDecoration(
-                    labelText: 'Prompt Template',
-                    hintText: 'Instructions for AI in this column...',
+                    labelText: UICopy.promptTemplate,
+                    hintText: UICopy.promptTemplateHint,
                   ),
                   maxLines: 6,
                 ),
                 const SizedBox(height: AppConstants.space8),
                 Text(
-                  '💡 Custom prompt for cards in this column.',
+                  UICopy.customPromptDescription,
                   style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
                 ),
               ],
@@ -153,7 +155,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: const Text(UICopy.cancel),
         ),
         ElevatedButton(
           onPressed: () {
@@ -174,7 +176,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
             foregroundColor: colorScheme.onPrimary,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
           ),
-          child: const Text('Save'),
+          child: const Text(UICopy.save),
         ),
       ],
     );
@@ -241,7 +243,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
     final isMobile = size.width < 600;
 
     return AlertDialog(
-      title: const Text('Add Column'),
+      title: const Text(UICopy.addColumn),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
@@ -258,7 +260,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                 TextField(
                   controller: _nameController,
                   autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Column Name'),
+                  decoration: const InputDecoration(labelText: UICopy.columnName),
                 ),
                 const SizedBox(height: AppConstants.space24),
                 if (_isLoadingProviders)
@@ -268,12 +270,12 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                     value: _selectedProviderId,
                     isExpanded: true,
                     decoration: const InputDecoration(
-                      labelText: 'Default AI Provider',
+                      labelText: UICopy.defaultAiProvider,
                     ),
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text('None (Manual selection)', overflow: TextOverflow.ellipsis),
+                        child: Text(UICopy.noneManualSelection, overflow: TextOverflow.ellipsis),
                       ),
                       ..._providers.map((p) => DropdownMenuItem(
                             value: p.id,
@@ -292,7 +294,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                 TextField(
                   controller: _promptTemplateController,
                   decoration: const InputDecoration(
-                    labelText: 'Prompt Template',
+                    labelText: UICopy.promptTemplate,
                     hintText: 'Instructions for AI...',
                   ),
                   maxLines: 5,
@@ -305,7 +307,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: const Text(UICopy.cancel),
         ),
         ElevatedButton(
           onPressed: () {
@@ -326,7 +328,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
             foregroundColor: colorScheme.onPrimary,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
           ),
-          child: const Text('Create'),
+          child: const Text(UICopy.create),
         ),
       ],
     );
@@ -530,7 +532,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         children: [
           Icon(Icons.view_column_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Expanded(child: Text('Manage Columns', style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
+          Expanded(child: Text(UICopy.manageColumns, style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
@@ -547,7 +549,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('DRAG TO REORDER', style: theme.textTheme.labelLarge),
+                    Text(UICopy.dragToReorder, style: theme.textTheme.labelLarge),
                     const SizedBox(height: AppConstants.space8),
                     Flexible(
                       child: ReorderableListView.builder(
@@ -619,10 +621,10 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         TextButton.icon(
             onPressed: _addColumn,
             icon: const Icon(Icons.add_rounded),
-            label: const Text('Add Column')),
+            label: const Text(UICopy.addColumn)),
         TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close')),
+            child: const Text(UICopy.close)),
       ],
     );
   }

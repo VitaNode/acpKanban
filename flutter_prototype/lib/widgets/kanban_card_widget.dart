@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/kanban_card.dart';
 import '../constants/app_constants.dart';
+import '../constants/ui_copy.dart';
 import '../theme/app_theme.dart';
 
 class KanbanCardWidget extends StatelessWidget {
@@ -129,7 +130,7 @@ class KanbanCardWidget extends StatelessWidget {
               children: [
                 Icon(Icons.check_circle_outline, size: 18, color: customColors.success),
                 const SizedBox(width: 8),
-                const Text('Complete'),
+                const Text(UICopy.complete),
               ],
             ),
           ),
@@ -140,7 +141,7 @@ class KanbanCardWidget extends StatelessWidget {
               children: [
                 Icon(Icons.history, size: 18, color: customColors.warning),
                 const SizedBox(width: 8),
-                const Text('Reactivate'),
+                const Text(UICopy.reactivate),
               ],
             ),
           ),
@@ -150,7 +151,7 @@ class KanbanCardWidget extends StatelessWidget {
             children: [
               Icon(Icons.delete_outline, size: 18, color: Theme.of(context).colorScheme.error),
               const SizedBox(width: 8),
-              const Text('Delete'),
+              const Text(UICopy.delete),
             ],
           ),
         ),

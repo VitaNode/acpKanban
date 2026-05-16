@@ -5,6 +5,9 @@ import json
 import sys
 import os
 from datetime import datetime
+from src.logger import setup_logger
+
+logger = setup_logger("BridgeWS")
 
 # Path to the actual ACP server
 ACP_SERVER_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "api")
@@ -12,7 +15,7 @@ PYTHON_EXE = sys.executable
 
 async def handler(websocket):
     client_addr = websocket.remote_address
-    print(f"[{datetime.now().isoformat()}] [*] New Client Connected: {client_addr}")
+    logger.info(f"New Client Connected: {client_addr}")
     
     process = None
     try:
@@ -23,9 +26,9 @@ async def handler(websocket):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        print(f"[*] ACP Server started for {client_addr} (PID: {process.pid})")
+        logger.info(f"ACP Server started for {client_addr} (PID: {process.pid})")
     except Exception as e:
-        print(f"[ERROR] Failed to start ACP Server: {e}")
+        logger.error(f"Failed to start ACP Server: {e}")
         await websocket.close(1011, "Server initialization failed")
         return
 
@@ -36,13 +39,13 @@ async def handler(websocket):
                     process.stdin.write(message.encode() + b"\n")
                     await process.stdin.drain()
         except websockets.exceptions.ConnectionClosed:
-            print(f"[*] Client {client_addr} connection closed.")
+            logger.info(f"Client {client_addr} connection closed.")
         except Exception as e:
-            print(f"[ERROR] forward_to_server: {e}")
+            logger.error(f"forward_to_server: {e}")
         finally:
             # Issue 1: Resource cleanup
             if process and process.returncode is None:
-                print(f"[*] Terminating ACP Server (PID: {process.pid})")
+                logger.info(f"Terminating ACP Server (PID: {process.pid})")
                 process.terminate()
                 await process.wait()
 
@@ -53,14 +56,14 @@ async def handler(websocket):
                 if not line: break
                 await websocket.send(line.decode().strip())
         except Exception as e:
-            print(f"[ERROR] forward_to_client: {e}")
+            logger.error(f"forward_to_client: {e}")
 
     async def log_stderr():
         try:
             while True:
                 line = await process.stderr.readline()
                 if not line: break
-                print(f"[SERVER LOG {process.pid}]: {line.decode().strip()}", file=sys.stderr)
+                logger.warning(f"[SERVER LOG {process.pid}]: {line.decode().strip()}")
         except Exception:
             pass
 
@@ -85,7 +88,7 @@ async def main():
         ping_interval=30,
         ping_timeout=10
     ):
-        print("[*] ACP WebSocket Bridge (Robust) started on ws://localhost:8766")
+        logger.info("ACP WebSocket Bridge (Robust) started on ws://localhost:8766")
         await asyncio.Future()  # run forever
 
 if __name__ == "__main__":
