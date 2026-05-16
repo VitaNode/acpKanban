@@ -1,68 +1,189 @@
 #!/bin/bash
-
+#
 # MyBot (Agent Kanban) Setup Script
 # Targets: macOS (Darwin) and Linux
+# Usage:   bash scripts/setup.sh
+#
+# This script must run from the project root (mybot/).
+# It will create .venv, install deps, and generate start.sh / start_dev.sh.
 
 set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-echo -e "${BLUE}=======================================${NC}"
-echo -e "${BLUE}   MyBot (Agent Kanban) Setup v1.0     ${NC}"
-echo -e "${BLUE}=======================================${NC}"
+info()  { echo -e "${BLUE}[*]${NC} $1"; }
+ok()    { echo -e "${GREEN}[✓]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
+err()   { echo -e "${RED}[✗]${NC} $1"; }
 
-# 1. OS Detection
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}   MyBot (Agent Kanban) Setup v1.1     ${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+# ──────────────────────────────────────────────
+#  1. OS Detection & Prerequisites
+# ──────────────────────────────────────────────
 OS="$(uname)"
-echo -e "[*] Detected OS: ${OS}"
+info "Detected OS: ${OS}"
 
-# 2. Python Check
+case "$OS" in
+    Darwin)
+        if ! xcode-select -p &>/dev/null; then
+            warn "Xcode Command Line Tools not found."
+            echo "  Run: xcode-select --install"
+            echo "  Then re-run this script."
+            exit 1
+        fi
+        ;;
+    Linux)
+        if command -v apt-get &>/dev/null; then
+            if ! dpkg -l python3-venv &>/dev/null 2>&1; then
+                info "Installing python3-venv (required for virtual environment)..."
+                sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv
+            fi
+        fi
+        ;;
+    *)
+        warn "Untested OS: ${OS}. Proceed with caution."
+        ;;
+esac
+
+# ──────────────────────────────────────────────
+#  2. Python Check (3.10+)
+# ──────────────────────────────────────────────
 if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}[!] Python 3 is not installed. Please install it first.${NC}"
+    err "Python 3 is not installed. Please install Python 3.10+ first."
     exit 1
 fi
 
 PYTHON_VERSION=$(python3 --version)
-echo -e "[*] Using ${PYTHON_VERSION}"
+PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo "0")
+if [ "$PYTHON_MINOR" -lt 10 ]; then
+    err "Python 3.10+ required, found ${PYTHON_VERSION}"
+    exit 1
+fi
+info "Using ${PYTHON_VERSION}"
 
-# 3. Virtual Environment
+# ──────────────────────────────────────────────
+#  3. Virtual Environment
+# ──────────────────────────────────────────────
 if [ ! -d ".venv" ]; then
-    echo -e "[*] Creating virtual environment..."
+    info "Creating virtual environment..."
     python3 -m venv .venv
 else
-    echo -e "[*] Virtual environment already exists."
+    info "Virtual environment already exists."
 fi
 
-# 4. Install Dependencies
-echo -e "[*] Installing dependencies..."
-./.venv/bin/pip install --upgrade pip
-./.venv/bin/pip install -r requirements.txt
+# ──────────────────────────────────────────────
+#  4. Install Dependencies
+# ──────────────────────────────────────────────
+info "Installing dependencies (this may take a while)..."
+./.venv/bin/pip install --quiet --upgrade pip
+./.venv/bin/pip install --quiet -r requirements.txt
 
-# 5. Initialize Database & Config
-echo -e "[*] Initializing system configuration..."
-export PYTHONPATH=$PYTHONPATH:.
+# 验证 tree-sitter / sqlite-vec 原生编译是否成功
+./.venv/bin/python3 -c "import tree_sitter; print('tree_sitter: ok')" 2>/dev/null || \
+    warn "tree_sitter native build may have failed (some features limited)"
+./.venv/bin/python3 -c "import sqlite_vec; print('sqlite-vec: ok')" 2>/dev/null || \
+    warn "sqlite-vec native build may have failed (vector search disabled)"
+
+# ──────────────────────────────────────────────
+#  5. Initialize Database & Config
+# ──────────────────────────────────────────────
+info "Initializing system configuration..."
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
 ./.venv/bin/python3 -c "from src.config.manager import config"
+ok "Configuration saved to config.json"
 
-# 6. Create Runner Script
-echo -e "[*] Creating start.sh..."
-cat <<EOF > start.sh
+# ──────────────────────────────────────────────
+#  6. Create Runner Scripts
+# ──────────────────────────────────────────────
+
+# 如果 start.sh 已存在，询问是否覆盖
+OVERWRITE_START="yes"
+if [ -f "start.sh" ]; then
+    echo ""
+    warn "start.sh already exists."
+    read -rp "Overwrite? [y/N]: " OVERWRITE_CHOICE
+    if [[ ! "$OVERWRITE_CHOICE" =~ ^[Yy] ]]; then
+        OVERWRITE_START="no"
+        info "Keeping existing start.sh"
+    fi
+fi
+
+if [ "$OVERWRITE_START" = "yes" ]; then
+    info "Generating start.sh (production)..."
+    cat > start.sh <<'RUNTIME_EOF'
 #!/bin/bash
-export PYTHONPATH=\$PYTHONPATH:.
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
 echo "[*] Starting MyBot API Server..."
-./.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
-EOF
-chmod +x start.sh
+exec ./.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+RUNTIME_EOF
+    chmod +x start.sh
+    ok "start.sh created"
+fi
 
-echo -e "${GREEN}=======================================${NC}"
-echo -e "${GREEN}   Setup Completed Successfully!       ${NC}"
-echo -e "${GREEN}=======================================${NC}"
+# 开发模式脚本（始终生成，不会覆盖重要文件）
+info "Generating start_dev.sh (development, with --reload)..."
+cat > start_dev.sh <<'RUNTIME_EOF'
+#!/bin/bash
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
+echo "[*] Starting MyBot API Server (dev mode)..."
+exec ./.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+RUNTIME_EOF
+chmod +x start_dev.sh
+ok "start_dev.sh created"
+
+# ──────────────────────────────────────────────
+#  7. Post-Install Verification
+# ──────────────────────────────────────────────
+info "Verifying installation..."
+VERIFY_PASS=true
+
+./.venv/bin/python3 -c "
+from api.main import app
+print('✓ API module loaded successfully')
+from src.persistence.database import KanbanDB
+db = KanbanDB()
+db.init_db()
+print('✓ Database initialized successfully')
+" 2>/dev/null || VERIFY_PASS=false
+
+if [ "$VERIFY_PASS" = false ]; then
+    warn "Post-install verification found issues. Check the error messages above."
+    warn "The server may still work; run it and check logs."
+else
+    ok "Installation verified successfully"
+fi
+
+# ──────────────────────────────────────────────
+#  Done
+# ──────────────────────────────────────────────
 echo -e ""
-echo -e "To start the server, run: ${BLUE}./start.sh${NC}"
+echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  Setup Completed Successfully!       ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
 echo -e ""
-echo -e "Your credentials (saved in config.json):"
-./.venv/bin/python3 -c "from src.config.manager import config; print(f'USER_ID: {config.user_id}'); print(f'RELAY_TOKEN: {config.relay_token}')"
+echo -e "  Production:  ${BLUE}./start.sh${NC}"
+echo -e "  Dev mode:    ${BLUE}./start_dev.sh${NC}"
 echo -e ""
-echo -e "Please copy these credentials and enter them into the mobile app's Connection Settings."
-echo -e "If you are using Tailscale, use your Tailscale IP and the port 8000 in the mobile app."
+echo -e "  Server runs at:  ${BLUE}http://localhost:8000${NC}"
+echo -e "  API docs:        ${BLUE}http://localhost:8000/docs${NC}"
+echo -e ""
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "  Your credentials (saved in config.json):"
+./.venv/bin/python3 -c "
+from src.config.manager import config
+print(f'    USER_ID:     {config.user_id}')
+print(f'    RELAY_TOKEN: {config.relay_token}')
+"
+echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e ""
+echo -e "  Enter these credentials into the mobile app's Connection Settings."
+echo -e "  If using Tailscale, use your Tailscale IP as the server address."
+echo -e ""
+echo -e "  ${YELLOW}Tip:${NC} For relay setup, run: ${BLUE}./scripts/install_relay.sh${NC}"

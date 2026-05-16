@@ -1,0 +1,24 @@
+[Unit]
+Description=MyBot Relay Server
+Documentation=https://github.com/your-org/mybot
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+WorkingDirectory=/opt/mybot-relay
+EnvironmentFile=/opt/mybot-relay/.env
+ExecStart=/opt/mybot-relay/.venv/bin/python3 -m src.transport.relay_server
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateDevices=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
