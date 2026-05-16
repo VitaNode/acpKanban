@@ -411,9 +411,10 @@ class UnifiedBridge:
                 self.logger.debug(f"Proxying {http_method} {path}")
                 try:
                     response = await self._proxy_client.request(method=http_method, url=path, json=body, headers=headers)
-                    try: resp_data = response.json()
+                    try:
+                        resp_data = response.json()
                     except Exception:
- resp_data = response.text
+                        resp_data = response.text
                     await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"statusCode": response.status_code, "body": resp_data if isinstance(resp_data, str) else json.dumps(resp_data)}})
                 except Exception as e:
                     self.logger.error(f"Proxy error: {e}")
@@ -438,7 +439,7 @@ class UnifiedBridge:
                                 async for message in ws:
                                     await safe_send({"jsonrpc": "2.0", "method": "session/ws_event", "params": {"card_id": card_id, "payload": message}})
                             except Exception:
- pass
+                                pass
                             finally: self._card_sessions.pop(card_id, None)
                         asyncio.create_task(ws_listener())
                         await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
