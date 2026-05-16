@@ -55,7 +55,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
       });
       
       if (status['index_status'] == 'idle' && _status?['index_status'] == 'running') {
-        KanbanRefreshService().markNeedsRefresh();
+        KanbanRefreshService().markNeedsRefresh(RefreshSource.other);
       }
     }
   }

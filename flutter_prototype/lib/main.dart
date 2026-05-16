@@ -106,7 +106,7 @@ class _MainScreenState extends State<MainScreen> {
 
   void _setupRefreshService() {
     final refreshService = KanbanRefreshService();
-    refreshService.addRefreshListener((_) {
+    refreshService.addListener((_) {
       if (mounted && _currentProject != null) {
         _loadProjectData(_currentProject!.id);
       }

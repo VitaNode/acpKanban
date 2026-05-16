@@ -7,9 +7,10 @@ class AppLogger {
     }
   }
 
-  static void warning(String message) {
+  static void warning(String message, [Object? error]) {
     if (kDebugMode) {
       print('[WARN] $message');
+      if (error != null) print(error);
     }
   }
 

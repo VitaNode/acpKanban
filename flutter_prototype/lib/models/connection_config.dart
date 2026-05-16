@@ -16,16 +16,29 @@ enum ConnectionMode {
 class SystemProxyConfig {
   final String providerId;
   final Map<String, dynamic>? config;
+  final String? baseUrl;
+  final String? apiKey;
+  final String? summaryModel;
+  final String? embeddingModel;
 
   SystemProxyConfig({
     required this.providerId,
     this.config,
+    this.baseUrl,
+    this.apiKey,
+    this.summaryModel,
+    this.embeddingModel,
   });
 
   factory SystemProxyConfig.fromJson(Map<String, dynamic> json) {
+    final configMap = json['config'] as Map<String, dynamic>?;
     return SystemProxyConfig(
       providerId: json['provider_id'] as String,
-      config: json['config'] as Map<String, dynamic>?,
+      config: configMap,
+      baseUrl: configMap?['base_url'] as String? ?? json['base_url'] as String?,
+      apiKey: configMap?['api_key'] as String? ?? json['api_key'] as String?,
+      summaryModel: configMap?['summary_model'] as String? ?? json['summary_model'] as String?,
+      embeddingModel: configMap?['embedding_model'] as String? ?? json['embedding_model'] as String?,
     );
   }
 
@@ -33,6 +46,10 @@ class SystemProxyConfig {
     return {
       'provider_id': providerId,
       if (config != null) 'config': config,
+      'base_url': baseUrl,
+      'api_key': apiKey,
+      'summary_model': summaryModel,
+      'embedding_model': embeddingModel,
     };
   }
 }

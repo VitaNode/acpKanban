@@ -44,12 +44,14 @@ class AppStateView extends StatelessWidget {
     required String message,
     IconData icon = Icons.inbox_outlined,
     Widget? action,
+    VoidCallback? onRetry,
   }) {
     return AppStateView(
       icon: icon,
       title: title ?? 'Empty',
       message: message,
       action: action,
+      onRetry: onRetry,
     );
   }
 

@@ -115,7 +115,7 @@ class MessageBubble extends StatelessWidget {
     
     if (thought != null && thought.isNotEmpty) {
       children.add(ThinkingBlock(
-        thought: thought,
+        text: thought,
         isCollapsed: true,
       ));
     }

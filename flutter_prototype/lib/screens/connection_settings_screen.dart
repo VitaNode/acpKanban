@@ -89,18 +89,18 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       _cloudUrlController.text = config.cloudUrl ?? '';
       _localPortController.text = (config.localPort ?? 8766).toString();
       _relayPortController.text = (config.relayPort ?? 8766).toString();
-      _apiPortController.text = (config.apiPort ?? 8000).toString();
+      _apiPortController.text = (config.localPort ?? 8000).toString();
       
       _systemBaseUrlController.text = config.systemConfig?.baseUrl ?? '';
       _systemApiKeyController.text = config.systemConfig?.apiKey ?? '';
       if (config.systemConfig != null) {
-        _summaryModelController.text = config.systemConfig!.summaryModel;
-        _embeddingModelController.text = config.systemConfig!.embeddingModel;
+        _summaryModelController.text = config.systemConfig!.summaryModel ?? '';
+        _embeddingModelController.text = config.systemConfig!.embeddingModel ?? '';
       }
 
       _relayPort = config.relayPort ?? 8766;
       _localPort = config.localPort ?? 8766;
-      _apiPort = config.apiPort ?? 8000;
+      _apiPort = config.localPort ?? 8000;
     });
   }
 
