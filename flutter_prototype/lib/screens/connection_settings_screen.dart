@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/connection_config.dart';
 import '../services/connection_config_manager.dart';
@@ -5,6 +6,7 @@ import '../services/smart_connect.dart';
 import '../services/acp_client.dart';
 import '../constants/app_constants.dart';
 import '../constants/ui_copy.dart';
+import '../constants/error_copy.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_feedback.dart';
 
@@ -47,7 +49,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   late int _apiPort;
 
   bool _isConnecting = false;
-  String _connectionStatus = 'Disconnected';
+  String _connectionStatus = UICopy.disconnected;
   bool _isScanning = false;
   String? _scannedIp;
 
@@ -89,10 +91,12 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       _relayPortController.text = (config.relayPort ?? 8766).toString();
       _apiPortController.text = (config.apiPort ?? 8000).toString();
       
-      _systemBaseUrlController.text = config.systemConfig.baseUrl ?? '';
-      _systemApiKeyController.text = config.systemConfig.apiKey ?? '';
-      _summaryModelController.text = config.systemConfig.summaryModel;
-      _embeddingModelController.text = config.systemConfig.embeddingModel;
+      _systemBaseUrlController.text = config.systemConfig?.baseUrl ?? '';
+      _systemApiKeyController.text = config.systemConfig?.apiKey ?? '';
+      if (config.systemConfig != null) {
+        _summaryModelController.text = config.systemConfig!.summaryModel;
+        _embeddingModelController.text = config.systemConfig!.embeddingModel;
+      }
 
       _relayPort = config.relayPort ?? 8766;
       _localPort = config.localPort ?? 8766;
@@ -136,7 +140,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _scannedIp = 'Scan failed';
+          _scannedIp = UICopy.scanFailed;
         });
       }
     } finally {
@@ -155,7 +159,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       preferredMode: _selectedMode,
       localIp: _localIpController.text.isEmpty ? null : _localIpController.text,
       localPort: _localPort,
-      apiPort: _apiPort,
       relayHost:
           _relayHostController.text.isEmpty ? null : _relayHostController.text,
       relayPort: _relayPort,
@@ -165,12 +168,15 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       cloudUrl:
           _cloudUrlController.text.isEmpty ? null : _cloudUrlController.text,
       userId: _userIdController.text.isEmpty ? null : _userIdController.text,
-      autoFallback: false,
-      systemConfig: SystemAgentConfig(
-        baseUrl: _systemBaseUrlController.text.isEmpty ? null : _systemBaseUrlController.text,
-        apiKey: _systemApiKeyController.text.isEmpty ? null : _systemApiKeyController.text,
-        summaryModel: _summaryModelController.text,
-        embeddingModel: _embeddingModelController.text,
+      useMdns: true,
+      systemConfig: SystemProxyConfig(
+        providerId: 'openai', // Default to openai for system tasks
+        config: {
+          'base_url': _systemBaseUrlController.text,
+          'api_key': _systemApiKeyController.text,
+          'summary_model': _summaryModelController.text,
+          'embedding_model': _embeddingModelController.text,
+        }
       ),
     );
 
@@ -179,7 +185,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     if (mounted) {
       setState(() {
         _isConnecting = true;
-        _connectionStatus = 'Connecting...';
+        _connectionStatus = UICopy.connecting;
       });
     }
 
@@ -192,7 +198,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
 
       if (mounted) {
         setState(() {
-          _connectionStatus = 'Connected';
+          _connectionStatus = UICopy.connected;
         });
         
         widget.onConnectionChanged?.call(
@@ -205,9 +211,9 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _connectionStatus = 'Failed: ${e.toString()}';
+          _connectionStatus = '${UICopy.error}: ${e.toString()}';
         });
-        AppFeedback.showError(context, '${UICopy.connectionFailed}: $e');
+        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
       }
     } finally {
       if (mounted) {
@@ -220,8 +226,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
 
   Color _getStatusColor() {
     final customColors = Theme.of(context).extension<CustomColors>()!;
-    if (_connectionStatus.startsWith('Connected')) return customColors.success!;
-    if (_connectionStatus.startsWith('Failed')) return Theme.of(context).colorScheme.error;
+    if (_connectionStatus == UICopy.connected) return customColors.success!;
+    if (_connectionStatus.startsWith(UICopy.error)) return Theme.of(context).colorScheme.error;
     return customColors.warning!;
   }
 
@@ -233,7 +239,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'CONNECTION SETTINGS',
+            UICopy.connectionSettings,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: Theme.of(context).colorScheme.primary,
@@ -243,7 +249,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           _buildGuidanceCard(),
           const SizedBox(height: AppConstants.space32),
           Text(
-            'CONNECTION MODE',
+            UICopy.connectionMode,
             style: Theme.of(context).textTheme.labelLarge,
           ),
           const SizedBox(height: AppConstants.space12),
@@ -252,7 +258,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           _buildModeSpecificFields(),
           const SizedBox(height: AppConstants.space32),
           Text(
-            'SYSTEM AGENT (LLM)',
+            UICopy.systemAgent,
             style: Theme.of(context).textTheme.labelLarge,
           ),
           const SizedBox(height: AppConstants.space12),
@@ -271,7 +277,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.power_settings_new_rounded),
-              label: Text(_isConnecting ? 'CONNECTING...' : 'SAVE & CONNECT'),
+              label: Text(_isConnecting ? UICopy.scanning : UICopy.saveAndConnect),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Theme.of(context).colorScheme.onPrimary,
@@ -303,7 +309,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
               Icon(Icons.help_outline_rounded, color: colorScheme.primary, size: 20),
               const SizedBox(width: 8),
               Text(
-                'How to get Credentials?',
+                UICopy.howToGetCredentials,
                 style: TextStyle(
                   color: colorScheme.primary,
                   fontWeight: FontWeight.bold,
@@ -313,7 +319,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           ),
           const SizedBox(height: AppConstants.space12),
           const Text(
-            '1. Start the MyBot API on your computer.\n2. Open "config.json" in the project root.\n3. Find "user_id" and "token" under the "relay" section.\n4. Copy and paste them into the fields below.',
+            UICopy.credentialsGuide,
             style: TextStyle(fontSize: 13, height: 1.5),
           ),
         ],
@@ -327,19 +333,19 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         _buildModeButton(
           mode: ConnectionMode.local,
           icon: Icons.home_rounded,
-          label: 'Local',
+          label: UICopy.local,
         ),
         const SizedBox(width: AppConstants.space8),
         _buildModeButton(
           mode: ConnectionMode.relay,
           icon: Icons.cloud_sync_rounded,
-          label: 'Relay',
+          label: UICopy.relay,
         ),
         const SizedBox(width: AppConstants.space8),
         _buildModeButton(
           mode: ConnectionMode.cloud,
           icon: Icons.public_rounded,
-          label: 'Cloud',
+          label: UICopy.cloud,
         ),
       ],
     );
@@ -412,7 +418,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
               Icon(Icons.info_outline_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 8),
               Text(
-                '${_selectedMode.name.toUpperCase()} CONFIGURATION',
+                '${_selectedMode.name.toUpperCase()} ${UICopy.configuration}',
                 style: Theme.of(context).textTheme.labelLarge,
               ),
             ],
@@ -445,7 +451,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.search_rounded, size: 18),
-                label: Text(_isScanning ? 'SCANNING...' : 'SCAN LOCAL NETWORK'),
+                label: Text(_isScanning ? UICopy.scanning : UICopy.scanLocalNetwork),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
@@ -458,7 +464,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           const SizedBox(height: AppConstants.space8),
           Center(
             child: Text(
-              _scannedIp!.startsWith('Scan') ? _scannedIp! : 'Found: $_scannedIp',
+              _scannedIp!.startsWith('Scan') ? _scannedIp! : '${UICopy.found}: $_scannedIp',
               style: TextStyle(
                 color: _scannedIp!.startsWith('Scan') ? Theme.of(context).colorScheme.error : customColors.success,
                 fontSize: 11,
@@ -471,7 +477,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         TextField(
           controller: _localIpController,
           decoration: const InputDecoration(
-            labelText: 'IP Address',
+            labelText: UICopy.ipAddress,
             hintText: '192.168.x.x',
           ),
         ),
@@ -482,7 +488,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
               child: TextField(
                 controller: _localPortController,
                 decoration: const InputDecoration(
-                  labelText: 'WS Port',
+                  labelText: UICopy.wsPort,
                 ),
                 keyboardType: TextInputType.number,
                 onChanged: (v) =>
@@ -494,7 +500,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
               child: TextField(
                 controller: _apiPortController,
                 decoration: const InputDecoration(
-                  labelText: 'API Port',
+                  labelText: UICopy.apiPort,
                 ),
                 keyboardType: TextInputType.number,
                 onChanged: (v) => setState(() => _apiPort = int.tryParse(v) ?? 8000),
@@ -513,7 +519,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         TextField(
           controller: _userIdController,
           decoration: const InputDecoration(
-            labelText: 'User ID (Must match Mac)',
+            labelText: UICopy.userIdMatch,
             prefixIcon: Icon(Icons.person_outline_rounded, size: 18),
             hintText: 'user_123456',
           ),
@@ -523,7 +529,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         TextField(
           controller: _relayHostController,
           decoration: const InputDecoration(
-            labelText: 'Relay Host',
+            labelText: UICopy.relayHost,
             hintText: 'e.g. relay.example.com',
           ),
         ),
@@ -531,7 +537,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         TextField(
           controller: _relayPortController,
           decoration: const InputDecoration(
-            labelText: 'Relay Port',
+            labelText: UICopy.relayPort,
           ),
           keyboardType: TextInputType.number,
           onChanged: (v) =>
@@ -541,7 +547,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         TextField(
           controller: _relayTokenController,
           decoration: const InputDecoration(
-            labelText: 'Access Token',
+            labelText: UICopy.accessToken,
             prefixIcon: Icon(Icons.key_rounded, size: 18),
           ),
           obscureText: true,
@@ -554,7 +560,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     return TextField(
       controller: _cloudUrlController,
       decoration: const InputDecoration(
-        labelText: 'Cloud WebSocket URL',
+        labelText: UICopy.cloudWsUrl,
         hintText: 'ws://host:port/direct',
       ),
     );
@@ -574,7 +580,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           TextField(
             controller: _systemBaseUrlController,
             decoration: const InputDecoration(
-              labelText: 'API Base URL',
+              labelText: UICopy.apiBaseUrl,
               hintText: 'https://api.openai.com/v1',
             ),
           ),
@@ -582,7 +588,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           TextField(
             controller: _systemApiKeyController,
             decoration: const InputDecoration(
-              labelText: 'API Key',
+              labelText: UICopy.apiKey,
               prefixIcon: Icon(Icons.vpn_key_rounded, size: 18),
             ),
             obscureText: true,
@@ -594,7 +600,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                 child: TextField(
                   controller: _summaryModelController,
                   decoration: const InputDecoration(
-                    labelText: 'Summary Model',
+                    labelText: UICopy.summaryModel,
                   ),
                 ),
               ),
@@ -603,7 +609,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                 child: TextField(
                   controller: _embeddingModelController,
                   decoration: const InputDecoration(
-                    labelText: 'Embedding Model',
+                    labelText: UICopy.embeddingModel,
                   ),
                 ),
               ),

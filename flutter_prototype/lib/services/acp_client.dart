@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
 import 'smart_connect.dart';
@@ -8,6 +7,7 @@ import 'e2ee_manager.dart';
 import '../models/connection_config.dart';
 import 'file_system_service.dart';
 import 'terminal_service.dart';
+import '../utils/app_logger.dart';
 
 class ACPConfig {
   final ConnectionMode mode;
@@ -45,7 +45,7 @@ class ACPConfig {
       userId: userId,
       relayToken: config.relayToken,
       cloudDirectUrl: config.cloudUrl,
-      systemConfig: config.systemConfig.toJson(),
+      systemConfig: config.systemConfig?.toJson(),
     );
   }
 }
@@ -86,7 +86,7 @@ class ACPClient {
     _readyCompleter = Completer<void>();
     if (config.sessionKeyHex != null) {
       _e2ee = E2EEManager(config.sessionKeyHex!);
-      debugPrint('[ACP] E2EE initialized with pre-shared key');
+      AppLogger.info('[ACP] E2EE initialized with pre-shared key');
     }
 
     final result = await SmartConnect.connect(
@@ -103,11 +103,11 @@ class ACPClient {
     _channel = result.channel;
     activeMode = result.path;
     activeUrl = result.url;
-    debugPrint('[ACP] Connected, E2EE ready: ${_e2ee?.isReady ?? false}');
+    AppLogger.info('[ACP] Connected, E2EE ready: ${_e2ee?.isReady ?? false}');
     _setupStream();
 
     if (_e2ee == null) {
-      debugPrint('[ACP] Initiating ECDH Pairing...');
+      AppLogger.info('[ACP] Initiating ECDH Pairing...');
       await _performPairing();
     }
   }
@@ -129,7 +129,7 @@ class ACPClient {
       final sharedSecretHex =
           await E2EEManager.deriveSharedSecret(ownKeyPair, peerPublicKeyHex);
       _e2ee = E2EEManager(sharedSecretHex);
-      debugPrint('[ACP] Pairing Successful!');
+      AppLogger.info('[ACP] Pairing Successful!');
     } else {
       throw Exception('Pairing failed');
     }
@@ -170,12 +170,12 @@ class ACPClient {
   }
 
   void _setupStream() {
-    debugPrint(
+    AppLogger.info(
         '[ACP] Setting up stream, E2EE ready: ${_e2ee?.isReady ?? false}');
     _channel!.stream.listen(
       (message) async {
         try {
-          debugPrint(
+          AppLogger.debug(
               '[ACP] Raw message received: ${message.toString().substring(0, 100)}...');
 
           dynamic decoded = message;
@@ -183,29 +183,29 @@ class ACPClient {
             try {
               decoded = jsonDecode(message);
             } catch (e) {
-              debugPrint('[ACP] Failed to decode JSON: $e');
+              AppLogger.error('[ACP] Failed to decode JSON: $e');
               return;
             }
           }
 
           if (decoded is! Map<String, dynamic>) {
-            debugPrint(
+            AppLogger.warning(
                 '[ACP] Decoded data is not a Map: ${decoded.runtimeType}');
             return;
           }
 
           Map<String, dynamic> data = decoded;
-          debugPrint('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
+          AppLogger.debug('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
 
           if (_e2ee != null &&
               data.containsKey('method') &&
               data['method'] == 'e2ee/envelope') {
-            debugPrint('[ACP] Attempting to decrypt E2EE message...');
+            AppLogger.debug('[ACP] Attempting to decrypt E2EE message...');
             try {
               data = await _e2ee!.unwrap(data);
-              debugPrint('[ACP] Decryption successful');
+              AppLogger.debug('[ACP] Decryption successful');
             } catch (e) {
-              debugPrint('[ACP] Decryption error: $e');
+              AppLogger.error('[ACP] Decryption error: $e');
               return;
             }
           }
@@ -216,7 +216,7 @@ class ACPClient {
 
           if (method != null && id != null) {
             if (method.startsWith('fs/')) {
-              debugPrint('[ACP] Handling fs request: $method');
+              AppLogger.info('[ACP] Handling fs request: $method');
               final result = await _handleFsRequest(method, params);
               final response = {
                 'jsonrpc': '2.0',
@@ -226,7 +226,7 @@ class ACPClient {
               _channel!.sink.add(jsonEncode(response));
               return;
             } else if (method.startsWith('terminal/')) {
-              debugPrint('[ACP] Handling terminal request: $method');
+              AppLogger.info('[ACP] Handling terminal request: $method');
               final result = await _handleTerminalRequest(method, params);
               final response = {
                 'jsonrpc': '2.0',
@@ -247,16 +247,15 @@ class ACPClient {
           }
           _messageController.add(jsonEncode(data));
         } catch (e) {
-          debugPrint('[ACP] Message processing error: $e');
-          debugPrint('[ACP] Error stack: ${StackTrace.current}');
+          AppLogger.error('[ACP] Message processing error', e);
         }
       },
       onError: (error) {
-        debugPrint('[ACP] Stream error: $error');
+        AppLogger.error('[ACP] Stream error', error);
         activeMode = ConnectionPath.none;
       },
       onDone: () {
-        debugPrint('[ACP] Stream done');
+        AppLogger.info('[ACP] Stream done');
         activeMode = ConnectionPath.none;
       },
     );
@@ -292,7 +291,7 @@ class ACPClient {
 
   Future<void> initialize([Map<String, dynamic>? systemConfig]) async {
     try {
-      debugPrint('[ACP] Sending initialize...');
+      AppLogger.info('[ACP] Sending initialize...');
       final Map<String, dynamic> params = {
         'protocolVersion': 1,
         'clientCapabilities': {
@@ -314,16 +313,16 @@ class ACPClient {
 
       final response = await sendRequest('initialize', params)
           .timeout(const Duration(seconds: 60));
-      debugPrint('[ACP] Initialize success');
+      AppLogger.info('[ACP] Initialize success');
 
       _agentCapabilities = response['result']?['agentCapabilities'] ?? {};
-      debugPrint('[ACP] Agent capabilities: $_agentCapabilities');
+      AppLogger.info('[ACP] Agent capabilities: $_agentCapabilities');
       
       if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
         _readyCompleter!.complete();
       }
     } catch (e) {
-      debugPrint('[ACP] Initialize warning (proceeding anyway): $e');
+      AppLogger.warning('[ACP] Initialize warning (proceeding anyway): $e');
       if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
         _readyCompleter!.complete();
       }
@@ -338,7 +337,7 @@ class ACPClient {
       }
       return null;
     } catch (e) {
-      debugPrint('[ACP] Failed to get system config: $e');
+      AppLogger.error('[ACP] Failed to get system config', e);
       return null;
     }
   }
@@ -485,7 +484,7 @@ class ACPClient {
       if (completer != null && !completer.isCompleted) {
         completer.completeError('Request cancelled');
       }
-      debugPrint('[ACP] Cancelled pending request: $id');
+      AppLogger.info('[ACP] Cancelled pending request: $id');
     }
   }
 
@@ -494,6 +493,6 @@ class ACPClient {
     for (final id in ids) {
       cancelPendingRequest(id);
     }
-    debugPrint('[ACP] Cancelled all ${ids.length} pending requests');
+    AppLogger.info('[ACP] Cancelled all ${ids.length} pending requests');
   }
 }

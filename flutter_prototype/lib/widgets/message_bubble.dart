@@ -4,164 +4,84 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 import '../models/card_message.dart';
 import '../models/content_block.dart';
-import '../widgets/content_block_renderer.dart';
+import 'content_block_renderer.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
 import '../theme/app_theme.dart';
 import '../constants/ui_copy.dart';
+import '../utils/app_logger.dart';
 import '../widgets/ag_ui/thinking_block.dart';
 import '../widgets/ag_ui/tool_pill.dart';
 import '../widgets/ag_ui/interactive_request_block.dart';
 import '../models/ag_ui_event.dart';
 import '../models/agent_plan.dart';
-import '../widgets/plan_panel.dart';
+import 'plan_panel.dart';
 
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
+  final String providerName;
   final String? providerId;
-  final String? providerName;
-  final String? providerIcon;
   final Function(String requestId, String optionId)? onOptionSelected;
   final Set<String>? respondedRequestIds;
 
   const MessageBubble({
     super.key,
     required this.message,
+    required this.providerName,
     this.providerId,
-    this.providerName,
-    this.providerIcon,
     this.onOptionSelected,
     this.respondedRequestIds,
   });
 
-  List<ContentBlock> _parseContentBlocks() {
-    try {
-      final decoded = jsonDecode(message.content);
-      if (decoded is List) {
-        return decoded
-            .map((json) => ContentBlock.fromJson(json as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (e) {
-      // Not JSON, treat as plain text
-    }
-    return [TextContent(text: message.content)];
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (message.isSystem) return const SizedBox.shrink();
-
-    final isTool = message.role == 'tool';
-    final isUser = message.isUser;
-    
-    // AG-UI Fix: Don't render blank bubbles for empty messages without metadata info
-    // Also ignore redundant "..." placeholder which is filtered by ThinkingBlock
-    final thought = message.metadata?['thought']?.toString() ?? "";
-    final hasThought = thought.isNotEmpty && thought != "...";
-    
-    final hasToolCalls = message.metadata?['tool_calls'] != null && (message.metadata!['tool_calls'] as List).isNotEmpty;
-    final isReasoning = message.metadata?['type'] == 'reasoning' && message.content.trim().isNotEmpty;
-    
-    final event = AgUiEvent.fromMessage(message);
-    final isInteractiveRequest = event.eventType == 'interactive_request' && event.requestId != null;
-    final isPlanUpdate = message.metadata?['type'] == 'plan_update';
-    
-    if (!isTool && message.content.trim().isEmpty && !hasThought && !hasToolCalls && !isReasoning && !isInteractiveRequest && !isPlanUpdate) {
-      return const SizedBox.shrink();
-    }
-
     final theme = Theme.of(context);
+    final isUser = message.role.toLowerCase() == 'user';
+    final isAssistant = message.role.toLowerCase() == 'assistant';
+    final isTool = message.role.toLowerCase() == 'tool';
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        // Assistant and Tool bubbles take full allowed width for consistency
-        width: isUser ? null : double.infinity,
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.85,
-        ),
-        margin: const EdgeInsets.symmetric(
-            vertical: AppConstants.space8, horizontal: AppConstants.space16),
-        child: Column(
-          crossAxisAlignment:
-              isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            _buildHeader(context, isUser),
-            const SizedBox(height: AppConstants.space4),
-            Container(
-              // Inner bubble also takes full width if agent side
-              width: isUser ? null : double.infinity,
-              padding: isTool ? EdgeInsets.zero : const EdgeInsets.all(AppConstants.space12),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? colorScheme.primary
-                    : (isDark
-                        ? colorScheme.surfaceContainerHigh
-                        : colorScheme.surfaceContainer),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(AppConstants.radiusMedium),
-                  topRight: const Radius.circular(AppConstants.radiusMedium),
-                  bottomLeft: Radius.circular(isUser ? AppConstants.radiusMedium : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : AppConstants.radiusMedium),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 5,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                border: isUser ? null : Border.all(color: theme.dividerTheme.color!),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (isTool)
-                    _buildToolLog(context)
-                  else ...[
-                    if (!isUser && message.metadata?['thought'] != null)
-                      _buildThoughtSection(context),
-                    if (!isUser && message.metadata?['tool_calls'] != null)
-                      _buildToolCallsSection(context),
-                    // Check for AG-UI interactive request
-                    if (!isUser) _buildInteractiveRequestSection(context),
-                    // Check if this independent message is actually a thinking record
-                    if (!isUser && message.metadata?['type'] == 'reasoning')
-                      _buildThinkingRecordSection(context),
-                    
-                    // AG-UI Enhancement: Render plan updates in chat
-                    if (!isUser && isPlanUpdate)
-                      _buildPlanUpdateSection(context),
+    if (isAssistant) {
+      final event = AgUiEvent.fromMessage(message);
+      if (event.eventType == 'interactive_request') {
+        return InteractiveRequestBlock(
+          event: event,
+          onOptionSelected: (optId) => onOptionSelected?.call(event.requestId!, optId),
+          isResponded: respondedRequestIds?.contains(event.requestId) ?? false,
+        );
+      }
+    }
 
-                    // Only build message content if it's NOT an interactive request
-                    // to prevent rendering the raw JSON string.
-                    if (!isUser && (message.metadata?['type'] == null || message.metadata?['type'] != 'reasoning') && !isInteractiveRequest && !isPlanUpdate)
-                      _buildMessageContent(context, isUser),
-                    if (isUser)
-                      _buildMessageContent(context, isUser),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
+    if (isTool) {
+      return _buildToolLog(context, isDark);
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(
+          horizontal: AppConstants.space16, vertical: AppConstants.space8),
+      child: Column(
+        crossAxisAlignment:
+            isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          _buildHeader(theme, colorScheme, isUser),
+          const SizedBox(height: AppConstants.space4),
+          _buildContent(context, theme, colorScheme, isUser, isDark),
+          const SizedBox(height: AppConstants.space4),
+          _buildFooter(theme, colorScheme, isUser),
+        ],
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isUser) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
+  Widget _buildHeader(ThemeData theme, ColorScheme colorScheme, bool isUser) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (!isUser) ...[
-          Icon(_getProviderIcon(), size: 12, color: colorScheme.primary),
+          Icon(IconUtil.getProviderIcon(providerId),
+              size: 12, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space4),
           Text(_getProviderName().toUpperCase(),
               style: theme.textTheme.labelLarge),
@@ -175,205 +95,97 @@ class MessageBubble extends StatelessWidget {
               size: 12,
               color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
         ],
-        const SizedBox(width: AppConstants.space8),
-        Text(
-          DateFormatter.formatTimeOnly(message.createdAt),
-          style: theme.textTheme.bodySmall,
-        ),
       ],
     );
   }
 
-  Widget _buildMessageContent(BuildContext context, bool isUser) {
-    final blocks = _parseContentBlocks();
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final customColors = theme.extension<CustomColors>()!;
-    final textColor = isUser
-        ? colorScheme.onPrimary
-        : theme.textTheme.bodyMedium?.color ?? colorScheme.onSurface;
-
-    // Use primary color for headings and special elements in agent messages
-    // For user messages, stick to onPrimary for readability
-    final accentColor = isUser ? colorScheme.onPrimary : colorScheme.primary;
-    final secondaryTextColor = isUser 
-        ? colorScheme.onPrimary.withOpacity(0.8) 
-        : colorScheme.onSurfaceVariant;
-
-    if (blocks.length == 1 && blocks[0] is TextContent) {
-      String markdownData = (blocks[0] as TextContent).text;
-
-      // Pre-process headers to keep source visible (# Header -> # # Header)
-      // The first # is consumed as the block tag, the second # is rendered as content.
-      markdownData = markdownData.replaceAllMapped(
-        RegExp(r'^(#+)(\s+)', multiLine: true),
-        (match) => '${match[1]}${match[2]}${match[1]}${match[2]}'
-      );
-
-      return Theme(
-        data: theme.copyWith(
-          textSelectionTheme: TextSelectionThemeData(
-            selectionColor: isUser
-                ? Colors.white.withOpacity(0.3)
-                : colorScheme.primary.withOpacity(0.2),
-          ),
-        ),
-        child: MarkdownBody(
-          data: markdownData,
-          selectable: false,
-          styleSheet: _getMarkdownStyle(context, isUser),
-        ),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children:
-          blocks.map((block) => ContentBlockRenderer(block: block)).toList(),
+  Widget _buildFooter(ThemeData theme, ColorScheme colorScheme, bool isUser) {
+    return Text(
+      DateFormatter.formatTimeOnly(message.createdAt),
+      style: theme.textTheme.bodySmall?.copyWith(
+          fontSize: 10,
+          color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
     );
   }
 
-  MarkdownStyleSheet _getMarkdownStyle(BuildContext context, bool isUser) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final customColors = theme.extension<CustomColors>()!;
-    final textColor = isUser ? colorScheme.onPrimary : colorScheme.onSurface;
-    final secondaryTextColor = textColor.withOpacity(AppConstants.mediumEmphasis);
-    final accentColor = isUser ? colorScheme.onPrimary : colorScheme.primary;
-
-    return MarkdownStyleSheet.fromTheme(theme).copyWith(
-      p: TextStyle(color: textColor, fontSize: 14, height: 1.6),
-      blockSpacing: 12.0,
-      h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      h4: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      h5: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      h6: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      blockquote: TextStyle(color: secondaryTextColor, fontSize: 14),
-      blockquoteDecoration: BoxDecoration(
-        border: Border(left: BorderSide(color: secondaryTextColor.withOpacity(0.3), width: 3)),
-      ),
-      horizontalRuleDecoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.transparent, width: 0)),
-      ),
-      listBullet: TextStyle(color: secondaryTextColor, fontSize: 14),
-      em: TextStyle(color: textColor, fontStyle: FontStyle.italic, fontSize: 14),
-      strong: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14),
-      a: TextStyle(color: accentColor, decoration: TextDecoration.underline, fontSize: 14),
-      code: TextStyle(
-        backgroundColor: Colors.transparent,
-        color: isUser ? colorScheme.onPrimary : colorScheme.primary,
-        fontFamily: 'monospace',
-        fontSize: 14,
-        fontWeight: FontWeight.w400,
-      ),
-      codeblockDecoration: BoxDecoration(
-        color: isUser ? Colors.black26 : customColors.codeBackground,
-        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        border: isUser ? null : Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
-      ),
-    );
-  }
-
-  Widget _buildThoughtSection(BuildContext context) {
-    final thought = message.metadata?['thought']?.toString();
-    if (thought == null || thought.isEmpty || thought == "...") return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppConstants.space12),
-      child: ThinkingBlock(
-        text: thought,
-        isCollapsed: true, // 默认折叠
-        styleSheet: _getMarkdownStyle(context, false),
-      ),
-    );
-  }
-
-  Widget _buildThinkingRecordSection(BuildContext context) {
-    // This handles the case where a thinking chunk is its own message
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppConstants.space12),
-      child: ThinkingBlock(
-        text: message.content,
-        isCollapsed: true,
-        styleSheet: _getMarkdownStyle(context, false),
-      ),
-    );
-  }
-
-  Widget _buildToolCallsSection(BuildContext context) {
-    final toolCalls = message.metadata?['tool_calls'] as List<dynamic>?;
-    if (toolCalls == null || toolCalls.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppConstants.space12),
-      child: Wrap(
-        spacing: AppConstants.space8,
-        runSpacing: AppConstants.space8,
-        children: toolCalls.map((tc) {
-          final toolName = (tc['name'] ?? 'Unknown').toString();
-          final toolStatus = _mapToolStatus(tc['status']?.toString() ?? 'running');
-          return ToolPill(name: toolName, status: toolStatus);
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildInteractiveRequestSection(BuildContext context) {
-    final event = AgUiEvent.fromMessage(message);
-    if (event.eventType != 'interactive_request' || event.requestId == null) {
-      return const SizedBox.shrink();
-    }
-
-    final isResponded = respondedRequestIds?.contains(event.requestId) ?? false;
-
-    return InteractiveRequestBlock(
-      event: event,
-      isResponded: isResponded,
-      styleSheet: _getMarkdownStyle(context, false),
-      onOptionSelected: (optionId) {
-        if (onOptionSelected != null) {
-          onOptionSelected!(event.requestId!, optionId);
-        }
-      },
-    );
-  }
-
-  String _mapToolStatus(String? status) {
-    // Map backend status to frontend-compatible status
-    switch (status) {
-      case 'pending':
-      case 'running':
-        return 'running';
-      case 'completed':
-      case 'success':
-        return 'success';
-      case 'failed':
-      case 'cancelled':
-      case 'error':
-        return 'failed';
-      default:
-        return 'running';
-    }
-  }
-
-  IconData _getProviderIcon() {
-    return IconUtil.getProviderIcon(providerIcon);
-  }
-
-  String _getProviderName() {
-    return providerName ?? 'AI Agent';
-  }
-
-  Widget _buildToolLog(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final toolName = message.metadata?['name']?.toString() ?? "UNKNOWN";
-    final toolStatus = message.metadata?['status']?.toString() ?? "pending";
+  Widget _buildContent(BuildContext context, ThemeData theme,
+      ColorScheme colorScheme, bool isUser, bool isDark) {
+    final List<Widget> children = [];
+    final thought = message.metadata?['thought'] as String?;
     
-    return Theme(
-      data: theme.copyWith(dividerColor: Colors.transparent),
+    if (thought != null && thought.isNotEmpty) {
+      children.add(ThinkingBlock(
+        thought: thought,
+        isCollapsed: true,
+      ));
+    }
+
+    if (message.content.isNotEmpty) {
+      if (message.metadata?['type'] == 'plan_update') {
+        children.add(_buildPlanPanel(context));
+      } else {
+        children.add(
+          MarkdownBody(
+            data: message.content,
+            selectable: true,
+            styleSheet: _getMarkdownStyle(context, isUser),
+            onTapLink: (text, href, title) {
+              AppLogger.info('Tapped link: $href');
+            },
+          ),
+        );
+      }
+    }
+
+    final List<dynamic>? toolCalls = message.metadata?['tool_calls'];
+    if (toolCalls != null && toolCalls.isNotEmpty) {
+      children.add(const SizedBox(height: AppConstants.space8));
+      for (var tc in toolCalls) {
+        final toolName = tc['name'] ?? 'unknown';
+        final status = tc['status'] ?? 'completed';
+        children.add(Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: ToolPill(name: toolName, status: status),
+        ));
+      }
+    }
+
+    return Container(
+      constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.85),
+      padding: isUser 
+          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
+          : const EdgeInsets.all(0),
+      decoration: BoxDecoration(
+        color: isUser
+            ? (isDark ? colorScheme.primaryContainer.withOpacity(0.3) : colorScheme.primary.withOpacity(0.08))
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: isUser 
+          ? Border.all(color: isDark ? colorScheme.primary.withOpacity(0.2) : colorScheme.primary.withOpacity(0.1))
+          : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+
+  Widget _buildToolLog(BuildContext context, bool isDark) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final toolName = message.metadata?['name'] ?? 'unknown';
+    final toolStatus = message.metadata?['status'] ?? 'completed';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(
+          horizontal: AppConstants.space16, vertical: AppConstants.space4),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.02),
+        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+        border: Border.all(color: theme.dividerColor.withOpacity(0.05)),
+      ),
       child: ExpansionTile(
         dense: true,
         visualDensity: VisualDensity.compact,
@@ -422,52 +234,83 @@ class MessageBubble extends StatelessWidget {
                 _buildCodeBlock(context, message.content),
               ],
             ),
-          ),
+          )
         ],
       ),
     );
   }
 
-  Widget _buildCodeBlock(BuildContext context, String text) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final colorScheme = theme.colorScheme;
-    final customColors = theme.extension<CustomColors>()!;
-    
+  Widget _buildCodeBlock(BuildContext context, String content) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(AppConstants.space8),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: isDark ? colorScheme.surfaceContainerHigh : customColors.codeBackground?.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        border: isDark ? Border.all(color: Colors.white.withOpacity(0.05)) : null,
+        color: isDark ? Colors.black26 : Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
-        text,
-        style: TextStyle(
-          color: customColors.codeText,
-          fontFamily: 'monospace',
-          fontSize: 11,
-        ),
+        content,
+        style: const TextStyle(
+            fontFamily: 'monospace', fontSize: 11, height: 1.4),
       ),
     );
   }
 
-  Widget _buildPlanUpdateSection(BuildContext context) {
+  String _getProviderName() {
+    if (providerName.isEmpty) return 'AGENT';
+    return providerName;
+  }
+
+  MarkdownStyleSheet _getMarkdownStyle(BuildContext context, bool isUser) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    return MarkdownStyleSheet(
+      p: theme.textTheme.bodyMedium?.copyWith(
+        height: 1.6,
+        color: isUser 
+          ? (isDark ? colorScheme.onPrimaryContainer : colorScheme.onSurface)
+          : colorScheme.onSurface,
+      ),
+      h1: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, height: 2.0),
+      h2: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, height: 1.8),
+      h3: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, height: 1.6),
+      code: TextStyle(
+        backgroundColor: isDark ? Colors.black38 : Colors.grey[200],
+        fontFamily: 'monospace',
+        fontSize: 13,
+        color: isDark ? colorScheme.secondary : const Color(0xFF92230D),
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: isDark ? Colors.black38 : Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
+      ),
+      blockquote: TextStyle(
+        color: colorScheme.onSurfaceVariant,
+        fontStyle: FontStyle.italic,
+      ),
+      blockquoteDecoration: BoxDecoration(
+        border: Border(left: BorderSide(color: colorScheme.primary, width: 4)),
+        color: colorScheme.surfaceContainer,
+      ),
+      listBullet: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.primary),
+    );
+  }
+
+  Widget _buildPlanPanel(BuildContext context) {
     try {
       final rawMap = jsonDecode(message.content);
-      // AG-UI event might have plan data directly or under 'plan' key
-      final planData = rawMap['plan'] ?? rawMap;
-      final plan = AgentPlan.fromJson(planData is Map<String, dynamic> ? planData : {});
-      
-      if (plan.entries.isEmpty) return const SizedBox.shrink();
+      final plan = AgentPlan.fromJson(rawMap);
       
       return PlanPanel(
         plan: plan,
         styleSheet: _getMarkdownStyle(context, false),
       );
     } catch (e) {
-      debugPrint('Plan rendering error: $e');
+      AppLogger.error('Plan rendering error', e);
       return const Text(UICopy.failedToLoadPlan);
     }
   }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
 import '../models/kanban_card.dart';
 import '../constants/app_constants.dart';
+import '../constants/ui_copy.dart';
+import '../utils/app_logger.dart';
 import 'kanban_card_widget.dart';
 
 class KanbanColumnWidget extends StatefulWidget {
@@ -46,7 +48,6 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
       width: 300,
       margin: const EdgeInsets.all(AppConstants.space8),
       decoration: BoxDecoration(
-        // 使用 surfaceContainer 区分页面背景
         color: colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
       ),
@@ -124,7 +125,6 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
       onWillAcceptWithDetails: (details) {
         final card = details.data;
         if (card.columnId == widget.column.id) {
-          // If it's the same column, we hide targets immediately above and below the card
           final cardIndexInActive = activeCards.indexWhere((c) => c.id == card.id);
           if (cardIndexInActive != -1) {
             if (position == cardIndexInActive || position == cardIndexInActive + 1) {
@@ -137,10 +137,8 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
       onAcceptWithDetails: (details) {
         int? actualTargetPosition;
         if (position < activeCards.length) {
-          // Drop before card at index 'position'
           actualTargetPosition = activeCards[position].position;
         } else if (activeCards.isNotEmpty) {
-          // Drop after last card
           actualTargetPosition = activeCards.last.position + 1;
         }
         
@@ -267,7 +265,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
             onPressed: widget.onAddCard,
             icon: Icon(Icons.add_rounded, size: 20, color: colorScheme.primary),
             visualDensity: VisualDensity.compact,
-            tooltip: 'Add Card',
+            tooltip: UICopy.addCard,
           ),
         ],
       ),
@@ -308,7 +306,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
         return Color(int.parse(hex, radix: 16));
       }
     } catch (e) {
-      debugPrint('Error parsing color: $colorHex');
+      AppLogger.error('Error parsing color', e);
     }
     return Colors.grey;
   }

@@ -49,7 +49,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   final _scrollController = ScrollController();
   final _chatFocusNode = FocusNode();
 
-  bool _userIsAtBottom = false; // Initial stay at top
+  bool _userIsAtBottom = false;
   int _unreadCount = 0;
 
   late KanbanCard _card;
@@ -71,7 +71,6 @@ class _CardDetailViewState extends State<CardDetailView> {
   bool _isShowingContext = false;
   bool _isEditingContext = false;
 
-  // Roadmap state
   List<ProjectMilestone> _milestones = [];
   ProjectMilestone? _selectedMilestone;
   ProjectFeature? _selectedFeature;
@@ -98,7 +97,6 @@ class _CardDetailViewState extends State<CardDetailView> {
   StreamSubscription? _contextSub;
   Timer? _debounceTimer;
   
-  // AG-UI Rendering Throttle
   Timer? _renderThrottleTimer;
   List<CardMessage> _pendingMessages = [];
 
@@ -124,15 +122,12 @@ class _CardDetailViewState extends State<CardDetailView> {
     _descriptionController.addListener(_onCardInfoChanged);
     _scrollController.addListener(_onScroll);
 
-    // Setup Enter to send, Shift+Enter to newline
     _chatFocusNode.onKeyEvent = _onChatKeyEvent;
   }
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
-    
-    // threshold of 100px from bottom to consider as "staying at bottom"
     bool atBottom = pos.extentAfter < 100;
     
     if (atBottom != _userIsAtBottom) {
@@ -177,8 +172,8 @@ class _CardDetailViewState extends State<CardDetailView> {
       AppLogger.error(UICopy.failedToLoadRoadmap, e);
     }
   }
+
   Future<void> _loadEnvironmentInfo() async {
-    // 1. Fetch Project Name (Critical for breadcrumb)
     try {
       var project = await _projectService.getProject(widget.projectId);
       if (project == null) {
@@ -194,10 +189,9 @@ class _CardDetailViewState extends State<CardDetailView> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading project info: $e');
+      AppLogger.error(UICopy.failedToLoadProject, e);
     }
 
-    // 2. Fetch Column Name (Critical for breadcrumb)
     try {
       final columns = await _projectService.getColumns(widget.projectId);
       String? actualColumnName;
@@ -218,10 +212,9 @@ class _CardDetailViewState extends State<CardDetailView> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading column info: $e');
+      AppLogger.error(UICopy.failedToLoadColumn, e);
     }
 
-    // 3. Fetch Provider Info (Non-critical, depends on Bridge)
     try {
       final providers = await ACPClient().listProviders();
       final Map<String, String> nameMap = {};
@@ -240,20 +233,19 @@ class _CardDetailViewState extends State<CardDetailView> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading provider info: $e');
+      AppLogger.error(UICopy.failedToLoadProvider, e);
     }
   }
 
   String get _providerDisplayName {
     if (_card.acpProviderId != null) return _providerNameMap[_card.acpProviderId] ?? _card.acpProviderId!;
     if (_targetProviderId != null) return _providerNameMap[_targetProviderId] ?? _targetProviderId!;
-    return 'Agent';
+    return UICopy.agent;
   }
 
   void _setupWebSocket() {
     _wsService.connect(_card.id).then((success) {
       if (success && mounted) {
-        // Only auto-initialize if a provider is assigned (not None)
         if (_card.acpProviderId != null || _targetProviderId != null) {
           _initializeAgent();
         }
@@ -261,8 +253,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     });
     _messageSub = _wsService.messages.listen((msgs) {
       if (!mounted) return;
-
-      // AG-UI Throttle: Buffer updates and flush every 60ms
       _pendingMessages = msgs;
       if (_renderThrottleTimer == null || !_renderThrottleTimer!.isActive) {
         _renderThrottleTimer = Timer(AppConstants.streamThrottleMs, _flushMessages);
@@ -325,19 +315,16 @@ class _CardDetailViewState extends State<CardDetailView> {
   void _flushMessages() {
     if (!mounted) return;
     
-    // Capture pending messages locally to avoid race conditions
     final pending = List<CardMessage>.from(_pendingMessages);
     final isProcessing = pending.isNotEmpty && !pending.last.isComplete && pending.last.role == 'assistant';
     final bool isInitialLoad = _messages.isEmpty && pending.isNotEmpty;
     
-    // AG-UI: Detect responded interactive requests from history
     final Set<String> newRespondedIds = {};
     for (int i = 0; i < pending.length; i++) {
       final m = pending[i];
       if (m.role == 'assistant') {
         final event = AgUiEvent.fromMessage(m);
         if (event.eventType == 'interactive_request' && event.requestId != null) {
-          // Check if followed by a user response in history (scan forward)
           for (int j = i + 1; j < pending.length; j++) {
             final next = pending[j];
             if (next.role == 'user') {
@@ -345,13 +332,9 @@ class _CardDetailViewState extends State<CardDetailView> {
                 newRespondedIds.add(event.requestId!);
                 break;
               }
-              // Skip synthetic messages like "Authorized: ..." which are for UI feedback only
               if (next.content.startsWith('Authorized:')) continue;
-              
-              // Stop if we hit any other real user input
               break;
             }
-            // Stop if we hit another assistant message (interrupted or next turn)
             if (next.role == 'assistant') break;
           }
         }
@@ -359,7 +342,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
 
     setState(() {
-      // If we are NOT at bottom and not initial load, track unread messages
       if (!_userIsAtBottom && !isInitialLoad && pending.length > _messages.length) {
         _unreadCount += (pending.length - _messages.length);
       }
@@ -368,15 +350,12 @@ class _CardDetailViewState extends State<CardDetailView> {
       _isAgentProcessing = isProcessing;
       _respondedRequestIds.addAll(newRespondedIds);
 
-      // Scene-aware: If entering while agent is busy, jump to bottom to track progress
       if (isInitialLoad && isProcessing) {
         _userIsAtBottom = true;
       }
     });
 
     _scrollToBottom(force: isInitialLoad && isProcessing);
-    
-    // Clear timer reference
     _renderThrottleTimer = null;
   }
 
@@ -386,7 +365,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     final bool columnChanged = updatedCard.columnId != _card.columnId;
 
     if (columnChanged) {
-      // Re-fetch column provider if column changed
       _projectService.getColumns(widget.projectId).then((cols) {
         if (!mounted) return;
         for (var col in cols) {
@@ -399,10 +377,8 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
 
     setState(() {
-      // Sync Agent Session state
       final sessionId = updatedCard.acpSessionId;
       
-      // Update tokens if they are non-zero (delta-based or absolute totals)
       if (updatedCard.inputTokens > 0) _inputTokens = updatedCard.inputTokens;
       if (updatedCard.outputTokens > 0) _outputTokens = updatedCard.outputTokens;
 
@@ -424,23 +400,19 @@ class _CardDetailViewState extends State<CardDetailView> {
         _columnName = updatedCard.columnName;
       }
 
-      // Auto-initialize if a provider becomes available and not connected
       if (!_isAgentConnected && !_isStartingSession && (updatedCard.acpProviderId != null || _targetProviderId != null)) {
          _initializeAgent();
       }
 
-      // Only change connection status if sessionId was explicitly part of this update
       if (sessionId != null) {
         if (sessionId.isEmpty) {
           _isAgentConnected = false;
           _configOptions = [];
         } else {
           _isAgentConnected = true;
-          _isStartingSession = false; // Phase: UX Optimization
-          // Phase: UX Optimization - Use a persistent status message instead of blocking SnackBar
+          _isStartingSession = false;
           if (!wasConnected) {
-             _statusMessage = 'Session ready. Manual context only.';
-             // Auto-hide status message after 5s
+             _statusMessage = UICopy.sessionReady;
              Timer(const Duration(seconds: 5), () {
                if (mounted) setState(() => _statusMessage = null);
              });
@@ -448,7 +420,6 @@ class _CardDetailViewState extends State<CardDetailView> {
         }
       }
       
-      // Update local card info if title/desc changed via session_info_update
       if (updatedCard.title.isNotEmpty) {
         _titleController.text = updatedCard.title;
       }
@@ -469,7 +440,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading summary: $e');
+      AppLogger.error(UICopy.failedToLoadSummary, e);
     }
   }
 
@@ -498,7 +469,7 @@ class _CardDetailViewState extends State<CardDetailView> {
       }
     } catch (e) {
       if (mounted) {
-        AppFeedback.showError(context, 'Failed to save: $e');
+        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
       }
     } finally {
       if (mounted) setState(() => _isSavingCard = false);
@@ -517,14 +488,11 @@ class _CardDetailViewState extends State<CardDetailView> {
     final requestId = request['id'];
 
     if (method == 'session/request_permission') {
-      // AG-UI Optimization: If we are in AG-UI mode, the request is already persisted as a message.
-      // We don't need to show a modal dialog that disrupts the flow.
       if (_wsService.uiFormat == 'ag_ui') {
-        debugPrint('[CardDetail] Skipping permission dialog in AG-UI mode (request is in chat)');
+        AppLogger.debug('Skipping permission dialog in AG-UI mode (request is in chat)');
         return;
       }
 
-      // Defer dialog display to next frame to avoid layout conflicts
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _showPermissionDialog(requestId, params);
@@ -546,14 +514,12 @@ class _CardDetailViewState extends State<CardDetailView> {
     };
 
     _wsService.sendResponse(requestId, response);
-    
-    // Optional: add a synthetic user message for feedback
-    _wsService.addSyntheticUserMessage('Authorized: $optionId');
+    _wsService.addSyntheticUserMessage('${UICopy.authorized}: $optionId');
   }
 
   void _showPermissionDialog(String requestId, Map<String, dynamic> params) {
-    final title = params['title'] ?? 'Permission Request';
-    final message = params['message'] ?? 'The agent needs your permission to continue.';
+    final title = params['title'] ?? UICopy.permissionRequest;
+    final message = params['message'] ?? UICopy.agentNeedsPermission;
     final options = params['options'] as List? ?? [];
     final arguments = params['arguments']?.toString() ?? '';
     final customColors = Theme.of(context).extension<CustomColors>()!;
@@ -578,7 +544,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               if (arguments.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text('Details:', style: Theme.of(context).textTheme.labelSmall),
+                  child: Text('${UICopy.details}:', style: Theme.of(context).textTheme.labelSmall),
                 ),
               if (arguments.isNotEmpty)
                 Container(
@@ -635,7 +601,6 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   KeyEventResult _onChatKeyEvent(FocusNode node, KeyEvent event) {
-    // Detect Enter key without Shift modifier to send message
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.enter &&
         !HardwareKeyboard.instance.isShiftPressed) {
@@ -662,7 +627,6 @@ class _CardDetailViewState extends State<CardDetailView> {
       _commandOverlay = OverlayEntry(
           builder: (context) => Stack(
                 children: [
-                  // Full-screen transparent layer to catch outside clicks
                   GestureDetector(
                     onTap: _hideCommandsOverlay,
                     behavior: HitTestBehavior.opaque,
@@ -720,7 +684,6 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   void _scrollToBottom({bool force = false}) {
-    // Only scroll if user is already at bottom or we are forcing it
     if (!force && !_userIsAtBottom) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -752,16 +715,16 @@ class _CardDetailViewState extends State<CardDetailView> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Stop Agent'),
-        content: const Text('Are you sure you want to interrupt the agent?'),
+        title: const Text(UICopy.stopAgent),
+        content: const Text(UICopy.confirmStopAgent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const Text(UICopy.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Stop', style: TextStyle(color: Colors.red)),
+            child: Text(UICopy.stop, style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -778,15 +741,13 @@ class _CardDetailViewState extends State<CardDetailView> {
   void _sendContextPrompt() {
     final contextText = _contextController.text.trim();
     if (contextText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Context is empty.')),
-      );
+      AppFeedback.showInfo(context, UICopy.contextEmpty);
       return;
     }
     final fullPrompt = "[SYSTEM CONTEXT]\n$contextText\n\nPlease acknowledge.";
     _wsService.sendMessage('user', fullPrompt);
     setState(() {
-      _contextController.clear(); // Clear text to hide the panel after sending
+      _contextController.clear();
       _isShowingContext = false;
       _isAgentProcessing = true;
     });
@@ -823,7 +784,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     return SelectionArea(
       child: Column(
         children: [
-          // Custom Header to replace AppBar
           _buildViewHeader(theme, colorScheme),
           if (_isAgentConnected) ConfigOptionsBar(options: _configOptions),
           Expanded(
@@ -848,7 +808,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                       Center(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
-                          child: Text('Start a conversation...',
+                          child: Text(UICopy.startConversation,
                               style: theme.textTheme.bodySmall),
                         ),
                       )
@@ -939,7 +899,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                         fontWeight: FontWeight.bold,
                       ),
                       decoration: const InputDecoration.collapsed(
-                        hintText: 'Card title...',
+                        hintText: UICopy.cardTitleHint,
                       ),
                       textInputAction: TextInputAction.newline,
                     ),
@@ -980,7 +940,7 @@ class _CardDetailViewState extends State<CardDetailView> {
             children: [
               const Icon(Icons.drive_file_move_outlined, size: 18),
               const SizedBox(width: 12),
-              const Text('Move to Column'),
+              const Text(UICopy.moveCard),
             ],
           ),
         ),
@@ -990,7 +950,7 @@ class _CardDetailViewState extends State<CardDetailView> {
             children: [
               Icon(_card.isCompleted ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 18),
               const SizedBox(width: 12),
-              Text(_card.isCompleted ? 'Mark Active' : 'Mark Completed'),
+              Text(_card.isCompleted ? UICopy.markActive : UICopy.markCompleted),
             ],
           ),
         ),
@@ -1001,7 +961,7 @@ class _CardDetailViewState extends State<CardDetailView> {
             children: [
               Icon(Icons.delete_outline_rounded, size: 18, color: colorScheme.error),
               const SizedBox(width: 12),
-              Text('Delete Card', style: TextStyle(color: colorScheme.error)),
+              Text(UICopy.deleteCard, style: TextStyle(color: colorScheme.error)),
             ],
           ),
         ),
@@ -1019,7 +979,7 @@ class _CardDetailViewState extends State<CardDetailView> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Move to Column'),
+          title: const Text(UICopy.moveCard),
           content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
@@ -1042,9 +1002,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                     Navigator.pop(context);
                     final success = await _projectService.moveCard(_card.id, col.id, null);
                     if (success && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Moved to ${col.name}'))
-                      );
+                      AppFeedback.showSuccess(context, '${UICopy.movedTo} ${col.name}');
                       widget.onBack?.call();
                     }
                   },
@@ -1055,15 +1013,13 @@ class _CardDetailViewState extends State<CardDetailView> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              child: const Text(UICopy.cancel),
             ),
           ],
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load columns: $e'))
-      );
+      AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
     }
   }
 
@@ -1083,18 +1039,17 @@ class _CardDetailViewState extends State<CardDetailView> {
             ),
             child: Row(
               children: [
-                // Milestone Dropdown
                 Expanded(
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<ProjectMilestone>(
                       value: _selectedMilestone,
                       isDense: true,
-                      hint: const Text('Milestone', style: TextStyle(fontSize: 12)),
+                      hint: const Text(UICopy.milestone, style: TextStyle(fontSize: 12)),
                       style: Theme.of(context).textTheme.bodySmall,
                       items: [
                         const DropdownMenuItem<ProjectMilestone>(
                           value: null,
-                          child: Text('Uncategorized', style: TextStyle(fontSize: 12)),
+                          child: Text(UICopy.uncategorized, style: TextStyle(fontSize: 12)),
                         ),
                         ..._milestones.map((m) => DropdownMenuItem(
                               value: m,
@@ -1115,21 +1070,20 @@ class _CardDetailViewState extends State<CardDetailView> {
                   padding: EdgeInsets.symmetric(horizontal: 4),
                   child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
                 ),
-                // Feature Dropdown
                 Expanded(
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<ProjectFeature>(
                       value: _selectedFeature,
                       isDense: true,
-                      hint: const Text('Feature', style: TextStyle(fontSize: 12)),
+                      hint: const Text(UICopy.feature, style: TextStyle(fontSize: 12)),
                       style: Theme.of(context).textTheme.bodySmall,
-                      disabledHint: const Text('Select Milestone', style: TextStyle(fontSize: 12)),
+                      disabledHint: const Text(UICopy.selectMilestone, style: TextStyle(fontSize: 12)),
                       items: _selectedMilestone == null
                           ? []
                           : [
                               const DropdownMenuItem<ProjectFeature>(
                                 value: null,
-                                child: Text('None', style: TextStyle(fontSize: 12)),
+                                child: Text(UICopy.none, style: TextStyle(fontSize: 12)),
                               ),
                               ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
                                     value: f,
@@ -1175,7 +1129,7 @@ class _CardDetailViewState extends State<CardDetailView> {
             maxLines: null,
             style: Theme.of(context).textTheme.bodyMedium,
             decoration: InputDecoration(
-              hintText: 'Add a description...',
+              hintText: UICopy.addDescriptionHint,
               contentPadding: const EdgeInsets.all(AppConstants.space12),
               filled: true,
               fillColor: colorScheme.surfaceContainer.withOpacity(0.3),
@@ -1196,7 +1150,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               Icon(Icons.access_time, size: 12, color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
               const SizedBox(width: 4),
               Text(
-                'Created ${DateFormatter.formatShortDate(_card.createdAt)}',
+                '${UICopy.created} ${DateFormatter.formatShortDate(_card.createdAt)}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant.withOpacity(0.6),
                   fontSize: 10,
@@ -1215,7 +1169,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         padding: const EdgeInsets.all(AppConstants.space16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text('PROGRESS SUMMARY', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            Text(UICopy.progressSummary, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
             Row(children: [
               if (_isSavingSummary)
                 const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
@@ -1224,7 +1178,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                   IconButton(
                     icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                     onPressed: _generateSummary,
-                    tooltip: 'Auto-generate summary',
+                    tooltip: UICopy.autoGenerateSummary,
                   ),
                 IconButton(
                   icon: Icon(_isEditingSummary ? Icons.check_rounded : Icons.edit_outlined, size: 18),
@@ -1241,13 +1195,12 @@ class _CardDetailViewState extends State<CardDetailView> {
           ]),
           const SizedBox(height: AppConstants.space4),
           if (_isEditingSummary)
-
             TextField(
               controller: _summaryController,
               maxLines: null,
               style: const TextStyle(fontSize: 13),
               decoration: const InputDecoration(
-                hintText: 'Add a summary of the current progress...',
+                hintText: UICopy.addSummaryHint,
               ),
             )
           else
@@ -1260,7 +1213,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                   border: Border.all(color: Theme.of(context).dividerTheme.color!)),
               child: Text(
                 (_summary == null || _summary!.isEmpty) 
-                  ? 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks.' 
+                  ? UICopy.noSummaryYet 
                   : _summary!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   height: 1.4,
@@ -1277,7 +1230,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         child: Row(children: [
           const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: AppConstants.space12),
-          Text('Agent is thinking...', style: Theme.of(context).textTheme.bodySmall),
+          Text(UICopy.agentThinking, style: Theme.of(context).textTheme.bodySmall),
         ]));
   }
 
@@ -1294,7 +1247,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   Widget _buildJumpToBottomButton(ColorScheme colorScheme) {
     return FloatingActionButton.extended(
       onPressed: () => _scrollToBottom(force: true),
-      label: Text('$_unreadCount new messages'),
+      label: Text('$_unreadCount ${UICopy.unreadMessages}'),
       icon: const Icon(Icons.arrow_downward_rounded, size: 18),
       backgroundColor: colorScheme.primary,
       foregroundColor: colorScheme.onPrimary,
@@ -1317,7 +1270,6 @@ class _CardDetailViewState extends State<CardDetailView> {
             if (_isAgentConnected && _contextController.text.isNotEmpty)
               _buildContextPanel(),
             
-            // Phase: UX Refinement - Slim initialization indicator
             if (_isStartingSession)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -1327,7 +1279,6 @@ class _CardDetailViewState extends State<CardDetailView> {
                 ),
               ),
 
-            // Phase: UX Refinement - Ultra-compact status line
             if (_statusMessage != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4, left: 4),
@@ -1353,7 +1304,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                           ? colorScheme.primary 
                           : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
                       onPressed: () => _wsService.getContext(),
-                      tooltip: 'Inject System Context',
+                      tooltip: UICopy.injectSystemContext,
                       visualDensity: VisualDensity.compact,
                     ),
                     IconButton(
@@ -1362,7 +1313,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                           ? colorScheme.primary 
                           : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
                       onPressed: _toggleCommandsOverlay,
-                      tooltip: 'Slash Commands',
+                      tooltip: UICopy.slashCommands,
                       visualDensity: VisualDensity.compact,
                     ),
                   ],
@@ -1377,7 +1328,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                           keyboardType: TextInputType.multiline,
                           style: const TextStyle(fontSize: 14),
                           decoration: InputDecoration(
-                              hintText: _isAgentConnected ? 'Ask or type / command...' : 'Connect agent to start chatting',
+                              hintText: _isAgentConnected ? UICopy.chatHint : UICopy.connectAgentHint,
                               contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8)),
                           onSubmitted: (_) => _handleSend())),
                   const SizedBox(width: AppConstants.space8),
@@ -1457,7 +1408,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               children: [
                 Icon(Icons.psychology_outlined, size: 14, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 8),
-                Text('CONTEXT INJECTION', style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(UICopy.contextInjection, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close, size: 14),
@@ -1478,7 +1429,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                     minLines: 3,
                     style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                     decoration: const InputDecoration(
-                      hintText: 'Edit context details...',
+                      hintText: UICopy.editContextHint,
                     ),
                   )
                 else
@@ -1497,7 +1448,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                   children: [
                     TextButton(
                       onPressed: () => setState(() => _isEditingContext = !_isEditingContext),
-                      child: Text(_isEditingContext ? 'PREVIEW' : 'EDIT'),
+                      child: Text(_isEditingContext ? UICopy.preview : UICopy.edit),
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
@@ -1507,7 +1458,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                         foregroundColor: Theme.of(context).colorScheme.onPrimary,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
-                      child: const Text('SEND TO AGENT'),
+                      child: const Text(UICopy.sendToAgent),
                     ),
                   ],
                 ),
@@ -1525,19 +1476,15 @@ class _CardDetailViewState extends State<CardDetailView> {
       final result = await _projectService.generateCardSummary(_card.id);
       if (mounted) {
         if (result != null && result['summary'] != null && result['summary'].isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Summary generated successfully!')),
-          );
+          AppFeedback.showSuccess(context, UICopy.summaryGenerated);
           _loadSummary();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result?['message'] ?? 'No messages to summarize')),
-          );
+          AppFeedback.showInfo(context, result?['message'] ?? UICopy.noMessagesToSummarize);
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
       }
     } finally {
       if (mounted) setState(() => _isSavingSummary = false);
@@ -1556,7 +1503,7 @@ class _CardDetailViewState extends State<CardDetailView> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save summary: $e')));
+        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
       }
     } finally {
       if (mounted) setState(() => _isSavingSummary = false);
@@ -1570,24 +1517,19 @@ class _CardDetailViewState extends State<CardDetailView> {
       } else {
         await _projectService.completeCard(_card.id);
       }
-      // Re-load card data
       final updated = await _projectService.getCard(_card.id);
       if (mounted && updated != null) {
         setState(() => _card = updated);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Card "${_card.title}" ${_card.isCompleted ? 'completed' : 'active'}')),
-        );
+        AppFeedback.showSuccess(context, UICopy.cardStatusUpdate);
         if (_card.isCompleted) {
           Future.delayed(const Duration(seconds: 2), () => _loadSummary());
         }
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to reload card data')),
-        );
+        AppFeedback.showError(context, UICopy.failedToReloadCard);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
       }
     }
   }
@@ -1606,7 +1548,7 @@ class _CardDetailViewState extends State<CardDetailView> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
       }
     }
   }
@@ -1615,15 +1557,15 @@ class _CardDetailViewState extends State<CardDetailView> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Card'),
-        content: Text('Are you sure you want to delete "${_card.title}"?'),
+        title: const Text(UICopy.deleteCard),
+        content: Text('${UICopy.confirmDeleteCard} ("${_card.title}")'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: const Text(UICopy.cancel)),
           TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete', style: TextStyle(color: Colors.red))),
+              child: Text(UICopy.delete, style: const TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -1638,7 +1580,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+          AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
         }
       }
     }
@@ -1665,7 +1607,7 @@ class _CardDetailViewState extends State<CardDetailView> {
             }
           } catch (e) {
              if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+              AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
             }
           }
         },

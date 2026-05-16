@@ -7,6 +7,7 @@ import '../utils/icon_util.dart';
 import '../models/acp_provider.dart';
 import '../theme/app_theme.dart';
 import '../constants/ui_copy.dart';
+import '../utils/app_logger.dart';
 import 'app_feedback.dart';
 
 class ColorEditResult {
@@ -114,7 +115,7 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: UICopy.defaultAiProvider,
-                      hintText: 'Select an agent for this column',
+                      hintText: UICopy.selectAgentForColumn,
                     ),
                     items: [
                       const DropdownMenuItem<String>(
@@ -384,7 +385,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         setState(() => _providerStatuses = statuses);
       }
     } catch (e) {
-      debugPrint('Error loading provider statuses: $e');
+      AppLogger.error('Error loading provider statuses', e);
     }
   }
 
@@ -395,7 +396,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       _loadProviderStatuses();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to initialize: $e')));
+        AppFeedback.showError(context, '${UICopy.failedToInitialize}: $e');
       }
     }
   }
@@ -454,9 +455,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
 
   Future<void> _deleteColumn(KanbanColumn column) async {
     if (_columns.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cannot delete the last column')),
-      );
+      AppFeedback.showError(context, UICopy.cannotDeleteLastColumn);
       return;
     }
 
@@ -466,13 +465,13 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Column'),
+        title: const Text(UICopy.deleteColumn),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Move cards in "${column.name}" to:', style: Theme.of(context).textTheme.bodyMedium),
+            Text('${UICopy.moveCardsFrom} "${column.name}" ${UICopy.moveCardsTo}', style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: AppConstants.space16),
             DropdownButtonFormField<String>(
               isExpanded: true,
@@ -483,19 +482,19 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                       ))
                   .toList(),
               onChanged: (v) => moveToId = v,
-              decoration: const InputDecoration(labelText: 'Target Column'),
-              hint: const Text('Select target column', overflow: TextOverflow.ellipsis),
+              decoration: const InputDecoration(labelText: UICopy.targetColumn),
+              hint: const Text(UICopy.selectTargetColumn, overflow: TextOverflow.ellipsis),
             ),
           ],
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: const Text(UICopy.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Delete'),
+            child: const Text(UICopy.delete),
           ),
         ],
       ),

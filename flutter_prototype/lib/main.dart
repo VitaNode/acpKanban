@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'services/acp_client.dart';
 import 'services/smart_connect.dart';
@@ -22,10 +23,12 @@ import 'models/timeline_event.dart';
 import 'theme/app_theme.dart';
 import 'constants/app_constants.dart';
 import 'constants/ui_copy.dart';
+import 'constants/error_copy.dart';
 import 'services/theme_service.dart';
 import 'widgets/app_feedback.dart';
 import 'widgets/app_state_view.dart';
 import 'models/app_funnel_state.dart';
+import 'utils/app_logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,23 +80,19 @@ class _MainScreenState extends State<MainScreen> {
   List<ProjectAgentStatus> _agentStatuses = [];
   String? _userId;
 
-  // App Journey state
   AppFunnelState _funnelState = AppFunnelState.needsConnection;
   String? _errorMessage;
 
-  // Project state
   List<Project> _projects = [];
   Project? _currentProject;
   List<KanbanColumn> _columns = [];
   bool _isLoadingProjects = false;
   bool _isLoadingTimeline = false;
 
-  // Provider state
   List<ACPProvider> _providers = [];
   String _defaultProviderId = 'gemini';
   String? _lastSelectedProviderId;
 
-  // View state
   String _currentView = 'board';
   bool _isSidebarExpanded = false;
   KanbanCard? _selectedCard;
@@ -107,7 +106,7 @@ class _MainScreenState extends State<MainScreen> {
 
   void _setupRefreshService() {
     final refreshService = KanbanRefreshService();
-    refreshService.addRefreshListener(() {
+    refreshService.addRefreshListener((_) {
       if (mounted && _currentProject != null) {
         _loadProjectData(_currentProject!.id);
       }
@@ -120,10 +119,9 @@ class _MainScreenState extends State<MainScreen> {
       final savedConfig = await configManager.loadConfig();
       _userId = savedConfig.userId;
 
-      // Check if credentials are missing or default
       if (_userId == null || _userId!.isEmpty || 
           savedConfig.relayToken == null || savedConfig.relayToken!.isEmpty) {
-        debugPrint('Missing credentials, redirecting to settings');
+        AppLogger.info('Missing credentials, redirecting to settings');
         if (mounted) {
           setState(() {
             _funnelState = AppFunnelState.needsConnection;
@@ -167,11 +165,11 @@ class _MainScreenState extends State<MainScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Init Error: $e');
+      AppLogger.error('Init Error', e);
       if (mounted) {
         setState(() {
           _funnelState = AppFunnelState.error;
-          _errorMessage = e.toString();
+          _errorMessage = ErrorCopy.mapError(null, e.toString());
         });
       }
     }
@@ -185,10 +183,8 @@ class _MainScreenState extends State<MainScreen> {
         _currentView = 'card_detail';
       });
     } catch (e) {
-      debugPrint('Card $cardId not found in local state: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Card not found in current project view')),
-      );
+      AppLogger.error('Card $cardId not found in local state', e);
+      AppFeedback.showError(context, UICopy.cardNotFound);
     }
   }
 
@@ -209,7 +205,7 @@ class _MainScreenState extends State<MainScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Load providers error: $e');
+      AppLogger.error('Load providers error', e);
     }
   }
 
@@ -223,7 +219,7 @@ class _MainScreenState extends State<MainScreen> {
         final size = MediaQuery.of(context).size;
         final isMobile = size.width < 600;
         return AlertDialog(
-          title: Text('Add Card to ${column.name}'),
+          title: Text('${UICopy.addCardTo} ${column.name}'),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
           content: ConstrainedBox(
             constraints: BoxConstraints(
@@ -241,8 +237,8 @@ class _MainScreenState extends State<MainScreen> {
                       controller: titleController,
                       autofocus: true,
                       decoration: const InputDecoration(
-                        labelText: 'Title *',
-                        hintText: 'Enter card title',
+                        labelText: UICopy.cardTitleLabel,
+                        hintText: UICopy.enterCardTitle,
                       ),
                       maxLines: 1,
                     ),
@@ -250,8 +246,8 @@ class _MainScreenState extends State<MainScreen> {
                     TextField(
                       controller: descriptionController,
                       decoration: const InputDecoration(
-                        labelText: 'Description',
-                        hintText: 'Enter card description',
+                        labelText: UICopy.projectDescription,
+                        hintText: UICopy.enterCardDescription,
                       ),
                       maxLines: 8,
                       minLines: 4,
@@ -264,13 +260,11 @@ class _MainScreenState extends State<MainScreen> {
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel')),
+                child: const Text(UICopy.cancel)),
             ElevatedButton(
                 onPressed: () {
                   if (titleController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Title is required')),
-                    );
+                    AppFeedback.showError(context, UICopy.titleRequired);
                     return;
                   }
                   Navigator.pop(context, {
@@ -284,7 +278,7 @@ class _MainScreenState extends State<MainScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
-                child: const Text('Add Card')),
+                child: const Text(UICopy.addCard)),
           ],
         );
       },
@@ -345,7 +339,7 @@ class _MainScreenState extends State<MainScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Load projects error: $e');
+      AppLogger.error('Load projects error', e);
     } finally {
       if (mounted) setState(() => _isLoadingProjects = false);
     }
@@ -368,7 +362,7 @@ class _MainScreenState extends State<MainScreen> {
         await _loadTimeline(projectId);
       }
     } catch (e) {
-      debugPrint('Load project data error: $e');
+      AppLogger.error('Load project data error', e);
     }
   }
 
@@ -383,7 +377,7 @@ class _MainScreenState extends State<MainScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Load timeline error: $e');
+      AppLogger.error('Load timeline error', e);
     } finally {
       if (mounted) setState(() => _isLoadingTimeline = false);
     }
@@ -412,7 +406,7 @@ class _MainScreenState extends State<MainScreen> {
         }).toList();
       });
     } catch (e) {
-      debugPrint('Failed to update agent statuses: $e');
+      AppLogger.error('Failed to update agent statuses', e);
     }
   }
 
@@ -444,21 +438,18 @@ class _MainScreenState extends State<MainScreen> {
         });
         _updateAgentStatuses();
         
-        // Save last project ID
         final configManager = await ConnectionConfigManager.getInstance();
         await configManager.setLastProjectId(project.id);
         
-        // 重新加载最新的项目数据，确保卡片状态是最新的
         await _loadProjectData(project.id);
       } else {
         await _loadProjectData(project.id);
         
-        // Even if full switch data failed, if we loaded columns/cards, we consider it the active project
         final configManager = await ConnectionConfigManager.getInstance();
         await configManager.setLastProjectId(project.id);
       }
     } catch (e) {
-      debugPrint('Switch project error: $e');
+      AppLogger.error('Switch project error', e);
       await _loadProjectData(project.id);
     } finally {
       if (mounted) {
@@ -488,18 +479,12 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       _cards.removeWhere((c) => c.id == card.id);
       
-      // If moving within the same column, we need to handle the shift carefully
-      // First, normalize the current column by removing the gap left by the card
       for (var i = 0; i < _cards.length; i++) {
         if (_cards[i].columnId == oldColumnId && _cards[i].position > oldPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position - 1);
         }
       }
       
-      // If the targetPosition was based on a card that shifted, we should adjust it
-      // However, if we pass the target card's position value from the UI, we don't need to adjust.
-      
-      // Shift cards in the target column to make room for the new card
       for (var i = 0; i < _cards.length; i++) {
         if (_cards[i].columnId == targetColumnId && _cards[i].position >= newPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position + 1);
@@ -516,12 +501,10 @@ class _MainScreenState extends State<MainScreen> {
     final success = await _projectService.moveCard(card.id, targetColumnId, newPosition);
     if (!success && mounted) {
       await _loadProjectData(_currentProject!.id);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to move card')),
-      );
+      AppFeedback.showError(context, UICopy.failedToMoveCard);
     } else if (mounted) {
       await _loadProjectData(_currentProject!.id);
-      KanbanRefreshService().markNeedsRefresh();
+      KanbanRefreshService().markNeedsRefresh(RefreshSource.cardMoved);
     }
   }
 
@@ -560,9 +543,7 @@ class _MainScreenState extends State<MainScreen> {
         (p) => p.name.toLowerCase() == name.toLowerCase() && p.id != project.id);
 
     if (isDuplicate) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Project name must be unique')),
-      );
+      AppFeedback.showError(context, UICopy.projectNameUnique);
       return;
     }
 
@@ -587,9 +568,7 @@ class _MainScreenState extends State<MainScreen> {
           return bTime.compareTo(aTime);
         });
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Project "${project.name}" updated')),
-      );
+      AppFeedback.showSuccess(context, UICopy.projectUpdated);
     }
   }
 
@@ -613,10 +592,7 @@ class _MainScreenState extends State<MainScreen> {
                 _timelineEvents = [];
               }
             });
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Project "${project.name}" deleted')),
-            );
+            AppFeedback.showSuccess(context, '${UICopy.projectDescription} "${project.name}" ${UICopy.cardDeleted}');
           }
         },
       ),
@@ -688,8 +664,6 @@ class _MainScreenState extends State<MainScreen> {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
 
-    // Determine if we should show the bottom navigation bar
-    // Hide it on desktop or when viewing card details on mobile
     final showBottomNav = isMobile && _currentView != 'card_detail';
 
     return Scaffold(
@@ -699,7 +673,7 @@ class _MainScreenState extends State<MainScreen> {
           alignment: Alignment.centerLeft,
           child: Row(
             children: [
-              const Text('AI Kanban'),
+              const Text(UICopy.appTitle),
               const SizedBox(width: 8),
               Container(
                 width: 8,
@@ -731,7 +705,7 @@ class _MainScreenState extends State<MainScreen> {
           if (_currentProject != null) ...[
             IconButton(
               icon: const Icon(Icons.view_column_outlined),
-              tooltip: 'Manage Columns',
+              tooltip: UICopy.manageColumns,
               onPressed: _showColumnManager,
             ),
           ],
@@ -739,7 +713,7 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(ThemeService().isDarkMode
                 ? Icons.light_mode_outlined
                 : Icons.dark_mode_outlined),
-            tooltip: 'Toggle Theme',
+            tooltip: UICopy.toggleTheme,
             onPressed: () => ThemeService().toggleTheme(),
           ),
         ],
@@ -777,15 +751,15 @@ class _MainScreenState extends State<MainScreen> {
       items: [
         const BottomNavigationBarItem(
           icon: Icon(Icons.dashboard_rounded),
-          label: 'Board',
+          label: UICopy.board,
         ),
         const BottomNavigationBarItem(
           icon: Icon(Icons.alt_route_rounded),
-          label: 'Roadmap',
+          label: UICopy.roadmap,
         ),
         const BottomNavigationBarItem(
           icon: Icon(Icons.history_rounded),
-          label: 'Timeline',
+          label: UICopy.timeline,
         ),
         BottomNavigationBarItem(
           icon: Stack(
@@ -805,7 +779,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
-          label: 'Connection',
+          label: UICopy.connection,
         ),
       ],
     );
@@ -837,7 +811,7 @@ class _MainScreenState extends State<MainScreen> {
         onBack: () => setState(() {
           _currentView = 'board';
           _selectedCard = null;
-          KanbanRefreshService().markNeedsRefresh();
+          KanbanRefreshService().markNeedsRefresh(RefreshSource.manual);
         }),
       );
     }
@@ -901,13 +875,13 @@ class _MainScreenState extends State<MainScreen> {
           IconButton(
             icon: Icon(_isSidebarExpanded ? Icons.menu_open_rounded : Icons.menu_rounded),
             onPressed: () => setState(() => _isSidebarExpanded = !_isSidebarExpanded),
-            tooltip: _isSidebarExpanded ? 'Collapse Sidebar' : 'Expand Sidebar',
+            tooltip: _isSidebarExpanded ? UICopy.collapseSidebar : UICopy.expandSidebar,
           ),
           if (_isSidebarExpanded) ...[
             const SizedBox(height: 16),
             Icon(Icons.psychology_rounded, size: 32, color: colorScheme.primary),
             const SizedBox(height: 8),
-            Text('AI Kanban', 
+            Text(UICopy.appTitle, 
               style: theme.textTheme.labelLarge?.copyWith(
                 color: colorScheme.primary,
                 fontWeight: FontWeight.bold,
@@ -920,17 +894,17 @@ class _MainScreenState extends State<MainScreen> {
         const NavigationRailDestination(
           icon: Icon(Icons.dashboard_rounded),
           selectedIcon: Icon(Icons.dashboard_rounded),
-          label: Text('Board'),
+          label: Text(UICopy.board),
         ),
         const NavigationRailDestination(
           icon: Icon(Icons.alt_route_rounded),
           selectedIcon: Icon(Icons.alt_route_rounded),
-          label: Text('Roadmap'),
+          label: Text(UICopy.roadmap),
         ),
         const NavigationRailDestination(
           icon: Icon(Icons.history_rounded),
           selectedIcon: Icon(Icons.history_rounded),
-          label: Text('Timeline'),
+          label: Text(UICopy.timeline),
         ),
         NavigationRailDestination(
           icon: Stack(
@@ -950,14 +924,14 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
-          label: const Text('Connection'),
+          label: const Text(UICopy.connection),
         ),
       ],
       selectedIndex: _viewToIndex(_currentView),
       onDestinationSelected: (idx) {
         setState(() {
           _currentView = _indexToView(idx);
-          _selectedCard = null; // Clear card when navigating via sidebar
+          _selectedCard = null;
         });
       },
       trailing: Expanded(
@@ -1013,11 +987,11 @@ class _MainScreenState extends State<MainScreen> {
       case AppFunnelState.needsConnection:
         return AppStateView.empty(
           icon: Icons.link_off_rounded,
-          message: 'Connection required. Open Settings to configure your endpoint.',
+          message: UICopy.connectionRequired,
           action: FilledButton.icon(
             onPressed: () => setState(() => _currentView = 'connection'),
             icon: const Icon(Icons.settings_rounded),
-            label: const Text('Open Settings'),
+            label: const Text(UICopy.openSettings),
           ),
         );
       
@@ -1042,17 +1016,17 @@ class _MainScreenState extends State<MainScreen> {
       case AppFunnelState.columnsNoCards:
         return AppStateView.empty(
           icon: Icons.note_add_outlined,
-          message: 'No cards yet. Add your first task to begin.',
+          message: UICopy.noCardsYet,
           action: FilledButton.icon(
             onPressed: () => _addCard(_columns.first),
             icon: const Icon(Icons.add_task_rounded),
-            label: const Text('Add Card'),
+            label: const Text(UICopy.addFirstCard),
           ),
         );
 
       case AppFunnelState.error:
         return AppStateView.error(
-          message: _errorMessage ?? 'An unknown error occurred during initialization.',
+          message: _errorMessage ?? UICopy.unknownErrorOccurred,
           onRetry: _initApp,
         );
 
