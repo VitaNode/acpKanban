@@ -35,12 +35,17 @@ router = APIRouter(prefix="/api", tags=["cards"])
 
 def _load_config():
     config_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "acp_config.json"
+        os.path.dirname(os.path.abspath(__file__)), "..", "config.json"
     )
     config_path = os.path.normpath(config_path)
     try:
         with open(config_path, "r") as f:
-            return json.load(f)
+            config = json.load(f)
+        providers_config = config.get("providers", {})
+        return {
+            "providers": providers_config.get("list", []),
+            "default_provider": providers_config.get("default", "gemini"),
+        }
     except Exception:
         return {"default_provider": "gemini", "providers": []}
 
