@@ -1,114 +1,102 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
-/// 看板刷新服务 - 单例模式
-/// 
-/// 用于在以下场景自动刷新看板数据：
-/// - 卡片移动
-/// - 卡片创建
-/// - 卡片删除
-/// - 列重排序
-/// - 列创建/编辑/删除
-/// - 切换项目
-/// - 从 CardSessionScreen 返回
-/// - 热重启
+/// Kanban Refresh Service - Singleton Pattern
+/// Used to automatically refresh board data in the following scenarios:
+/// - Card moved
+/// - Card created
+/// - Card deleted
+/// - Column reordered
+/// - Column created/edited/deleted
+/// - Switch project
+/// - Back from CardSessionScreen
+/// - Hot restart
 class KanbanRefreshService {
   static final KanbanRefreshService _instance = KanbanRefreshService._internal();
-  
-  factory KanbanRefreshService() {
-    return _instance;
-  }
-  
+  factory KanbanRefreshService() => _instance;
   KanbanRefreshService._internal();
 
-  /// 刷新回调函数列表
-  final List<VoidCallback> _refreshListeners = [];
+  /// List of refresh callback functions
+  final List<Function(RefreshEvent)> _listeners = [];
   
-  /// 防抖定时器
+  /// Debounce timer
   Timer? _debounceTimer;
   
-  /// 防抖延迟（毫秒）
-  static const int _debounceDelayMs = 300;
+  /// Debounce delay in milliseconds
+  static const int _debounceMs = 500;
   
-  /// 是否需要刷新标记
+  /// Flag indicating if refresh is needed
   bool _needsRefresh = false;
 
-  /// 添加刷新监听器
-  void addRefreshListener(VoidCallback listener) {
-    if (!_refreshListeners.contains(listener)) {
-      _refreshListeners.add(listener);
+  /// Add a refresh listener
+  void addListener(Function(RefreshEvent) listener) {
+    if (!_listeners.contains(listener)) {
+      _listeners.add(listener);
     }
   }
 
-  /// 移除刷新监听器
-  void removeRefreshListener(VoidCallback listener) {
-    _refreshListeners.remove(listener);
+  /// Remove a refresh listener
+  void removeListener(Function(RefreshEvent) listener) {
+    _listeners.remove(listener);
   }
 
-  /// 标记需要刷新（带防抖）
-  void markNeedsRefresh() {
+  /// Mark refresh as needed with debounce
+  void markNeedsRefresh(RefreshSource source, {Map<String, dynamic>? metadata}) {
     _needsRefresh = true;
     
-    // 取消之前的定时器
+    // Cancel previous timer
     _debounceTimer?.cancel();
     
-    // 启动新的防抖定时器
-    _debounceTimer = Timer(
-      const Duration(milliseconds: _debounceDelayMs),
-      () {
-        if (_needsRefresh) {
-          _performRefresh();
-        }
-      },
-    );
+    // Start new debounce timer
+    _debounceTimer = Timer(const Duration(milliseconds: _debounceMs), () {
+      if (_needsRefresh) {
+        _executeRefresh(source, metadata);
+        _needsRefresh = false;
+      }
+    });
   }
 
-  /// 立即刷新（不防抖）
-  void refreshNow() {
+  /// Trigger immediate refresh (no debounce)
+  void triggerImmediate(RefreshSource source, {Map<String, dynamic>? metadata}) {
     _debounceTimer?.cancel();
-    _performRefresh();
+    _executeRefresh(source, metadata);
+    _needsRefresh = false;
   }
 
-  /// 执行刷新
-  void _performRefresh() {
-    _needsRefresh = false;
-    for (final listener in _refreshListeners) {
+  /// Execute refresh callbacks
+  void _executeRefresh(RefreshSource source, Map<String, dynamic>? metadata) {
+    final event = RefreshEvent(source: source, metadata: metadata);
+    for (final listener in _listeners) {
       try {
-        listener();
+        listener(event);
       } catch (e) {
-        debugPrint('Refresh listener error: $e');
+        if (kDebugMode) print('Refresh listener error: $e');
       }
     }
   }
 
-  /// 清理资源
+  /// Cleanup resources
   void dispose() {
     _debounceTimer?.cancel();
-    _refreshListeners.clear();
+    _listeners.clear();
   }
 }
 
-/// 刷新触发场景枚举
-enum RefreshTrigger {
+/// Refresh trigger source enumeration
+enum RefreshSource {
   cardMoved,
   cardCreated,
   cardDeleted,
-  columnReordered,
-  columnCreated,
-  columnUpdated,
-  columnDeleted,
+  columnChanged,
   projectSwitched,
-  sessionReturned,
-  appResumed,
+  manual,
+  other
 }
 
-/// 刷新事件数据
+/// Refresh event data
 class RefreshEvent {
-  final RefreshTrigger trigger;
+  final RefreshSource source;
   final Map<String, dynamic>? metadata;
 
-  RefreshEvent({
-    required this.trigger,
-    this.metadata,
-  });
+  RefreshEvent({required this.source, this.metadata});
 }

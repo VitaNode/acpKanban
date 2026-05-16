@@ -44,10 +44,10 @@ class ConnectionPool:
     def put(self, conn):
         try:
             self._pool.put_nowait(conn)
-        except:
+        except Exception:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
             with self._lock:
                 self._current_size = max(0, self._current_size - 1)
@@ -644,7 +644,7 @@ class SummaryRepository(BaseRepository):
                         emb = json.loads(row['embedding'])
                         dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(query_vector, emb)))
                         results.append({'card_id': row['card_id'], 'summary': row['summary'], 'title': row['title'], 'distance': dist})
-                    except: continue
+                    except Exception: continue
             results.sort(key=lambda x: x['distance'])
             return results[:limit]
 
@@ -713,7 +713,7 @@ class SessionRepository(BaseRepository):
                     meta = json.loads(row[3])
                     if meta.get('type') == 'reasoning':
                         is_reasoning = True
-                except: pass
+                except Exception: pass
 
             if row and row[1] == role and row[4] == 0 and not is_reasoning:
                 # Append to existing incomplete message of the same role/type
@@ -774,7 +774,7 @@ class SessionRepository(BaseRepository):
                         new_content = (row[1] or "") + reasoning_chunk
                         conn.execute("UPDATE card_sessions SET content = ?, seq_id = ? WHERE id = ?", (new_content, seq_id, msg_id))
                         return
-                except: pass
+                except Exception: pass
 
             # Otherwise, insert new record
             conn.execute("""
@@ -797,7 +797,7 @@ class SessionRepository(BaseRepository):
                 msg_id = row[0]
                 try:
                     meta = json.loads(row[1]) if row[1] else {}
-                except:
+                except Exception:
                     meta = {}
                 
                 # Merge or set metadata
@@ -871,7 +871,7 @@ class CodeSymbolRepository(BaseRepository):
                     emb = json.loads(row['embedding'])
                     dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(query_vector, emb)))
                     results.append({'file_path': row['file_path'], 'symbol_name': row['symbol_name'], 'distance': dist})
-                except: continue
+                    except Exception: continue
             results.sort(key=lambda x: x['distance'])
             return results[:limit]
 

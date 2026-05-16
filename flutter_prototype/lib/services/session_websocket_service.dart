@@ -7,6 +7,8 @@ import '../models/agent_plan.dart';
 import '../models/config_option.dart';
 import '../models/kanban_card.dart';
 import '../models/ag_ui_event.dart';
+import '../constants/error_copy.dart';
+import '../utils/app_logger.dart';
 import 'acp_client.dart';
 import 'smart_connect.dart';
 
@@ -68,18 +70,15 @@ class SessionWebSocketService {
   String? get uiFormat => _uiFormat;
 
   Future<bool> connect(String cardId, {int retryCount = 0}) async {
-    // Debug log for connection attempt
-    debugPrint('[SessionWS] Connect attempt for card $cardId (retry=$retryCount), currentCardId=$_currentCardId, isConnected=$_isConnected, hasLoadedHistory=$_hasLoadedHistory');
+    AppLogger.info('Connect attempt for card $cardId (retry=$retryCount), currentCardId=$_currentCardId, isConnected=$_isConnected, hasLoadedHistory=$_hasLoadedHistory');
     
-    // 如果是不同卡片，先断开旧连接，避免竞态条件
     if (_currentCardId != null && _currentCardId != cardId) {
-      debugPrint('[SessionWS] Switching from card $_currentCardId to $cardId, disconnecting old connection');
+      AppLogger.info('Switching from card $_currentCardId to $cardId, disconnecting old connection');
       await disconnect();
     }
 
-    // 同一张卡片且连接正常 → 清空缓存并重索历史
     if ((_channel != null || (_useProxy && _isConnected)) && _currentCardId == cardId && _isConnected) {
-      debugPrint('[SessionWS] Reusing existing connection for card $cardId, clearing cache and requesting history');
+      AppLogger.info('Reusing existing connection for card $cardId, clearing cache and requesting history');
       _clearCache();
       await _requestHistory();
       return true;
@@ -89,7 +88,7 @@ class SessionWebSocketService {
     _currentMessages = [];
     _eventBuffer.clear();
     _lastContiguousSeqId = 0;
-    _hasLoadedHistory = false;  // Reset history load flag on new connection
+    _hasLoadedHistory = false;
     _messageController.add([]);
     _planController.add(null);
     _configController.add([]);
@@ -97,7 +96,7 @@ class SessionWebSocketService {
     _reconnectCount = 0;
 
     if (_useProxy) {
-      debugPrint('[SessionWS] Using ACP Proxy for card $cardId');
+      AppLogger.info('Using ACP Proxy for card $cardId');
       try {
         await _acpClient.waitForReady;
         final response = await _acpClient.sendRequest('session/ws_proxy', {
@@ -109,7 +108,6 @@ class SessionWebSocketService {
           _isConnected = true;
           _reconnectCount = 0;
           
-          // Listen to ACP notifications
           _acpSub?.cancel();
           _acpSub = _acpClient.messages.listen((msgStr) {
             try {
@@ -118,18 +116,21 @@ class SessionWebSocketService {
                 _handleMessage(msg['params']['payload']);
               }
             } catch (e) {
-              debugPrint('[SessionWS] ACP Msg Error: $e');
+              AppLogger.error('ACP Msg Error', e);
             }
           });
           
           await _requestHistory();
           return true;
         } else {
-          debugPrint('[SessionWS] Proxy connect failed: ${response['error']}');
+          final err = response['error'];
+          _errorController.add(ErrorCopy.mapError(err['error_code'], err['message']));
+          AppLogger.error('Proxy connect failed: ${response['error']}');
           return false;
         }
       } catch (e) {
-        debugPrint('[SessionWS] Proxy connect error: $e');
+        _errorController.add(ErrorCopy.networkError);
+        AppLogger.error('Proxy connect error', e);
         return false;
       }
     }
@@ -163,7 +164,7 @@ class SessionWebSocketService {
   }
 
   void _reconnectIfNecessary() {
-    if (_useProxy) return; // ACP Proxy handles reconnection via SmartConnect
+    if (_useProxy) return;
     _reconnectTimer?.cancel();
     if (_currentCardId != null && _reconnectCount < 5) {
       _reconnectCount++;
@@ -188,7 +189,6 @@ class SessionWebSocketService {
   }
 
   Future<void> _requestHistory() async {
-    // If we have already received some messages, request history from the last contiguous seqId
     final afterSeq = _lastContiguousSeqId;
     await _send({
       'type': 'get_history',
@@ -207,7 +207,7 @@ class SessionWebSocketService {
           'data': data,
         });
       } catch (e) {
-        debugPrint('[SessionWS] Proxy send error: $e');
+        AppLogger.error('Proxy send error', e);
       }
     } else if (_channel != null) {
       _channel!.sink.add(data is String ? data : jsonEncode(data));
@@ -229,34 +229,22 @@ class SessionWebSocketService {
       bool canMerge = false;
       if (current.role.toLowerCase() == 'assistant' &&
           next.role.toLowerCase() == 'assistant') {
-        
-        // AG-UI Fix: Merge consecutive assistant messages of the same conceptual type.
         final currentMeta = current.metadata ?? {};
         final nextMeta = next.metadata ?? {};
-        
         final currentType = currentMeta['type'];
         final nextType = nextMeta['type'];
         
-        // Rules for merging:
-        // 1. Both are reasoning/thinking records
         if (currentType == 'reasoning' && nextType == 'reasoning') {
           canMerge = true;
-        }
-        // 2. Both are standard assistant messages (null type)
-        else if (currentType == null && nextType == null) {
+        } else if (currentType == null && nextType == null) {
           canMerge = true;
-        }
-        // 3. Plan updates should usually stay separate or merge with each other
-        else if (currentType == 'plan_update' && nextType == 'plan_update') {
+        } else if (currentType == 'plan_update' && nextType == 'plan_update') {
           canMerge = true;
         }
       }
 
       if (canMerge) {
-        // 1. Combine content text
         String newContent = current.content + next.content;
-
-        // 2. Deep merge metadata
         final Map<String, dynamic> mergedMeta = Map<String, dynamic>.from(current.metadata ?? {});
         final nextMeta = next.metadata ?? {};
         
@@ -265,18 +253,13 @@ class SessionWebSocketService {
             final prevThought = mergedMeta['thought']?.toString() ?? '';
             mergedMeta['thought'] = prevThought + (value?.toString() ?? '');
           } else if (key == 'tool_calls') {
-            // Merge tool call lists
             final List<dynamic> currentTC = List.from(mergedMeta['tool_calls'] ?? []);
             final List<dynamic> nextTC = List.from(value as List? ?? []);
-            
             for (var tc in nextTC) {
               final id = tc['tool_id'];
               final existingIdx = currentTC.indexWhere((e) => e['tool_id'] == id && id != null);
-              if (existingIdx != -1) {
-                currentTC[existingIdx] = tc; // Update existing
-              } else {
-                currentTC.add(tc); // Add new
-              }
+              if (existingIdx != -1) currentTC[existingIdx] = tc;
+              else currentTC.add(tc);
             }
             mergedMeta['tool_calls'] = currentTC;
           } else {
@@ -287,7 +270,7 @@ class SessionWebSocketService {
         current = current.copyWith(
           content: newContent,
           metadata: mergedMeta.isNotEmpty ? mergedMeta : null,
-          isComplete: next.isComplete, // Take the latest completeness status
+          isComplete: next.isComplete,
           seqId: next.seqId ?? current.seqId,
         );
       } else {
@@ -295,11 +278,7 @@ class SessionWebSocketService {
         current = next;
       }
     }
-
-    if (current != null) {
-      merged.add(current);
-    }
-
+    if (current != null) merged.add(current);
     return merged;
   }
 
@@ -312,7 +291,7 @@ class SessionWebSocketService {
         m = data;
       } else {
         final errorMsg = 'WS: Unexpected message type: ${data.runtimeType}';
-        if (kDebugMode) print(errorMsg);
+        AppLogger.error(errorMsg);
         _errorController.add(errorMsg);
         return;
       }
@@ -320,7 +299,6 @@ class SessionWebSocketService {
         _requestController.add(m);
         return;
       }
-      // Handle AG-UI events (when ui_format is 'ag_ui')
       if (m['type'] == 'ag_ui_event') {
         final agUiEvent = AgUiEvent.fromMessage(CardMessage(
           id: '',
@@ -329,112 +307,72 @@ class SessionWebSocketService {
           content: jsonEncode(m),
           createdAt: '',
         ));
-
-        // Buffer the event by its seqId if present
         if (agUiEvent.seqId != null) {
           _eventBuffer[agUiEvent.seqId!] = agUiEvent;
-          
-          // Try to deliver any contiguous events we now have
           _tryDeliverBufferedEvents();
         } else {
-          // No seqId, deliver immediately (e.g., heartbeat, session info)
           _deliverAgUiEvent(agUiEvent);
         }
-        return; // Important: don't fall through to other handlers
+        return;
       }
 
       switch (m['type']) {
         case 'history':
           final rawMessages = (m['messages'] as List?) ?? [];
           final List<CardMessage> newMessages = [];
-          
           for (int i = 0; i < rawMessages.length; i++) {
             var msg = CardMessage.fromJson(rawMessages[i]);
-            
-            // AG-UI Fix: If seqId is missing in history (due to backend bug), assign a synthetic one
-            // to ensure it's not hidden by the contiguous delivery logic.
             if (msg.seqId == null) {
               msg = msg.copyWith(seqId: _lastContiguousSeqId + i + 1);
-              debugPrint('[SessionWS] Assigned synthetic seqId ${msg.seqId} to message ${msg.id}');
             }
-            
-            // Extract thought from metadata for display if content is empty (Legacy support)
             if (msg.metadata?['thought'] != null && msg.content.isEmpty) {
-              msg = msg.copyWith(
-                content: msg.metadata!['thought'] as String,
-              );
+              msg = msg.copyWith(content: msg.metadata!['thought'] as String);
             }
             newMessages.add(msg);
           }
-          
-          // Debug log for history loading
-          debugPrint('[SessionWS] Received history: ${newMessages.length} messages, after_seq=$_lastContiguousSeqId');
-          
           if (newMessages.isEmpty && _lastContiguousSeqId > 0) {
             _updateCardAndConfig(m);
             return;
           }
-
           if (_lastContiguousSeqId == 0) {
-            // Full sync or first load: store raw messages
             _currentMessages = List.from(newMessages);
-            _hasLoadedHistory = true;  // Mark history as loaded on full sync
-            debugPrint('[SessionWS] History fully loaded, total messages: ${_currentMessages.length}');
+            _hasLoadedHistory = true;
           } else {
-            // Merge delta update into raw storage
             for (var msg in newMessages) {
               final index = _currentMessages.indexWhere((existing) => 
                 (existing.id == msg.id && msg.id.isNotEmpty && !msg.id.startsWith('streaming-') && !msg.id.startsWith('thought-')) || 
                 (existing.seqId == msg.seqId && msg.seqId != null)
               );
-              
-              if (index != -1) {
-                _currentMessages[index] = msg;
-              } else {
-                _currentMessages.add(msg);
-              }
+              if (index != -1) _currentMessages[index] = msg;
+              else _currentMessages.add(msg);
             }
             _currentMessages.sort((a, b) {
               if (a.seqId != null && b.seqId != null) return a.seqId!.compareTo(b.seqId!);
               return a.createdAt.compareTo(b.createdAt);
             });
           }
-          
           for (var msg in _currentMessages) {
-            if (msg.seqId != null && msg.seqId! > _lastContiguousSeqId) {
-              _lastContiguousSeqId = msg.seqId!;
-            }
+            if (msg.seqId != null && msg.seqId! > _lastContiguousSeqId) _lastContiguousSeqId = msg.seqId!;
           }
-          
-          // Emit merged view to UI, but keep raw storage intact
           _messageController.add(_mergeMessages(_currentMessages));
           _updateCardAndConfig(m);
           break;
         case 'agent_plan':
-          _planController
-              .add(m['plan'] != null ? AgentPlan.fromJson(m['plan']) : null);
+          _planController.add(m['plan'] != null ? AgentPlan.fromJson(m['plan']) : null);
           break;
         case 'config_options':
-          _configController.add((m['options'] as List?)
-                  ?.map((x) => ConfigOption.fromJson(x))
-                  .toList() ??
-              []);
+          _configController.add((m['options'] as List?)?.map((x) => ConfigOption.fromJson(x)).toList() ?? []);
           break;
         case 'available_commands':
-          _commandController.add(
-              (m['commands'] as List?)?.cast<Map<String, dynamic>>() ?? []);
+          _commandController.add((m['commands'] as List?)?.cast<Map<String, dynamic>>() ?? []);
           break;
         case 'agent_message_chunk':
           final chunk = m['content']?['text'] ?? '';
-          if (m['_meta'] != null || m['usage'] != null) {
-            _requestHistory(); // Refresh to get cumulative tokens from DB
-          }
+          if (m['_meta'] != null || m['usage'] != null) _requestHistory();
           if (chunk.isNotEmpty) {
             if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
               final last = _currentMessages.last;
-              _currentMessages[_currentMessages.length - 1] = last.copyWith(
-                content: last.content + chunk
-              );
+              _currentMessages[_currentMessages.length - 1] = last.copyWith(content: last.content + chunk);
             } else {
               _currentMessages.add(CardMessage(
                 id: 'streaming-${DateTime.now().millisecondsSinceEpoch}',
@@ -450,17 +388,13 @@ class SessionWebSocketService {
           break;
         case 'agent_thought_chunk':
           final thought = m['content']?['text'] ?? '';
-          if (m['_meta'] != null || m['usage'] != null) {
-            _requestHistory(); // Refresh to get cumulative tokens from DB
-          }
+          if (m['_meta'] != null || m['usage'] != null) _requestHistory();
           if (thought.isNotEmpty) {
              if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete) {
               final last = _currentMessages.last;
               final metadata = Map<String, dynamic>.from(last.metadata ?? {});
               metadata['thought'] = (metadata['thought'] ?? '') + thought;
-              _currentMessages[_currentMessages.length - 1] = last.copyWith(
-                metadata: metadata
-              );
+              _currentMessages[_currentMessages.length - 1] = last.copyWith(metadata: metadata);
             } else {
               _currentMessages.add(CardMessage(
                 id: 'thought-${DateTime.now().millisecondsSinceEpoch}',
@@ -477,7 +411,7 @@ class SessionWebSocketService {
           break;
         case 'tool_call':
         case 'tool_call_update':
-          _requestHistory(); // Re-fetch to get updated metadata for tool status
+          _requestHistory();
           break;
         case 'message_added':
         case 'refresh':
@@ -499,57 +433,39 @@ class SessionWebSocketService {
           _initializingController.add(false);
           _uiFormat = m['ui_format'];
           if (m['config_options'] != null) {
-            _configController.add((m['config_options'] as List?)
-                    ?.map((x) => ConfigOption.fromJson(x))
-                    .toList() ??
-                []);
+            _configController.add((m['config_options'] as List?)?.map((x) => ConfigOption.fromJson(x)).toList() ?? []);
           }
-          // Also emit card update with new session ID so the UI can set _isAgentConnected
           if (m['sessionId'] != null) {
             _cardUpdateController.add(KanbanCard(
               id: _currentCardId ?? '',
-              title: '',
-              description: '',
-              columnId: '',
-              createdAt: '',
-              updatedAt: '',
-              acpSessionId: m['sessionId'],
-              acpProviderId: null,
+              title: '', description: '', columnId: '', createdAt: '', updatedAt: '',
+              acpSessionId: m['sessionId'], acpProviderId: null,
             ));
           }
           break;
         case 'context_data':
-          if (m['context'] != null) {
-            _contextController.add(m['context']);
-          }
+          if (m['context'] != null) _contextController.add(m['context']);
           break;
         case 'token_update':
           _cardUpdateController.add(KanbanCard(
             id: _currentCardId ?? '',
-            title: '',
-            description: '',
-            columnId: '',
-            createdAt: '',
-            updatedAt: '',
-            inputTokens: m['input_tokens'] ?? 0,
-            outputTokens: m['output_tokens'] ?? 0,
+            title: '', description: '', columnId: '', createdAt: '', updatedAt: '',
+            inputTokens: m['input_tokens'] ?? 0, outputTokens: m['output_tokens'] ?? 0,
           ));
           break;
         case 'error':
           _initializingController.add(false);
-          _errorController.add(m['message'] ?? 'Unknown agent error');
+          _errorController.add(ErrorCopy.mapError(m['error_code'], m['message'] ?? 'Unknown agent error'));
           break;
       }
     } catch (e) {
       _initializingController.add(false);
-      if (kDebugMode) print('WS Parse Error: $e');
+      AppLogger.error('WS Parse Error', e);
       _errorController.add('Failed to process message: $e');
     }
   }
 
   void _deliverAgUiEvent(AgUiEvent event) {
-    // Convert AgUiEvent back to CardMessage for UI consumption
-    // This maintains compatibility with existing UI while enabling AG-UI features
     final Map<String, dynamic> agEventMap = {};
     if (event.eventType != null) agEventMap['event'] = event.eventType;
     if (event.text != null) agEventMap['text'] = event.text;
@@ -559,11 +475,7 @@ class SessionWebSocketService {
     if (event.sessionId != null) agEventMap['session_id'] = event.sessionId;
     if (event.toolCalls != null) {
       agEventMap['tool_calls'] = event.toolCalls!.map((tc) => {
-        'tool_id': tc.toolId,
-        'name': tc.name,
-        'status': tc.status,
-        'args': tc.args,
-        'result': tc.result,
+        'tool_id': tc.toolId, 'name': tc.name, 'status': tc.status, 'args': tc.args, 'result': tc.result,
       }).toList();
     }
     if (event.commands != null) agEventMap['commands'] = event.commands;
@@ -580,234 +492,119 @@ class SessionWebSocketService {
       seqId: event.seqId,
     );
 
-    // Handle different event types for UI rendering
     if ((event.eventType == 'agent_message_chunk' || event.eventType == 'message_chunk') && event.text != null) {
       final chunk = event.text!;
-      // Only append to non-reasoning assistant messages
-      if (_currentMessages.isNotEmpty && 
-          _currentMessages.last.role == 'assistant' && 
-          !_currentMessages.last.isComplete &&
-          _currentMessages.last.metadata?['type'] != 'reasoning') {
+      if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete && _currentMessages.last.metadata?['type'] != 'reasoning') {
         final last = _currentMessages.last;
-        _currentMessages[_currentMessages.length - 1] = last.copyWith(
-          content: last.content + chunk,
-          seqId: event.seqId,
-        );
+        _currentMessages[_currentMessages.length - 1] = last.copyWith(content: last.content + chunk, seqId: event.seqId);
       } else {
         _currentMessages.add(CardMessage(
           id: 'streaming-${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
-          cardId: _currentCardId ?? '',
-          role: 'assistant',
-          content: chunk,
-          createdAt: DateTime.now().toIso8601String(),
-          isComplete: false,
-          seqId: event.seqId,
+          cardId: _currentCardId ?? '', role: 'assistant', content: chunk, createdAt: DateTime.now().toIso8601String(), isComplete: false, seqId: event.seqId,
         ));
       }
       _messageController.add(List.from(_currentMessages));
     } 
     else if ((event.eventType == 'agent_thought_chunk' || event.eventType == 'reasoning_message') && (event.text != null || event.reasoning != null)) {
       final thought = event.reasoning ?? event.text ?? '';
-      // Only append to reasoning assistant messages
-      if (_currentMessages.isNotEmpty && 
-          _currentMessages.last.role == 'assistant' && 
-          !_currentMessages.last.isComplete &&
-          _currentMessages.last.metadata?['type'] == 'reasoning') {
+      if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && !_currentMessages.last.isComplete && _currentMessages.last.metadata?['type'] == 'reasoning') {
         final last = _currentMessages.last;
-        _currentMessages[_currentMessages.length - 1] = last.copyWith(
-          content: last.content + thought,
-          seqId: event.seqId,
-        );
+        _currentMessages[_currentMessages.length - 1] = last.copyWith(content: last.content + thought, seqId: event.seqId);
       } else {
         _currentMessages.add(CardMessage(
           id: 'thought-${DateTime.now().millisecondsSinceEpoch}-${event.seqId ?? 0}',
-          cardId: _currentCardId ?? '',
-          role: 'assistant',
-          content: thought,
-          createdAt: DateTime.now().toIso8601String(),
-          isComplete: false,
-          metadata: {'type': 'reasoning'},
-          seqId: event.seqId,
+          cardId: _currentCardId ?? '', role: 'assistant', content: thought, createdAt: DateTime.now().toIso8601String(), isComplete: false, metadata: {'type': 'reasoning'}, seqId: event.seqId,
         ));
       }
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == 'tool_call_start' || event.eventType == 'tool_call_update' || event.eventType == 'tool_call_result') {
-      // Handle tool call events by updating existing message or adding a new one
       final toolCall = event.toolCalls?.isNotEmpty == true ? event.toolCalls!.first : null;
       if (toolCall == null) return;
-
       final toolId = toolCall.toolId;
       final toolName = toolCall.name ?? 'Unknown';
       final toolStatus = _mapToolStatus(toolCall.status ?? 'running');
-      
-      // Try to find an existing tool message with the same toolId
-      int existingIndex = _currentMessages.indexWhere((m) => 
-        m.role == 'tool' && m.metadata?['tool_id'] == toolId
-      );
-
+      int existingIndex = _currentMessages.indexWhere((m) => m.role == 'tool' && m.metadata?['tool_id'] == toolId);
       if (existingIndex != -1) {
-        // Update existing tool message
         final existing = _currentMessages[existingIndex];
         final updatedMetadata = Map<String, dynamic>.from(existing.metadata ?? {});
-        
-        // Update name if it was previously 'Unknown' and we now have a name
-        if (updatedMetadata['name'] == 'Unknown' && toolName != 'Unknown') {
-          updatedMetadata['name'] = toolName;
-        }
+        if (updatedMetadata['name'] == 'Unknown' && toolName != 'Unknown') updatedMetadata['name'] = toolName;
         updatedMetadata['status'] = toolStatus;
-        
-        // Update arguments if provided
-        if (toolCall.args != null && toolCall.args!.isNotEmpty) {
-          updatedMetadata['arguments'] = toolCall.args;
-        }
-        
-        // Use the newest result if available
+        if (toolCall.args != null && toolCall.args!.isNotEmpty) updatedMetadata['arguments'] = toolCall.args;
         String content = existing.content;
-        if (toolCall.result != null && toolCall.result!.isNotEmpty) {
-          content = toolCall.result!;
-        }
-
-        _currentMessages[existingIndex] = existing.copyWith(
-          content: content,
-          isComplete: event.eventType == 'tool_call_result',
-          metadata: updatedMetadata,
-        );
+        if (toolCall.result != null && toolCall.result!.isNotEmpty) content = toolCall.result!;
+        _currentMessages[existingIndex] = existing.copyWith(content: content, isComplete: event.eventType == 'tool_call_result', metadata: updatedMetadata);
       } else {
-        // Create a new tool message
         _currentMessages.add(CardMessage(
           id: 'tool-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
-          cardId: _currentCardId ?? '',
-          role: 'tool',
-          content: toolCall.result ?? '',
-          createdAt: DateTime.now().toIso8601String(),
-          isComplete: event.eventType == 'tool_call_result',
-          seqId: event.seqId,
-          metadata: {
-            'name': toolName,
-            'status': toolStatus,
-            'arguments': toolCall.args ?? '',
-            'tool_id': toolId,
-          }
+          cardId: _currentCardId ?? '', role: 'tool', content: toolCall.result ?? '', createdAt: DateTime.now().toIso8601String(), isComplete: event.eventType == 'tool_call_result', seqId: event.seqId,
+          metadata: {'name': toolName, 'status': toolStatus, 'arguments': toolCall.args ?? '', 'tool_id': toolId}
         ));
       }
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == 'message_bundled' || event.eventType == 'message_chunk') {
-      // Handle bundled messages (with reasoning and tool calls)
       final text = event.text ?? '';
       final reasoning = event.reasoning;
-      
       final metadata = <String, dynamic>{};
-      if (reasoning != null && reasoning.isNotEmpty) {
-        metadata['thought'] = reasoning;
-      }
+      if (reasoning != null && reasoning.isNotEmpty) metadata['thought'] = reasoning;
       if (event.toolCalls != null && event.toolCalls!.isNotEmpty) {
         metadata['tool_calls'] = event.toolCalls!.map((tc) => {
-          'tool_id': tc.toolId,
-          'name': tc.name,
-          'status': tc.status,
-          'args': tc.args,
-          'result': tc.result,
+          'tool_id': tc.toolId, 'name': tc.name, 'status': tc.status, 'args': tc.args, 'result': tc.result,
         }).toList();
       }
-      
       _currentMessages.add(CardMessage(
         id: 'bundled-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
-        cardId: _currentCardId ?? '',
-        role: 'assistant',
-        content: text,
-        createdAt: DateTime.now().toIso8601String(),
-        isComplete: event.isComplete ?? true,
-        seqId: event.seqId,
-        metadata: metadata.isNotEmpty ? metadata : null
+        cardId: _currentCardId ?? '', role: 'assistant', content: text, createdAt: DateTime.now().toIso8601String(), isComplete: event.isComplete ?? true, seqId: event.seqId, metadata: metadata.isNotEmpty ? metadata : null
       ));
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == "interactive_request") {
-      // Serialize the full event to JSON for proper parsing by fromMessage()
-      final eventJson = {
-        "event": event.eventType,
-        "text": event.text,
-        "title": event.title,
-        "method": event.method,
-        "requestId": event.requestId,
-        "options": event.options,
-        "seqId": event.seqId,
-      };
-
+      final eventJson = {"event": event.eventType, "text": event.text, "title": event.title, "method": event.method, "requestId": event.requestId, "options": event.options, "seqId": event.seqId};
       _currentMessages.add(CardMessage(
         id: "request-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}",
-        cardId: _currentCardId ?? "",
-        role: "assistant",
-        content: jsonEncode(eventJson),
-        createdAt: DateTime.now().toIso8601String(),
-        isComplete: true,
-        seqId: event.seqId,
-        metadata: {"type": "interactive_request"}
+        cardId: _currentCardId ?? "", role: "assistant", content: jsonEncode(eventJson), createdAt: DateTime.now().toIso8601String(), isComplete: true, seqId: event.seqId, metadata: {"type": "interactive_request"}
       ));
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == 'user_message') {
-      // Handle user messages echoed back from the server
       _currentMessages.add(CardMessage(
         id: 'user-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
-        cardId: _currentCardId ?? '',
-        role: 'user',
-        content: event.text ?? '',
-        createdAt: DateTime.now().toIso8601String(),
-        isComplete: true,
-        seqId: event.seqId,
+        cardId: _currentCardId ?? '', role: 'user', content: event.text ?? '', createdAt: DateTime.now().toIso8601String(), isComplete: true, seqId: event.seqId,
       ));
       _messageController.add(List.from(_currentMessages));
     }
     else if (event.eventType == 'plan_update') {
-      // Handle plan updates by extracting steps
       try {
         final rawMap = jsonDecode(agUiMessage.content);
         final plan = AgentPlan.fromJson(rawMap);
         _planController.add(plan);
-
-        // AG-UI Enhancement: Also add plan to chat for visibility
-        // If the last message was also a plan update, replace it to avoid clutter
-        if (_currentMessages.isNotEmpty && 
-            _currentMessages.last.role == 'assistant' && 
-            _currentMessages.last.metadata?['type'] == 'plan_update') {
-          _currentMessages[_currentMessages.length - 1] = agUiMessage.copyWith(
-            metadata: {'type': 'plan_update'}
-          );
+        if (_currentMessages.isNotEmpty && _currentMessages.last.role == 'assistant' && _currentMessages.last.metadata?['type'] == 'plan_update') {
+          _currentMessages[_currentMessages.length - 1] = agUiMessage.copyWith(metadata: {'type': 'plan_update'});
         } else {
-          _currentMessages.add(agUiMessage.copyWith(
-            metadata: {'type': 'plan_update'}
-          ));
+          _currentMessages.add(agUiMessage.copyWith(metadata: {'type': 'plan_update'}));
         }
         _messageController.add(List.from(_currentMessages));
       } catch (e) {
-        debugPrint('[SessionWS] Plan Update Error: $e');
+        AppLogger.error('Plan Update Error', e);
       }
     }
     else if (event.eventType == 'config_update') {
-      // Handle config updates
       try {
         final rawMap = jsonDecode(agUiMessage.content);
         final options = rawMap['options'] as List?;
-        if (options != null) {
-          _configController.add(options.map((o) => ConfigOption.fromJson(o as Map<String, dynamic>)).toList());
-        }
+        if (options != null) _configController.add(options.map((o) => ConfigOption.fromJson(o as Map<String, dynamic>)).toList());
       } catch (e) {
-        debugPrint('[SessionWS] Config Update Error: $e');
+        AppLogger.error('Config Update Error', e);
       }
     }
     else if (event.eventType == 'commands_update') {
-      // Handle commands updates
       try {
         final rawMap = jsonDecode(agUiMessage.content);
         final commands = rawMap['commands'] as List?;
-        if (commands != null) {
-          _commandController.add(commands.map((c) => c as Map<String, dynamic>).toList());
-        }
+        if (commands != null) _commandController.add(commands.map((c) => c as Map<String, dynamic>).toList());
       } catch (e) {
-        debugPrint('[SessionWS] Commands Update Error: $e');
+        AppLogger.error('Commands Update Error', e);
       }
     }
     else if (event.eventType == 'session_stop' || event.eventType == 'stop') {
@@ -817,13 +614,8 @@ class SessionWebSocketService {
       }
     }
     else {
-      // If it's a known non-message event, ignore it to avoid leaking raw JSON
       final ignoreEvents = ['heartbeat', 'session_info', 'context_data'];
-      if (event.eventType != null && ignoreEvents.contains(event.eventType)) {
-        return;
-      }
-      
-      // For unknown event types, only add if it looks like a message
+      if (event.eventType != null && ignoreEvents.contains(event.eventType)) return;
       if (event.text != null && event.text!.isNotEmpty) {
         _currentMessages.add(agUiMessage);
         _messageController.add(List.from(_currentMessages));
@@ -832,49 +624,32 @@ class SessionWebSocketService {
   }
 
   String _mapToolStatus(String backendStatus) {
-    // Map backend status (pending/completed/failed) to frontend status (running/success/failed)
     switch (backendStatus) {
-      case 'pending':
-      case 'running':
-        return 'running';
-      case 'completed':
-      case 'success':
-        return 'success';
-      case 'failed':
-      case 'cancelled':
-      case 'error':
-        return 'failed';
-      default:
-        return 'running';
+      case 'pending': case 'running': return 'running';
+      case 'completed': case 'success': return 'success';
+      case 'failed': case 'cancelled': case 'error': return 'failed';
+      default: return 'running';
     }
   }
 
   void _tryDeliverBufferedEvents() {
-    // Prevent memory leaks: if buffer grows too large due to missing seqIds, clear it
     if (_eventBuffer.length > 100) {
-      debugPrint("[AG-UI] Event buffer exceeded limit (100). Possible dropped packet at seqId ${_lastContiguousSeqId + 1}. Clearing buffer.");
+      AppLogger.warning("Event buffer exceeded limit (100). Clearing buffer.");
       _eventBuffer.clear();
       return;
     }
-
     final sortedKeys = _eventBuffer.keys.toList()..sort();
     int deliverCount = 0;
-
-    // Continuously deliver events from buffer as long as we have the next seqId
     while (_eventBuffer.containsKey(_lastContiguousSeqId + 1)) {
       final nextSeqId = _lastContiguousSeqId + 1;
       final event = _eventBuffer.remove(nextSeqId)!;
       _lastContiguousSeqId = nextSeqId;
-      
       _deliverAgUiEvent(event);
       deliverCount++;
     }
-
-    // FALLBACK: If stuck (no contiguous event) but buffer is not empty, 
-    // force deliver the oldest event to bridge the gap.
     if (deliverCount == 0 && _eventBuffer.isNotEmpty) {
       final oldestSeqId = sortedKeys.first;
-      debugPrint("[AG-UI] Buffer gap detected at seqId=${_lastContiguousSeqId + 1}. Forcing delivery of oldest buffered event seqId=$oldestSeqId");
+      AppLogger.warning("Buffer gap detected. Forcing delivery of seqId=$oldestSeqId");
       _deliverAgUiEvent(_eventBuffer.remove(oldestSeqId)!);
       _lastContiguousSeqId = oldestSeqId;
     }
@@ -883,52 +658,35 @@ class SessionWebSocketService {
   Future<void> sendInit() async {
     if (_isConnected) {
       _initializingController.add(true);
-      await _send({
-        'type': 'session_init',
-        'ui_format': 'ag_ui',
-      });
+      await _send({'type': 'session_init', 'ui_format': 'ag_ui'});
     }
   }
 
   Future<void> cancelSession() async {
-    if (_isConnected) {
-      await _send({'type': 'session_cancel'});
-    }
+    if (_isConnected) await _send({'type': 'session_cancel'});
   }
 
   Future<void> getContext() async {
-    if (_isConnected) {
-      await _send({'type': 'get_context'});
-    }
+    if (_isConnected) await _send({'type': 'get_context'});
   }
 
   Future<void> setConfigOption(String configId, String value) async {
-    if (_isConnected) {
-      await _send(
-          {'type': 'set_config_option', 'name': configId, 'value': value});
-    }
+    if (_isConnected) await _send({'type': 'set_config_option', 'name': configId, 'value': value});
   }
 
   Future<void> sendMessage(String role, String content) async {
-    if (!_isConnected) throw Exception('Not connected');
-    await _send(
-        {'type': 'send_message', 'role': role, 'content': content, 'ui_format': 'ag_ui'});
+    if (!_isConnected) throw Exception(ErrorCopy.networkError);
+    await _send({'type': 'send_message', 'role': role, 'content': content, 'ui_format': 'ag_ui'});
   }
 
   Future<void> sendResponse(String id, Map<String, dynamic> result) async {
-    if (_isConnected) {
-      await _send(
-          {'type': 'rpc_response', 'id': id, 'result': result});
-    }
+    if (_isConnected) await _send({'type': 'rpc_response', 'id': id, 'result': result});
   }
 
   void addSyntheticUserMessage(String content) {
     _currentMessages.add(CardMessage(
       id: 'synthetic-${DateTime.now().millisecondsSinceEpoch}',
-      cardId: _currentCardId ?? '',
-      role: 'user',
-      content: content,
-      createdAt: DateTime.now().toIso8601String(),
+      cardId: _currentCardId ?? '', role: 'user', content: content, createdAt: DateTime.now().toIso8601String(),
     ));
     _messageController.add(List.from(_currentMessages));
   }
@@ -938,58 +696,34 @@ class SessionWebSocketService {
     _reconnectTimer?.cancel();
     _acpSub?.cancel();
     _acpSub = null;
-    
     if (_useProxy && _currentCardId != null && _isConnected) {
       try {
-        await _acpClient.sendRequest('session/ws_proxy', {
-          'action': 'disconnect',
-          'card_id': _currentCardId,
-        });
+        await _acpClient.sendRequest('session/ws_proxy', {'action': 'disconnect', 'card_id': _currentCardId});
       } catch (e) {
-        debugPrint('[SessionWS] Proxy disconnect error: $e');
+        AppLogger.error('Proxy disconnect error', e);
       }
     }
-
-    // Immediately reset state to avoid race conditions when reconnecting
     final channel = _channel;
     _channel = null;
     _isConnected = false;
-    _hasLoadedHistory = false;  // Reset history flag on disconnect
-    if (channel != null) {
-      await channel.sink.close();
-    }
+    _hasLoadedHistory = false;
+    if (channel != null) await channel.sink.close();
   }
 
   void _updateCardAndConfig(Map<String, dynamic> m) {
-    // Emit card update if session/provider/tokens info is included
     if (m.containsKey('acp_session_id') || m.containsKey('acp_provider_id') || m.containsKey('input_tokens')) {
       _cardUpdateController.add(KanbanCard(
-        id: _currentCardId ?? '',
-        title: '', // Not used by CardDetailView listener for this case
-        description: '',
-        columnId: '',
-        createdAt: '',
-        updatedAt: '',
-        acpSessionId: m['acp_session_id'],
-        acpProviderId: m['acp_provider_id'],
+        id: _currentCardId ?? '', title: '', description: '', columnId: '', createdAt: '', updatedAt: '',
+        acpSessionId: m['acp_session_id'], acpProviderId: m['acp_provider_id'],
         availableCommands: (m['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
-        inputTokens: m['input_tokens'] ?? 0,
-        outputTokens: m['output_tokens'] ?? 0,
+        inputTokens: m['input_tokens'] ?? 0, outputTokens: m['output_tokens'] ?? 0,
       ));
     }
-
-    // Also handle config_options embedded in history response
     if (m['config_options'] != null) {
-      _configController.add((m['config_options'] as List?)
-              ?.map((x) => ConfigOption.fromJson(x))
-              .toList() ??
-          []);
+      _configController.add((m['config_options'] as List?)?.map((x) => ConfigOption.fromJson(x)).toList() ?? []);
     }
-    // Also handle available_commands embedded in history response
     if (m['available_commands'] != null) {
-      _commandController.add((m['available_commands'] as List?)
-              ?.cast<Map<String, dynamic>>() ??
-          []);
+      _commandController.add((m['available_commands'] as List?)?.cast<Map<String, dynamic>>() ?? []);
     }
   }
 
@@ -999,13 +733,10 @@ class SessionWebSocketService {
   }
 
   void _clearCache() {
-    // Clear all cached message state
     _currentMessages = [];
     _eventBuffer.clear();
     _lastContiguousSeqId = 0;
-    _hasLoadedHistory = false;  // Mark that history needs to be reloaded
-    
-    // Notify UI of empty state
+    _hasLoadedHistory = false;
     _messageController.add([]);
     _planController.add(null);
     _configController.add([]);

@@ -4,7 +4,11 @@ import asyncio
 import time
 from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
+from src.logger import setup_logger
+from src.utils.error_codes import ErrorCode
 from .tool_registry import tool_registry
+
+logger = setup_logger("ProtocolAdapter")
 
 class ACPProtocolAdapter:
     """
@@ -38,7 +42,7 @@ class ACPProtocolAdapter:
         queue = self.acp.listen(listener_id)
         
         async def listen_loop():
-            self.log(f"[*] Persistent notification listener started (id: {listener_id})")
+            logger.info(f"[*] Persistent notification listener started (id: {listener_id})")
             try:
                 while not self._stop_listener.is_set():
                     try:
@@ -46,31 +50,28 @@ class ACPProtocolAdapter:
                         
                         # Handle Server-to-Client Requests
                         if "method" in data and "id" in data:
-                            self.log(f"[*] Nested request from brain: {data['method']} (id: {data['id']})")
+                            logger.info(f"[*] Nested request from brain: {data['method']} (id: {data['id']})")
                             if self.on_request:
                                 async def handle_and_respond(req_id, method, params):
                                     try:
-                                        now = time.strftime("%H:%M:%S")
-                                        self.log(f"[{now}] [*] Dispatching nested request to handler: {method}")
+                                        logger.info(f"[*] Dispatching nested request to handler: {method}")
                                         result = await self.on_request(method, params)
-                                        self.log(f"[{now}] [*] Nested request handler returned: {result}")
+                                        logger.info(f"[*] Nested request handler returned: {result}")
                                         
                                         if isinstance(result, dict) and "error" in result:
                                             await self.acp.respond(req_id, error=result["error"])
                                         else:
                                             await self.acp.respond(req_id, result=result)
                                     except Exception as re:
-                                        now = time.strftime("%H:%M:%S")
-                                        self.log(f"[{now}] [*] Nested request handler error: {re}")
-                                        await self.acp.respond(req_id, error={"code": -32000, "message": str(re)})
+                                        logger.error(f"[!] Nested request handler error: {re}")
+                                        await self.acp.respond(req_id, error={"code": -32000, "message": str(re), "error_code": ErrorCode.INTERNAL_ERROR})
                                 asyncio.create_task(handle_and_respond(data["id"], data["method"], data.get("params", {})))
                             else:
-                                self.log("[!] No on_request handler set for nested request")
+                                logger.warning("[!] No on_request handler set for nested request")
                             continue
 
                         # Forward to the global notification handler if set
                         if self.on_notification:
-                            # Use create_task to avoid blocking the listener loop
                             res = self.on_notification(data)
                             if asyncio.iscoroutine(res):
                                 asyncio.create_task(res)
@@ -78,11 +79,11 @@ class ACPProtocolAdapter:
                     except asyncio.TimeoutError:
                         continue
                     except Exception as e:
-                        self.log(f"Notification error in loop: {e}")
+                        logger.error(f"Notification error in loop: {e}")
                         break
             finally:
                 self.acp.stop_listening(listener_id)
-                self.log(f"[*] Persistent notification listener stopped (id: {listener_id})")
+                logger.info(f"[*] Persistent notification listener stopped (id: {listener_id})")
 
         self._listener_task = asyncio.create_task(listen_loop())
 
@@ -91,14 +92,9 @@ class ACPProtocolAdapter:
         self._stop_listener.set()
 
     def log(self, message: str):
-        # Using print for visibility in bridge logs
-        print(f"[Adapter] {message}", flush=True)
+        logger.info(message)
 
     def _build_prompt_item(self, content: str) -> Dict[str, Any]:
-        """
-        Build prompt item.
-        Include both 'text' and 'content' for broad compatibility.
-        """
         return {
             "type": "text", 
             "text": content,
@@ -106,9 +102,6 @@ class ACPProtocolAdapter:
         }
 
     async def initialize(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle initialize request with full official capabilities.
-        """
         if "workspace_path" in params:
             self._workspace_cwd = params["workspace_path"]
         elif "cwd" in params:
@@ -136,9 +129,6 @@ class ACPProtocolAdapter:
         on_notification: Optional[Callable[[Dict[str, Any]], Any]] = None,
         raw_prompt: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """
-        Convert chat/message to session/prompt and forward to ACP CLI.
-        """
         self.log(f"Processing chat_message: {message[:50]}... (card_id: {card_id}, session_id: {acp_session_id})")
 
         sid_key = card_id or "default"
@@ -166,10 +156,7 @@ class ACPProtocolAdapter:
             self._card_sessions[sid_key] = session_id
 
         try:
-            # Use raw_prompt if provided, otherwise build from message
             prompt_payload = raw_prompt if raw_prompt else [self._build_prompt_item(message)]
-            
-            # Ensure every block has both 'text' and 'content' for broad compatibility
             filtered_payload = []
             for block in prompt_payload:
                 if block.get("type") == "text":
@@ -182,7 +169,7 @@ class ACPProtocolAdapter:
                     filtered_payload.append(block)
 
             if not filtered_payload:
-                return {"error": {"code": -32602, "message": "Empty prompt content"}}
+                return {"error": {"code": -32602, "message": "Empty prompt content", "error_code": ErrorCode.INVALID_PARAMS}}
 
             response = await self.acp.request(
                 "session/prompt",
@@ -191,13 +178,10 @@ class ACPProtocolAdapter:
                     "prompt": filtered_payload,
                 },
             )
-            
-            # Return the full response (which contains result with stopReason and usage/meta)
-            # instead of a dummy status: ok response.
             return response
             
         except Exception as e:
-            return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}"}}
+            return {"error": {"code": -32603, "message": f"Prompt failed: {str(e)}", "error_code": ErrorCode.INTERNAL_ERROR}}
 
     async def _create_session(
         self, workspace_path: str = None, card_id: str = None
@@ -207,7 +191,6 @@ class ACPProtocolAdapter:
             "cwd": project_cwd,
         }
         
-        # Add mcpServers to session/new params
         if self.provider_id and "openclaw" in self.provider_id.lower():
             self.log("OpenClaw detected: Skipping per-session mcpServers")
         else:
@@ -248,7 +231,6 @@ class ACPProtocolAdapter:
         if method == "initialize":
             return await self.initialize(params)
         elif method == "session/new":
-            # Add mcpServers to session/new params
             if self.provider_id and "openclaw" in self.provider_id.lower():
                 self.log("OpenClaw detected: Skipping per-session mcpServers")
             else:

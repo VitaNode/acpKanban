@@ -19,8 +19,10 @@ import '../widgets/config_options_bar.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../constants/ui_copy.dart';
+import '../constants/error_copy.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_feedback.dart';
+import '../utils/app_logger.dart';
 
 class CardDetailView extends StatefulWidget {
   final KanbanCard card;
@@ -172,7 +174,7 @@ class _CardDetailViewState extends State<CardDetailView> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading roadmap data: $e');
+      AppLogger.error(UICopy.failedToLoadRoadmap, e);
     }
   }
   Future<void> _loadEnvironmentInfo() async {

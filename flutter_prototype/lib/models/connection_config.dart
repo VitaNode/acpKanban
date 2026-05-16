@@ -1,191 +1,151 @@
-/// 连接模式枚举
+import 'package:flutter/material.dart';
+
+/// Connection mode enumeration
 enum ConnectionMode {
-  /// 内网直连
+  /// Local direct connection
   local,
 
-  /// 云端中继
+  /// Cloud relay
   relay,
 
-  /// 云端 SaaS (直连云端服务)
+  /// Cloud SaaS (direct cloud service)
   cloud,
 }
 
-/// 系统代理配置 (摘要与向量化)
-class SystemAgentConfig {
-  final String? baseUrl;
-  final String? apiKey;
-  final String summaryModel;
-  final String embeddingModel;
+/// System proxy configuration (for summaries and vectorization)
+class SystemProxyConfig {
+  final String providerId;
+  final Map<String, dynamic>? config;
 
-  const SystemAgentConfig({
-    this.baseUrl,
-    this.apiKey,
-    this.summaryModel = 'gpt-4o-mini',
-    this.embeddingModel = 'text-embedding-3-small',
+  SystemProxyConfig({
+    required this.providerId,
+    this.config,
   });
 
-  factory SystemAgentConfig.fromJson(Map<String, dynamic> json) {
-    return SystemAgentConfig(
-      baseUrl: json['baseUrl'] as String?,
-      apiKey: json['apiKey'] as String?,
-      summaryModel: json['summaryModel'] as String? ?? 'gpt-4o-mini',
-      embeddingModel: json['embeddingModel'] as String? ?? 'text-embedding-3-small',
+  factory SystemProxyConfig.fromJson(Map<String, dynamic> json) {
+    return SystemProxyConfig(
+      providerId: json['provider_id'] as String,
+      config: json['config'] as Map<String, dynamic>?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'baseUrl': baseUrl,
-      'apiKey': apiKey,
-      'summaryModel': summaryModel,
-      'embeddingModel': embeddingModel,
+      'provider_id': providerId,
+      if (config != null) 'config': config,
     };
-  }
-
-  SystemAgentConfig copyWith({
-    String? baseUrl,
-    String? apiKey,
-    String? summaryModel,
-    String? embeddingModel,
-  }) {
-    return SystemAgentConfig(
-      baseUrl: baseUrl ?? this.baseUrl,
-      apiKey: apiKey ?? this.apiKey,
-      summaryModel: summaryModel ?? this.summaryModel,
-      embeddingModel: embeddingModel ?? this.embeddingModel,
-    );
   }
 }
 
-/// 连接配置数据模型
+/// Connection configuration data model
 class ConnectionConfig {
   final ConnectionMode preferredMode;
   final String? localIp;
   final int? localPort;
-  final int? apiPort;
   final String? relayHost;
   final int? relayPort;
   final String? relayToken;
-  final String? cloudUrl;
-  final bool autoFallback;
-  final DateTime? lastUpdated;
   final String? userId;
-  final SystemAgentConfig systemConfig;
+  final String? cloudUrl;
+  final bool useMdns;
+  final DateTime? lastUpdated;
+  final SystemProxyConfig? systemConfig;
 
-  const ConnectionConfig({
-    this.preferredMode = ConnectionMode.local,
+  ConnectionConfig({
+    required this.preferredMode,
     this.localIp,
     this.localPort = 8766,
-    this.apiPort = 8000,
     this.relayHost,
     this.relayPort = 8766,
     this.relayToken,
-    this.cloudUrl,
-    this.autoFallback = false,
-    this.lastUpdated,
     this.userId,
-    this.systemConfig = const SystemAgentConfig(),
+    this.cloudUrl,
+    this.useMdns = true,
+    this.lastUpdated,
+    this.systemConfig,
   });
 
-  /// 创建默认配置
+  /// Create default configuration
   factory ConnectionConfig.defaults({String? userId}) {
     return ConnectionConfig(
       preferredMode: ConnectionMode.local,
+      localIp: 'localhost',
       localPort: 8766,
-      apiPort: 8000,
-      relayHost: '',
+      relayHost: 'mybot.local',
       relayPort: 8766,
-      cloudUrl: '',
-      autoFallback: false,
-      userId: userId ?? '',
-      systemConfig: const SystemAgentConfig(),
+      useMdns: true,
+      userId: userId,
+      lastUpdated: DateTime.now(),
     );
   }
 
-  /// 从 JSON 创建配置
+  /// Create configuration from JSON
   factory ConnectionConfig.fromJson(Map<String, dynamic> json) {
-    final modeIndex = json['preferredMode'] as int? ?? 0;
-    final mode = modeIndex == 0
-        ? ConnectionMode.local
-        : ConnectionMode.values[modeIndex];
     return ConnectionConfig(
-      preferredMode: mode,
+      preferredMode: ConnectionMode.values.firstWhere(
+        (e) => e.name == json['preferredMode'],
+        orElse: () => ConnectionMode.local,
+      ),
       localIp: json['localIp'] as String?,
-      localPort: json['localPort'] as int? ?? 8766,
-      apiPort: json['apiPort'] as int? ?? 8000,
+      localPort: json['localPort'] as int?,
       relayHost: json['relayHost'] as String?,
-      relayPort: json['relayPort'] as int? ?? 8766,
+      relayPort: json['relayPort'] as int?,
       relayToken: json['relayToken'] as String?,
+      userId: json['userId'] as String?,
       cloudUrl: json['cloudUrl'] as String?,
-      autoFallback: json['autoFallback'] as bool? ?? false,
+      useMdns: json['useMdns'] as bool? ?? true,
       lastUpdated: json['lastUpdated'] != null
           ? DateTime.parse(json['lastUpdated'] as String)
           : null,
-      userId: json['userId'] as String?,
       systemConfig: json['systemConfig'] != null
-          ? SystemAgentConfig.fromJson(json['systemConfig'] as Map<String, dynamic>)
-          : const SystemAgentConfig(),
+          ? SystemProxyConfig.fromJson(json['systemConfig'] as Map<String, dynamic>)
+          : null,
     );
   }
 
-  /// 转换为 JSON
+  /// Convert to JSON
   Map<String, dynamic> toJson() {
     return {
-      'preferredMode': preferredMode.index,
+      'preferredMode': preferredMode.name,
       'localIp': localIp,
       'localPort': localPort,
-      'apiPort': apiPort,
       'relayHost': relayHost,
       'relayPort': relayPort,
       'relayToken': relayToken,
-      'cloudUrl': cloudUrl,
-      'autoFallback': autoFallback,
-      'lastUpdated': lastUpdated?.toIso8601String(),
       'userId': userId,
-      'systemConfig': systemConfig.toJson(),
+      'cloudUrl': cloudUrl,
+      'useMdns': useMdns,
+      'lastUpdated': lastUpdated?.toIso8601String(),
+      'systemConfig': systemConfig?.toJson(),
     };
   }
 
-  /// 复制并修改配置
+  /// Copy and modify configuration
   ConnectionConfig copyWith({
     ConnectionMode? preferredMode,
     String? localIp,
     int? localPort,
-    int? apiPort,
     String? relayHost,
     int? relayPort,
     String? relayToken,
-    String? cloudUrl,
-    bool? autoFallback,
-    DateTime? lastUpdated,
     String? userId,
-    SystemAgentConfig? systemConfig,
+    String? cloudUrl,
+    bool? useMdns,
+    DateTime? lastUpdated,
+    SystemProxyConfig? systemConfig,
   }) {
     return ConnectionConfig(
       preferredMode: preferredMode ?? this.preferredMode,
       localIp: localIp ?? this.localIp,
       localPort: localPort ?? this.localPort,
-      apiPort: apiPort ?? this.apiPort,
       relayHost: relayHost ?? this.relayHost,
       relayPort: relayPort ?? this.relayPort,
       relayToken: relayToken ?? this.relayToken,
-      cloudUrl: cloudUrl ?? this.cloudUrl,
-      autoFallback: autoFallback ?? this.autoFallback,
-      lastUpdated: lastUpdated ?? this.lastUpdated,
       userId: userId ?? this.userId,
+      cloudUrl: cloudUrl ?? this.cloudUrl,
+      useMdns: useMdns ?? this.useMdns,
+      lastUpdated: lastUpdated ?? this.lastUpdated,
       systemConfig: systemConfig ?? this.systemConfig,
     );
-  }
-
-  String get localUrl => 'ws://${localIp ?? 'localhost'}:$localPort';
-
-  String get relayUrl => 'ws://${relayHost ?? 'localhost'}:$relayPort';
-
-  String get cloudDirectUrl =>
-      'ws://${relayHost ?? 'localhost'}:$relayPort/direct';
-
-  @override
-  String toString() {
-    return 'ConnectionConfig(mode: $preferredMode, local: $localIp:$localPort, api: $apiPort, relay: $relayHost:$relayPort, cloud: $cloudUrl)';
   }
 }

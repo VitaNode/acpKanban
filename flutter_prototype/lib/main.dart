@@ -154,11 +154,13 @@ class _MainScreenState extends State<MainScreen> {
       if (mounted) {
         setState(() {
           if (_projects.isEmpty) {
-            _funnelState = AppFunnelState.noProjects;
+            _funnelState = AppFunnelState.connectedNoProjects;
           } else if (_currentProject == null) {
-             _funnelState = AppFunnelState.noProjects; // Actually just no project selected
+            _funnelState = AppFunnelState.connectedNoProjects;
           } else if (_columns.isEmpty) {
             _funnelState = AppFunnelState.projectSelectedNoColumns;
+          } else if (_cards.isEmpty) {
+            _funnelState = AppFunnelState.columnsNoCards;
           } else {
             _funnelState = AppFunnelState.ready;
           }
@@ -1019,7 +1021,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         );
       
-      case AppFunnelState.noProjects:
+      case AppFunnelState.connectedNoProjects:
         return AppStateView.empty(
           icon: Icons.folder_off_rounded,
           message: UICopy.noProjectSelected,
@@ -1035,6 +1037,17 @@ class _MainScreenState extends State<MainScreen> {
           icon: Icons.view_column_outlined,
           message: UICopy.noColumnsFound,
           onRetry: () => _loadProjectData(_currentProject!.id),
+        );
+
+      case AppFunnelState.columnsNoCards:
+        return AppStateView.empty(
+          icon: Icons.note_add_outlined,
+          message: 'No cards yet. Add your first task to begin.',
+          action: FilledButton.icon(
+            onPressed: () => _addCard(_columns.first),
+            icon: const Icon(Icons.add_task_rounded),
+            label: const Text('Add Card'),
+          ),
         );
 
       case AppFunnelState.error:

@@ -13,6 +13,9 @@ from src.persistence.database import KanbanDB
 from src.config.manager import config
 from src.logger import setup_logger
 
+from src.utils.error_codes import ErrorCode
+from src.utils.retry import with_retry, with_timeout
+
 logger = setup_logger("SessionEngine")
 
 class SessionState(Enum):
@@ -345,9 +348,23 @@ class SessionEngine:
         self._is_cancelling = False
         
         # Check recovery limits
-        if self._recovery_attempts >= self._max_recovery_attempts:
-            self.logger.error(f"Max recovery attempts ({self._max_recovery_attempts}) reached for card {self.card_id}")
-            raise Exception(f"Provider {self.provider_id} is consistently failing. Please check your configuration or local process.")
+        @with_retry(retries=self._max_recovery_attempts, delay=1.0, exceptions=(Exception,))
+        async def _run_with_recovery():
+            if not self.is_alive:
+                self.logger.info("Engine not alive, attempting restart for recovery...")
+                self.acp_session_id = None
+                if self.adapter: self.adapter.stop(); self.adapter = None
+                if self.acp_client: await self.acp_client.stop(); self.acp_client = None
+                await self.start()
+
+            if self.acp_session_id: params["sessionId"] = self.acp_session_id
+            
+            # Use timeout for actual request
+            return await with_timeout(
+                self.adapter.handle_request(method, params, on_notification=on_notification),
+                timeout=600.0, # 10 min timeout for prompts
+                name="AI Prompt"
+            )
 
         # Phase 5.3: Milestone insertion
         async with self._lock:
@@ -366,45 +383,9 @@ class SessionEngine:
 
         self.state = SessionState.THINKING
         try:
-            if self.acp_session_id: params["sessionId"] = self.acp_session_id
-            
-            try:
-                res = await self.adapter.handle_request(method, params, on_notification=on_notification)
-                if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
-                # Reset attempts on success
-                self._recovery_attempts = 0
-                return res
-            except Exception as e:
-                # Recovery Logic (Phase: Global Optimization)
-                self._recovery_attempts += 1
-                wait_time = 2 ** self._recovery_attempts # Exponential backoff
-                
-                self.logger.warning(f"Prompt failed ({e}), attempt {self._recovery_attempts}/{self._max_recovery_attempts}. Waiting {wait_time}s before retry...")
-                await asyncio.sleep(wait_time)
-                
-                # Clear session state and restart
-                self.acp_session_id = None
-                if self.adapter:
-                    self.adapter.stop()
-                    self.adapter = None
-                if self.acp_client:
-                    await self.acp_client.stop()
-                    self.acp_client = None
-                
-                # Re-start (will create a new session)
-                try:
-                    await self.start()
-                except Exception as start_err:
-                    raise Exception(f"Auto-recovery failed to start engine: {start_err}. Original error: {e}")
-                
-                if self.acp_session_id:
-                    self.logger.info(f"Recovery successful, retrying prompt with new session: {self.acp_session_id[:8]}")
-                    params["sessionId"] = self.acp_session_id
-                    res = await self.adapter.handle_request(method, params, on_notification=on_notification)
-                    if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
-                    return res
-                else:
-                    raise Exception(f"Recovery failed: Could not establish new session. Original error: {e}")
+            res = await _run_with_recovery()
+            if isinstance(res, dict) and "session_id" in res: self.acp_session_id = res["session_id"]
+            return res
         except Exception as e:
             self.state = SessionState.ERROR
             self.logger.error(f"Engine processing error for card {self.card_id}: {e}", exc_info=True)

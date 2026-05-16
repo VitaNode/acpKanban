@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../models/project.dart';
 import '../constants/app_constants.dart';
+import '../constants/ui_copy.dart';
 import '../theme/app_theme.dart';
 import 'project_indexing_widget.dart';
+import 'app_feedback.dart';
 
 class ProjectManagementDialog extends StatefulWidget {
   final List<Project> projects;
@@ -53,7 +55,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
         children: [
           Icon(Icons.settings_suggest_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Expanded(child: Text('Manage Projects', style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
+          Expanded(child: Text(UICopy.manageProjectsTitle, style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
@@ -65,7 +67,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
         child: SizedBox(
           width: size.width * 0.9,
           child: _localProjects.isEmpty
-              ? const Center(child: Text('No projects available.'))
+              ? const Center(child: Text(UICopy.noProjectsAvailable))
               : ListView.separated(
                   shrinkWrap: true,
                   itemCount: _localProjects.length,
@@ -96,13 +98,13 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                           children: [
                             const SizedBox(height: 2),
                             Text(
-                              project.workspacePath ?? "No workspace path set",
+                              project.workspacePath ?? UICopy.noWorkspacePath,
                               style: theme.textTheme.bodySmall,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
-                              'Last active: ${project.lastActive}',
+                              '${UICopy.lastActive}: ${project.lastActive}',
                               style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
                             ),
                           ],
@@ -112,7 +114,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.edit_outlined, size: 20),
-                              tooltip: 'Edit Project',
+                              tooltip: UICopy.editProject,
                               onPressed: () {
                                 showDialog(
                                   context: context,
@@ -139,8 +141,8 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                               icon: Icon(Icons.delete_outline_rounded,
                                   size: 20, color: colorScheme.error),
                               tooltip: isCurrent
-                                  ? 'Cannot delete active project'
-                                  : 'Delete Project',
+                                  ? UICopy.cannotDeleteActiveMsg
+                                  : UICopy.deleteProject,
                               onPressed: isCurrent
                                   ? null
                                   : () {
@@ -158,7 +160,7 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
+          child: const Text(UICopy.close),
         ),
       ],
     );
@@ -212,7 +214,7 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
     final size = MediaQuery.of(context).size;
 
     return AlertDialog(
-      title: const Text('Delete Project?'),
+      title: const Text(UICopy.deleteProjectTitle),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
@@ -225,24 +227,24 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Are you sure you want to delete "${widget.project.name}"?',
+                '${UICopy.confirmDeleteProjectMsg} "${widget.project.name}"?',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: AppConstants.space16),
-              _buildInfoRow('Created', widget.project.createdAt),
-              _buildInfoRow('Cards', widget.project.cardCount.toString()),
+              _buildInfoRow(UICopy.created, widget.project.createdAt),
+              _buildInfoRow(UICopy.cards, widget.project.cardCount.toString()),
               if (widget.project.workspacePath != null)
-                _buildInfoRow('Workspace', widget.project.workspacePath!),
+                _buildInfoRow(UICopy.workspace, widget.project.workspacePath!),
               const SizedBox(height: AppConstants.space16),
               Text(
-                'This action cannot be undone and will delete all cards, columns, and history associated with this project.',
+                UICopy.deleteWarning,
                 style: TextStyle(color: colorScheme.error, fontSize: 12),
               ),
               const SizedBox(height: AppConstants.space16),
               TextField(
                 controller: _confirmController,
                 decoration: InputDecoration(
-                  labelText: 'Type project name to confirm',
+                  labelText: UICopy.confirmDeleteHint,
                   hintText: widget.project.name,
                 ),
                 onChanged: (value) {
@@ -258,7 +260,7 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: const Text(UICopy.cancel),
         ),
         ElevatedButton(
           onPressed: _isNameMatched
@@ -271,7 +273,7 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
             backgroundColor: colorScheme.error,
             foregroundColor: colorScheme.onError,
           ),
-          child: const Text('Delete Permanently'),
+          child: const Text(UICopy.deletePermanently),
         ),
       ],
     );
@@ -332,9 +334,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
   void _handleUpdate() {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a project name')),
-      );
+      AppFeedback.showError(context, UICopy.enterProjectName);
       return;
     }
 
@@ -362,7 +362,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
         children: [
           Icon(Icons.edit_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Text('Edit Project', style: theme.textTheme.headlineMedium),
+          Text(UICopy.editProject, style: theme.textTheme.headlineMedium),
         ],
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
@@ -380,7 +380,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                 TextField(
                   controller: _nameController,
                   decoration: const InputDecoration(
-                    labelText: 'Project Name',
+                    labelText: UICopy.projectName,
                     prefixIcon: Icon(Icons.folder_rounded),
                   ),
                   autofocus: true,
@@ -390,22 +390,22 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                 TextField(
                   controller: _descriptionController,
                   decoration: const InputDecoration(
-                    labelText: 'Project Description',
-                    hintText: 'Brief description...',
+                    labelText: UICopy.projectDescription,
+                    hintText: UICopy.briefDescription,
                     prefixIcon: Icon(Icons.description_rounded),
                   ),
                   maxLines: 6,
                 ),
                 const SizedBox(height: AppConstants.space8),
                 Text(
-                  '💡 Description is included in the AI context.',
+                  UICopy.descriptionHint,
                   style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
                   controller: _workspaceController,
                   decoration: const InputDecoration(
-                    labelText: 'Workspace Path',
+                    labelText: UICopy.workspacePath,
                     prefixIcon: Icon(Icons.folder_open_rounded),
                   ),
                 ),
@@ -419,7 +419,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
       actions: [
         TextButton(
           onPressed: _isUpdating ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: const Text(UICopy.cancel),
         ),
         ElevatedButton(
           onPressed: _isUpdating ? null : _handleUpdate,
@@ -433,7 +433,7 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
-              : const Text('Save Changes'),
+              : const Text(UICopy.saveChanges),
         ),
       ],
     );

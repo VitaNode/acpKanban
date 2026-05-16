@@ -75,7 +75,7 @@ class TreeSitterParser:
             if name_node:
                 try:
                     name = name_node.text.decode("utf8")
-                except: pass
+                except Exception: pass
 
             if len(name) > 1:
                 symbols.append({

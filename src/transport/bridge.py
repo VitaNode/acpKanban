@@ -19,6 +19,8 @@ from src.orchestration.dispatcher import MessageDispatcher
 from src.persistence.database import KanbanDB
 from src.transport.bus import bus
 from src.logger import setup_logger, set_context_ids, clear_context
+from src.utils.error_codes import ErrorCode
+from src.utils.retry import with_retry, with_timeout
 
 class UnifiedBridge:
     def __init__(self, user_id, relay_url, token=None, session_key=None, workspace_cwd=None):
@@ -271,22 +273,21 @@ class UnifiedBridge:
         base_url = self.relay_url.rstrip("/")
         full_url = f"{base_url}/relay/mac/{self.user_id}"
 
-        while True:
+        @with_retry(retries=999999, delay=5.0, backoff=1.2, exceptions=(Exception,))
+        async def _connect_and_run():
+            # websockets >= 13.0 uses additional_headers instead of extra_headers
+            connect_kwargs = {"additional_headers": headers}
+            # Fallback for older versions
             try:
-                # websockets >= 13.0 uses additional_headers instead of extra_headers
-                connect_kwargs = {"additional_headers": headers}
-                # Fallback for older versions
-                try:
-                    async with websockets.connect(full_url, **connect_kwargs) as ws:
-                        await self._handle_relay_connection(ws)
-                except TypeError:
-                    # Old version fallback
-                    connect_kwargs = {"extra_headers": headers}
-                    async with websockets.connect(full_url, **connect_kwargs) as ws:
-                        await self._handle_relay_connection(ws)
-            except Exception as e:
-                self.logger.error(f"Relay error: {e}. Retrying in 5s...")
-                await asyncio.sleep(5)
+                async with websockets.connect(full_url, **connect_kwargs) as ws:
+                    await self._handle_relay_connection(ws)
+            except TypeError:
+                # Old version fallback
+                connect_kwargs = {"extra_headers": headers}
+                async with websockets.connect(full_url, **connect_kwargs) as ws:
+                    await self._handle_relay_connection(ws)
+
+        await _connect_and_run()
 
     async def _handle_relay_connection(self, ws):
         """Handle an established relay connection."""
@@ -355,7 +356,7 @@ class UnifiedBridge:
                 return await asyncio.wait_for(fut, timeout=3600.0 * 24)
             except asyncio.TimeoutError:
                 self._pending_ui_requests.pop(rid, None)
-                return {"error": {"code": -32000, "message": "UI Request Timeout"}}
+                return {"error": {"code": -32000, "message": "UI Request Timeout", "error_code": ErrorCode.BRIDGE_TIMEOUT}}
 
         try:
             # 1. Handle Response (Result/Error) from UI
@@ -411,7 +412,8 @@ class UnifiedBridge:
                 try:
                     response = await self._proxy_client.request(method=http_method, url=path, json=body, headers=headers)
                     try: resp_data = response.json()
-                    except: resp_data = response.text
+                    except Exception:
+ resp_data = response.text
                     await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"statusCode": response.status_code, "body": resp_data if isinstance(resp_data, str) else json.dumps(resp_data)}})
                 except Exception as e:
                     self.logger.error(f"Proxy error: {e}")
@@ -435,11 +437,12 @@ class UnifiedBridge:
                             try:
                                 async for message in ws:
                                     await safe_send({"jsonrpc": "2.0", "method": "session/ws_event", "params": {"card_id": card_id, "payload": message}})
-                            except: pass
+                            except Exception:
+ pass
                             finally: self._card_sessions.pop(card_id, None)
                         asyncio.create_task(ws_listener())
                         await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
-                    except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
+                    except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e), "error_code": ErrorCode.INTERNAL_ERROR}})
                     return
                 if action == "send":
                     data_to_send = params.get("data")
@@ -448,8 +451,8 @@ class UnifiedBridge:
                         try:
                             await ws.send(json.dumps(data_to_send) if isinstance(data_to_send, dict) else data_to_send)
                             await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
-                        except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e)}})
-                    else: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected"}})
+                        except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e), "error_code": ErrorCode.INTERNAL_ERROR}})
+                    else: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected", "error_code": ErrorCode.SESSION_NOT_FOUND}})
                     return
                 if action == "disconnect":
                     ws = self._card_sessions.pop(card_id, None)
@@ -468,7 +471,7 @@ class UnifiedBridge:
         except Exception as e:
             self.logger.error(f"Fatal error in bridge for {method}: {e}", exc_info=True)
             if request_id is not None:
-                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": f"Bridge internal error: {str(e)}"}})
+                await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": f"Bridge internal error: {str(e)}", "error_code": ErrorCode.INTERNAL_ERROR}})
         finally:
             clear_context()
 

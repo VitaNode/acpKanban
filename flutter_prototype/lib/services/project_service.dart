@@ -5,6 +5,8 @@ import '../models/project.dart';
 import '../models/kanban_column.dart';
 import '../models/kanban_card.dart';
 import '../models/timeline_event.dart';
+import '../constants/error_copy.dart';
+import '../utils/app_logger.dart';
 import 'acp_client.dart';
 import 'smart_connect.dart';
 

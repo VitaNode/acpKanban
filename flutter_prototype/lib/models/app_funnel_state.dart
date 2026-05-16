@@ -1,7 +1,8 @@
 enum AppFunnelState {
   needsConnection,
-  noProjects,
+  connectedNoProjects,
   projectSelectedNoColumns,
+  columnsNoCards,
   ready,
   error,
 }

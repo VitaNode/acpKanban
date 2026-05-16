@@ -13,6 +13,8 @@ from src.protocol.ag_ui_mapper import AGUIMapper
 from src.config.manager import config
 from src.logger import setup_logger, set_request_id
 from src.transport.bus import bus
+from src.utils.error_codes import ErrorCode
+from src.utils.retry import with_retry, with_timeout
 
 # Constants for Configuration (Optimization Phase)
 AG_UI_FLUSH_INTERVAL_MS = 500
@@ -116,7 +118,7 @@ class MessageDispatcher:
     async def _handle_provider_init_status(self, params: Dict[str, Any], rid: Optional[str]):
         pid = params.get("project_id")
         if not pid:
-            return {"error": "Missing project_id"}
+            return {"error": "Missing project_id", "error_code": ErrorCode.INVALID_PARAMS}
         
         # Get providers referenced in this project
         columns = await asyncio.to_thread(self.db.columns.get_all, pid)
@@ -135,7 +137,7 @@ class MessageDispatcher:
     async def _handle_provider_initialize(self, params: Dict[str, Any], rid: Optional[str]):
         p_id = params.get("provider_id")
         if not p_id:
-            return {"error": "Missing provider_id"}
+            return {"error": "Missing provider_id", "error_code": ErrorCode.INVALID_PARAMS}
         return await self.initialize_provider(p_id)
 
     async def get_provider_status(self, provider_id: str) -> Dict[str, Any]:
@@ -163,9 +165,8 @@ class MessageDispatcher:
                 "last_error_at": None
             })
             
-            try:
-                # To "initialize" a provider, we try to start a dummy session
-                # and immediately stop it. This verifies the executable works.
+            @with_retry(retries=2, delay=1.0, exceptions=(Exception,))
+            async def _try_init():
                 from src.protocol.client import ACPClient
                 from src.protocol.adapter import ACPProtocolAdapter
                 
@@ -179,16 +180,25 @@ class MessageDispatcher:
                 client = ACPClient(cfg["command"], cwd)
                 await client.start()
                 
-                adapter = ACPProtocolAdapter(client, provider_id=provider_id, workspace_cwd=cwd)
-                # Send initialize request
-                await adapter.initialize({
-                    "capabilities": {},
-                    "clientInfo": {"name": "Kanban-Init-Check", "version": "1.0.0"}
-                })
+                try:
+                    adapter = ACPProtocolAdapter(client, provider_id=provider_id, workspace_cwd=cwd)
+                    # Send initialize request with timeout
+                    await with_timeout(
+                        adapter.initialize({
+                            "capabilities": {},
+                            "clientInfo": {"name": "Kanban-Init-Check", "version": "1.0.0"}
+                        }),
+                        timeout=30.0,
+                        name=f"Provider {provider_id} Init"
+                    )
+                finally:
+                    # Always try to stop client regardless of init success
+                    await client.stop()
                 
-                # If we reach here, it worked!
-                await client.stop()
-                
+                return True
+
+            try:
+                await _try_init()
                 state["status"] = "ready"
                 state["protocolVersion"] = 0 # Phase: Protocol Fix
                 state["last_success_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -532,7 +542,8 @@ class MessageDispatcher:
                             if ref_path.exists() and ref_path.is_file():
                                 with open(ref_path, 'r', encoding='utf-8') as f:
                                     params["prompt"].append({"type": "resource", "resource": {"uri": f"file://{ref}", "text": f.read(), "mimeType": "text/plain"}})
-                    except: pass
+                    except Exception:
+ pass
 
             handler = self.commands.get_handler(prompt_text)
             if handler:

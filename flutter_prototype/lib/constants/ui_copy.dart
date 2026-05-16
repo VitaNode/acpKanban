@@ -30,6 +30,22 @@ class UICopy {
   static const String createProject = 'Create Project';
   static const String noColumnsFound = 'No columns found for this project.';
 
+  static const String manageProjectsTitle = 'Manage Projects';
+  static const String noProjectsAvailable = 'No projects available.';
+  static const String editProject = 'Edit Project';
+  static const String deleteProject = 'Delete Project';
+  static const String deleteProjectTitle = 'Delete Project?';
+  static const String confirmDeleteProjectMsg = 'Are you sure you want to delete';
+  static const String cannotDeleteActiveMsg = 'Cannot delete active project';
+  static const String deleteWarning = 'This action cannot be undone and will delete all cards, columns, and history associated with this project.';
+  static const String confirmDeleteHint = 'Type project name to confirm';
+  static const String deletePermanently = 'Delete Permanently';
+  static const String saveChanges = 'Save Changes';
+  static const String noWorkspacePath = 'No workspace path set';
+  static const String created = 'Created';
+  static const String cards = 'Cards';
+  static const String workspace = 'Workspace';
+
   // Card Management
   static const String addCard = 'Add Card';
   static const String editCard = 'Edit Card';
@@ -43,6 +59,14 @@ class UICopy {
   static const String cardDeleted = 'Card deleted';
   static const String complete = 'Complete';
   static const String reactivate = 'Reactivate';
+  static const String sessionReady = 'Session ready. Manual context only.';
+  static const String failedToSave = 'Failed to save';
+  static const String failedToLoadRoadmap = 'Error loading roadmap data';
+  static const String failedToLoadProject = 'Error loading project info';
+  static const String failedToLoadColumn = 'Error loading column info';
+  static const String failedToLoadSummary = 'Error loading summary';
+  static const String failedToLoadProvider = 'Error loading provider info';
+  static const String agent = 'Agent';
 
   // Card Detail / Chat
   static const String startConversation = 'Start a conversation...';

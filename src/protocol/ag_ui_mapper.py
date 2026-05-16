@@ -39,7 +39,7 @@ class AGUIMapper:
         if isinstance(raw_metadata, str):
             try:
                 metadata = json.loads(raw_metadata)
-            except:
+            except Exception:
                 metadata = {}
         elif isinstance(raw_metadata, dict):
             metadata = raw_metadata
@@ -187,7 +187,7 @@ class AGUIMapper:
                 if not args_text:
                     try:
                         args_text = json.dumps(raw_input, indent=2)
-                    except:
+                    except Exception:
                         args_text = str(raw_input)
             
             # Extract result from content array or rawOutput
@@ -237,7 +237,7 @@ class AGUIMapper:
                 if not args_text:
                     try:
                         args_text = json.dumps(raw_input, indent=2)
-                    except:
+                    except Exception:
                         args_text = str(raw_input)
             
             # Extract result from content array or rawOutput
@@ -369,7 +369,7 @@ class AGUIMapper:
                     if len(detail_text) < 30: # Only header present
                         try:
                             detail_text += f"\n```json\n{json.dumps(raw_input, indent=2)}\n```"
-                        except:
+                        except Exception:
                             detail_text += f"\n{raw_input}"
                     
                     if detail_text not in text:
@@ -413,7 +413,7 @@ class AGUIMapper:
                 if raw_input and not any(k in text for k in (raw_input.keys() or [])):
                     try:
                         text += f"\n\n**Details:**\n```json\n{json.dumps(raw_input, indent=2)}\n```"
-                    except:
+                    except Exception:
                         pass
         # ============================================
         
@@ -452,7 +452,7 @@ class AGUIMapper:
                 if other_args and not any(k in text for k in (other_args.keys() or [])):
                     try:
                         text += f"\n\n**Arguments:**\n```json\n{json.dumps(other_args, indent=2)}\n```"
-                    except:
+                    except Exception:
                         text += f"\n\n**Arguments:** {other_args}"
             else:
                 text += f"\n\n{arguments}"
