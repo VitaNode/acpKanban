@@ -63,7 +63,7 @@ class CustomColors extends ThemeExtension<CustomColors> {
 }
 
 class AppTheme {
-  // Brand color副本 (针对深色模式进行降饱和处理)
+  // Desaturated brand color for dark mode
   static const Color _primaryDark = Color(0xFF4DB6AC); // Desaturated Teal
   static const Color _surfaceDark = Color(0xFF121212); // Material Deep Grey
   
@@ -81,7 +81,7 @@ class AppTheme {
       warning: Color(0xFFED6C02),
       info: Color(0xFF0288D1),
       codeBackground: Color(0xFFF8F8F8),
-      codeText: Color(0xFF92230D), // 明亮模式下使用深砖红色，确保高对比度
+      codeText: Color(0xFF92230D), // Deep brick red for high contrast in light mode
       diffAdded: Color(0xFF2E7D32),
       diffRemoved: Color(0xFFD32F2F),
       diffUnchanged: Color(0xFF757575),
@@ -91,19 +91,19 @@ class AppTheme {
   static ThemeData get darkTheme {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppConstants.primaryColor,
-      primary: _primaryDark, // 使用降饱和的品牌色
+      primary: _primaryDark, // Use desaturated brand color for dark mode
       onPrimary: const Color(0xFF002020),
       brightness: Brightness.dark,
-      surface: _surfaceDark, // 避免纯黑
-      surfaceContainer: const Color(0xFF1E1E1E), // 更亮的容器 (Elevation 1)
-      surfaceContainerHigh: const Color(0xFF2C2C2C), // 弹窗/高层级 (Elevation 3)
-      onSurface: const Color(0xFFE1E3E1), // 避免纯白，使用灰白色
+      surface: _surfaceDark, // Avoid pure black
+      surfaceContainer: const Color(0xFF1E1E1E), // Brighter container (Elevation 1)
+      surfaceContainerHigh: const Color(0xFF2C2C2C), // Dialog/high elevation (Elevation 3)
+      onSurface: const Color(0xFFE1E3E1), // Avoid pure white, use off-white
     );
 
     return _buildTheme(colorScheme, const CustomColors(
-      success: Color(0xFFA5D6A7), // 降饱和绿色
-      warning: Color(0xFFFFCC80), // 降饱和橙色
-      info: Color(0xFF90CAF9),    // 降饱和蓝色
+      success: Color(0xFFA5D6A7), // Desaturated green for dark mode
+      warning: Color(0xFFFFCC80), // Desaturated orange for dark mode
+      info: Color(0xFF90CAF9),    // Desaturated blue for dark mode
       codeBackground: Color(0xFF1E1E1E),
       codeText: Color(0xFFCE9178),
       diffAdded: Color(0xFFB5CEA8),
@@ -141,7 +141,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
           side: BorderSide(
             color: isDark 
-                ? Colors.white.withOpacity(0.05) // 更细微的边缘
+                ? Colors.white.withOpacity(0.05) // Subtle edge border
                 : colorScheme.outlineVariant.withOpacity(0.1),
             width: 1,
           ),
@@ -218,7 +218,7 @@ class AppTheme {
         size: 20,
       ),
 
-      // 交互状态叠加层处理
+      // Interaction state overlay handling
       hoverColor: colorScheme.primary.withOpacity(0.08),
       splashColor: colorScheme.primary.withOpacity(0.12),
     );

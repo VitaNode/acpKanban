@@ -296,7 +296,7 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                   controller: _promptTemplateController,
                   decoration: const InputDecoration(
                     labelText: UICopy.promptTemplate,
-                    hintText: 'Instructions for AI...',
+                    hintText: UICopy.promptTemplateHint,
                   ),
                   maxLines: 5,
                 ),
@@ -586,7 +586,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                           textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
                                         ),
-                                        child: const Text('INIT'),
+                                        child: Text(UICopy.statusInitializing),
                                       )
                                     else if (status == 'initializing')
                                       const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
@@ -634,19 +634,19 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
     switch (status) {
       case 'ready':
         color = Colors.green;
-        label = 'READY';
+        label = UICopy.statusReady;
         break;
       case 'degraded':
         color = Colors.orange;
-        label = 'ERR';
+        label = UICopy.statusError;
         break;
       case 'initializing':
         color = colorScheme.primary;
-        label = 'INIT...';
+        label = UICopy.statusInitializing;
         break;
       case 'uninitialized':
         color = Colors.grey;
-        label = 'OFFLINE';
+        label = UICopy.statusOffline;
         break;
       default:
         color = Colors.grey;

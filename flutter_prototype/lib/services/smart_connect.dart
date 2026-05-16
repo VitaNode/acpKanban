@@ -4,7 +4,7 @@ import 'package:multicast_dns/multicast_dns.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/connection_config.dart';
 
-// 条件导入平台特定的 WebSocket 连接函数
+// Conditional import for platform-specific WebSocket connection
 import 'websocket_connect_io.dart'
     if (dart.library.html) 'websocket_connect_web.dart';
 
@@ -171,7 +171,7 @@ class SmartConnect {
 
   static Future<WebSocketChannel?> _tryConnect(
       String url, String? token) async {
-    // 直接调用平台特定的连接函数
+    // Direct call to platform-specific connection function
     return await connectWebSocket(url, token);
   }
 

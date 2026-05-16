@@ -131,7 +131,7 @@ async def get_system_config():
         # Mask API key for security if needed, but here it's used for validation
         # Actually, for validation we just need to know if it exists
         return config
-    except:
+    except (json.JSONDecodeError, KeyError):
         return {}
 
 

@@ -1,7 +1,7 @@
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// 原生平台 (macOS, iOS, Android, Linux, Windows) 的 WebSocket 连接实现
+/// WebSocket connection implementation for native platforms (macOS, iOS, Android, Linux, Windows)
 Future<WebSocketChannel?> connectWebSocket(String url, String? token) async {
   try {
     final uri = Uri.parse(url);

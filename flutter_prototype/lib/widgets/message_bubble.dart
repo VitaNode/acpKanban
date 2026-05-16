@@ -258,7 +258,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   String _getProviderName() {
-    if (providerName.isEmpty) return 'AGENT';
+    if (providerName.isEmpty) return UICopy.agent;
     return providerName;
   }
 

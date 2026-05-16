@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/acp_client.dart';
 import '../models/project_roadmap.dart';
 import '../constants/app_constants.dart';
+import '../utils/app_logger.dart';
 
 class RoadmapManagerDialog extends StatefulWidget {
   final String projectId;
@@ -58,7 +59,7 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('Load roadmap error: $e');
+      AppLogger.error('Load roadmap error', e);
       setState(() => _isLoading = false);
     }
   }

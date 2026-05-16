@@ -188,7 +188,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
               ),
               const SizedBox(width: AppConstants.space4),
               Text(
-                'COMPLETED ($count)',
+                '${UICopy.completedLabel} ($count)',
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: theme.colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
                 ),

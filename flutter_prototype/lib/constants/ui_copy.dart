@@ -185,4 +185,11 @@ class UICopy {
   static const String moveCardsFrom = 'Move cards in';
   static const String moveCardsTo = 'to:';
   static const String failedToInitialize = 'Failed to initialize';
+
+  // Status / Badge labels
+  static const String completedLabel = 'COMPLETED';
+  static const String statusReady = 'READY';
+  static const String statusError = 'ERR';
+  static const String statusInitializing = 'INIT...';
+  static const String statusOffline = 'OFFLINE';
 }

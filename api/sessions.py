@@ -71,13 +71,13 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 if config_opts:
                     try:
                         response["config_options"] = json.loads(config_opts)
-                    except:
+                    except json.JSONDecodeError:
                         pass
                 # Include available commands if available from DB
                 if avail_cmds:
                     try:
                         response["available_commands"] = json.loads(avail_cmds)
-                    except:
+                    except json.JSONDecodeError:
                         pass
                 await websocket.send_text(json.dumps(response))
             

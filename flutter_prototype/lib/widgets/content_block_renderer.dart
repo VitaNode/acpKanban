@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/content_block.dart';
+import '../utils/app_logger.dart';
 import 'diff_viewer.dart';
 
 class ContentBlockRenderer extends StatelessWidget {
@@ -114,7 +115,7 @@ class _AudioRendererState extends State<_AudioRenderer> {
         await _audioPlayer.setSourceBytes(bytes);
       }
     } catch (e) {
-      debugPrint('Failed to load audio from data: $e');
+      AppLogger.error('Failed to load audio from data', e);
     }
     if (mounted) setState(() => _isLoading = false);
   }

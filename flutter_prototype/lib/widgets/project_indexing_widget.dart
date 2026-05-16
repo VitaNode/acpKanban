@@ -5,6 +5,7 @@ import '../services/project_service.dart';
 import '../services/kanban_refresh_service.dart';
 import '../constants/app_constants.dart';
 import '../services/acp_client.dart';
+import '../utils/app_logger.dart';
 import '../theme/app_theme.dart';
 
 class ProjectIndexingWidget extends StatefulWidget {
@@ -65,7 +66,7 @@ class _ProjectIndexingWidgetState extends State<ProjectIndexingWidget> {
     try {
       config = await _acpClient.getSystemConfig();
     } catch (e) {
-      debugPrint('ACP Config check failed: $e');
+      AppLogger.error('ACP Config check failed', e);
     }
 
     if (config == null || config.isEmpty) {
