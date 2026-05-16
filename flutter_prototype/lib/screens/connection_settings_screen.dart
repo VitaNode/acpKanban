@@ -3,7 +3,6 @@ import '../models/connection_config.dart';
 import '../services/connection_config_manager.dart';
 import '../services/smart_connect.dart';
 import '../services/acp_client.dart';
-import '../services/auth_service.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
@@ -58,8 +57,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _relayHostController = TextEditingController();
     _relayTokenController = TextEditingController();
     _userIdController = TextEditingController(text: widget.userId);
-    _cloudUrlController =
-        TextEditingController();
+    _cloudUrlController = TextEditingController();
     _localPortController = TextEditingController(text: '8766');
     _relayPortController = TextEditingController(text: '8766');
     _apiPortController = TextEditingController(text: '8000');
@@ -528,7 +526,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           controller: _relayHostController,
           decoration: const InputDecoration(
             labelText: 'Relay Host',
-            hintText: 'mybot.siliconpulse.cc',
+            hintText: 'e.g. relay.example.com',
           ),
         ),
         const SizedBox(height: AppConstants.space12),
@@ -640,84 +638,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                 letterSpacing: 0.5,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPairingSection() {
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.space16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.phonelink_setup_rounded, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                'DEVICE PAIRING',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppConstants.space12),
-          Text(
-            'Enter the Host IP (e.g., Tailscale IP) and the 6-digit code shown on your Mac.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: AppConstants.space16),
-          TextField(
-            controller: _pairingHostController,
-            decoration: const InputDecoration(
-              labelText: 'Host IP Address',
-              hintText: '100.x.x.x or 192.168.x.x',
-              isDense: true,
-            ),
-          ),
-          const SizedBox(height: AppConstants.space12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _pairingCodeController,
-                  decoration: const InputDecoration(
-                    labelText: '6-Digit Code',
-                    hintText: '123456',
-                    isDense: true,
-                    counterText: '',
-                  ),
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                ),
-              ),
-              const SizedBox(width: AppConstants.space12),
-              ElevatedButton(
-                onPressed: _isPairing ? null : _startPairing,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                ),
-                child: _isPairing
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('PAIR'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-       ],
           ),
         ],
       ),
