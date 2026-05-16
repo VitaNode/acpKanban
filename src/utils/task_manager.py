@@ -12,7 +12,8 @@ class BackgroundTaskManager:
         """Starts a background task and tracks it."""
         if task_id in self._tasks and not self._tasks[task_id].done():
             logger.warning(f"Task {task_id} is already running. Cancelling old task.")
-            self._tasks[task_id].cancel()
+            old = self._tasks[task_id]
+            old.cancel()
 
         task = asyncio.create_task(coro)
         self._tasks[task_id] = task

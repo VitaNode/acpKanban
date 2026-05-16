@@ -941,7 +941,7 @@ class _MainScreenState extends State<MainScreen> {
             if (_isSidebarExpanded)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('v1.2.0', style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
+                child: Text(UICopy.appVersion, style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
               ),
             const SizedBox(height: 8),
           ],

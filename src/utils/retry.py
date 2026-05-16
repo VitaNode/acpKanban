@@ -22,21 +22,21 @@ def with_retry(
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             attempt_delay = delay
-            for attempt in range(retries + 1):
+            max_delay = 60.0
+            for attempt in range(retries):
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
-                    if attempt == retries:
+                    if attempt == retries - 1:
                         logger.error(f"Function {func.__name__} failed after {retries} retries: {e}")
                         raise
                     
                     logger.warning(
-                        f"Attempt {attempt + 1}/{retries + 1} for {func.__name__} failed: {e}. "
+                        f"Attempt {attempt + 1}/{retries} for {func.__name__} failed: {e}. "
                         f"Retrying in {attempt_delay:.2f}s..."
                     )
                     await asyncio.sleep(attempt_delay)
-                    attempt_delay *= backoff
-            return await func(*args, **kwargs)
+                    attempt_delay = min(attempt_delay * backoff, max_delay)
         return wrapper
     return decorator
 

@@ -37,11 +37,11 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                 await websocket.send_text(json.dumps(notif))
                 queue.task_done()
         except asyncio.CancelledError:
-            pass
+            logger.debug(f"Bus listener cancelled for card {card_id}")
         except WebSocketDisconnect:
-            pass
+            logger.debug(f"Bus listener WebSocket disconnected for card {card_id}")
         except Exception as e:
-            pass
+            logger.error(f"Bus listener error for card {card_id}: {e}")
 
     # Start background listener for bus
     bus_task = asyncio.create_task(listen_to_bus())
@@ -283,15 +283,19 @@ async def session_websocket(websocket: WebSocket, card_id: str):
         bus.unsubscribe(card_id, queue)
         
         # Phase 5.4 FIX: Ensure all AG-UI buffered chunks are flushed to DB on disconnect
+        async def _flush_on_disconnect():
+            try:
+                import run_bridge
+                bridge_instance = run_bridge.bridge_instance
+                if bridge_instance and bridge_instance.dispatcher:
+                    await bridge_instance.dispatcher.force_flush_session(card_id)
+            except Exception as e:
+                logger.error(f"ERROR during session disconnect flush: {e}")
+
         try:
-            import run_bridge
-            bridge_instance = run_bridge.bridge_instance
-            if bridge_instance and bridge_instance.dispatcher:
-                # We use create_task because this finally block is in a synchronous-like context
-                # (handled by FastAPI's WebSocket loop)
-                asyncio.create_task(bridge_instance.dispatcher.force_flush_session(card_id))
+            asyncio.create_task(_flush_on_disconnect())
         except Exception as e:
-            logger.error(f"ERROR during session disconnect flush: {e}")
+            logger.error(f"ERROR scheduling disconnect flush for card {card_id}: {e}")
 
 @router.get("/cards/{card_id}/session", response_model=dict)
 async def get_session_history(card_id: str, limit: int = Query(50, ge=1, le=200)):

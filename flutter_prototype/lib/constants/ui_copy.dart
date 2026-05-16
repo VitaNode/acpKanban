@@ -184,6 +184,7 @@ class UICopy {
   static const String selectAgentForColumn = 'Select an agent for this column';
   static const String moveCardsFrom = 'Move cards in';
   static const String moveCardsTo = 'to:';
+  static const String appVersion = 'v1.2.0';
   static const String failedToInitialize = 'Failed to initialize';
 
   // Status / Badge labels

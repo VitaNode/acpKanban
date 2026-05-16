@@ -119,11 +119,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 
 async def general_exception_handler(request: Request, exc: Exception):
-    import sys
-    tb = traceback.format_exc()
-    msg = f"\n❌ Unhandled exception for {request.method} {request.url.path}:\n{tb}\n"
-    print(msg, file=sys.stderr)
-    
+    _logger = logging.getLogger("Kanban")
+    _logger.error(f"Unhandled exception for {request.method} {request.url.path}\n{traceback.format_exc()}")
+
     return JSONResponse(
         status_code=500,
         content={

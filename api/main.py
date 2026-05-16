@@ -138,34 +138,52 @@ async def get_system_config():
 @app.get("/health")
 async def health_check():
     import run_bridge
+    import src.persistence.database as db_mod
+
     health = {
         "status": "healthy",
         "service": "kanban-api",
         "subsystems": {
             "database": "unknown",
-            "bridge": "disconnected"
+            "bridge": "disconnected",
+            "relay": "unknown"
         }
     }
+    overall_healthy = True
     try:
         db = get_db()
-        db.get_projects()
-        health["subsystems"]["database"] = "ok"
-        
-        if run_bridge.bridge_instance:
-            # Check if relay is connected
-            health["subsystems"]["bridge"] = "connected"
-            
-        return health
+        projects = db.get_projects()
+        health["subsystems"]["database"] = "ok" if projects is not None else "error"
+        if projects is None:
+            overall_healthy = False
     except Exception as e:
+        health["subsystems"]["database"] = f"error: {e}"
+        overall_healthy = False
+
+    try:
+        if run_bridge.bridge_instance:
+            bridge = run_bridge.bridge_instance
+            health["subsystems"]["bridge"] = "connected"
+            health["subsystems"]["relay"] = "connected" if hasattr(bridge, '_running') and bridge._running else "disconnected"
+        else:
+            health["subsystems"]["bridge"] = "not_initialized"
+    except Exception as e:
+        health["subsystems"]["bridge"] = f"error: {e}"
+        overall_healthy = False
+
+    if not overall_healthy:
         return JSONResponse(
             status_code=503,
             content={
-                "status": "unhealthy", 
-                "service": "kanban-api", 
-                "error": str(e),
+                "status": "unhealthy",
+                "service": "kanban-api",
+                "subsystems": health["subsystems"],
                 "error_code": ErrorCode.INTERNAL_ERROR
             },
         )
+
+    health["status"] = "healthy"
+    return health
 
 
 if __name__ == "__main__":
