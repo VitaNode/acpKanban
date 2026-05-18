@@ -5,12 +5,14 @@ class ThinkingBlock extends StatefulWidget {
   final String text;
   final bool isCollapsed;
   final MarkdownStyleSheet? styleSheet;
+  final Map<String, MarkdownElementBuilder>? builders;
 
   const ThinkingBlock({
     Key? key,
     required this.text,
     this.isCollapsed = true,
     this.styleSheet,
+    this.builders,
   }) : super(key: key);
 
   @override
@@ -132,6 +134,7 @@ class _ThinkingBlockState extends State<ThinkingBlock>
                 ? MarkdownBody(
                     data: widget.text,
                     styleSheet: widget.styleSheet,
+                    builders: widget.builders ?? const {},
                   )
                 : Text(
                     widget.text,

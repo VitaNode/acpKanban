@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
 import '../models/card_message.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
@@ -39,6 +40,76 @@ String _formatFileTargets(List<dynamic>? targets) {
   if (targets == null || targets.isEmpty) return '';
   if (targets.length == 1) return targets[0].toString();
   return '${targets.length} files  ·  ${targets.first}';
+}
+
+final _headingBuilders = <String, MarkdownElementBuilder>{
+  'h1': _HeadingBuilder(),
+  'h2': _HeadingBuilder(),
+  'h3': _HeadingBuilder(),
+  'h4': _HeadingBuilder(),
+  'h5': _HeadingBuilder(),
+  'h6': _HeadingBuilder(),
+};
+
+class _HeadingBuilder extends MarkdownElementBuilder {
+  _HeadingBuilder();
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final level = int.tryParse(element.tag.substring(1)) ?? 1;
+    final marker = '#' * level;
+    final buffer = StringBuffer();
+
+    void extractText(md.Node node) {
+      if (node is md.Text) {
+        buffer.write(node.text);
+      } else if (node is md.Element && node.children != null) {
+        for (var child in node.children!) {
+          extractText(child);
+        }
+      }
+    }
+
+    if (element.children != null) {
+      for (var child in element.children!) {
+        extractText(child);
+      }
+    }
+
+    final colorScheme = Theme.of(context).colorScheme;
+    final headingText = buffer.toString().trim();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$marker ',
+              style: TextStyle(
+                color: colorScheme.primary.withOpacity(0.5),
+                fontFamily: 'monospace',
+                fontSize: 14,
+              ),
+            ),
+            TextSpan(
+              text: headingText,
+              style: TextStyle(
+                color: colorScheme.primary,
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class MessageBubble extends StatelessWidget {
@@ -143,12 +214,14 @@ class MessageBubble extends StatelessWidget {
         text: message.content,
         isCollapsed: false,
         styleSheet: _getMarkdownStyle(context, false),
+        builders: _headingBuilders,
       ));
     } else if (thought != null && thought.isNotEmpty) {
       children.add(ThinkingBlock(
         text: thought,
         isCollapsed: false,
         styleSheet: _getMarkdownStyle(context, false),
+        builders: _headingBuilders,
       ));
     }
 
@@ -162,6 +235,7 @@ class MessageBubble extends StatelessWidget {
             data: message.content,
             selectable: true,
             styleSheet: _getMarkdownStyle(context, isUser),
+            builders: _headingBuilders,
             onTapLink: (text, href, title) {
               AppLogger.info('Tapped link: $href');
             },
@@ -423,36 +497,82 @@ class MessageBubble extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
+    const baseSize = 14.0;
+    const baseHeight = 1.6;
+    final bodyColor = isUser
+        ? (isDark ? colorScheme.onPrimaryContainer : colorScheme.onSurface)
+        : colorScheme.onSurface;
+
     return MarkdownStyleSheet(
-      p: theme.textTheme.bodyMedium?.copyWith(
-        height: 1.6,
-        color: isUser 
-          ? (isDark ? colorScheme.onPrimaryContainer : colorScheme.onSurface)
-          : colorScheme.onSurface,
+      p: TextStyle(
+        fontSize: baseSize,
+        height: baseHeight,
+        color: bodyColor,
       ),
-      h1: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, height: 2.0),
-      h2: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, height: 1.8),
-      h3: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, height: 1.6),
+      h1: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h2: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h3: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h4: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h5: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h6: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h1Align: WrapAlignment.start,
+      h2Align: WrapAlignment.start,
+      h3Align: WrapAlignment.start,
+      h4Align: WrapAlignment.start,
+      h5Align: WrapAlignment.start,
+      h6Align: WrapAlignment.start,
+      h1Padding: EdgeInsets.zero,
+      h2Padding: EdgeInsets.zero,
+      h3Padding: EdgeInsets.zero,
+      h4Padding: EdgeInsets.zero,
+      h5Padding: EdgeInsets.zero,
+      h6Padding: EdgeInsets.zero,
       code: TextStyle(
         backgroundColor: isDark ? Colors.black38 : Colors.grey[200],
         fontFamily: 'monospace',
-        fontSize: 13,
-        color: isDark ? colorScheme.secondary : const Color(0xFF92230D),
+        fontSize: baseSize - 1,
+        color: colorScheme.primary,
       ),
       codeblockDecoration: BoxDecoration(
         color: isDark ? Colors.black38 : Colors.grey[100],
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
       ),
+      codeblockPadding: const EdgeInsets.all(12),
       blockquote: TextStyle(
         color: colorScheme.onSurfaceVariant,
-        fontStyle: FontStyle.italic,
+        fontSize: baseSize,
+        height: baseHeight,
       ),
       blockquoteDecoration: BoxDecoration(
-        border: Border(left: BorderSide(color: colorScheme.primary, width: 4)),
-        color: colorScheme.surfaceContainer,
+        border: Border(left: BorderSide(color: colorScheme.onSurfaceVariant, width: 2)),
       ),
-      listBullet: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.primary),
+      listBullet: TextStyle(
+        fontSize: baseSize,
+        color: colorScheme.onSurfaceVariant,
+      ),
+      listBulletPadding: const EdgeInsets.only(right: 4),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.transparent, width: 0)),
+      ),
+      em: TextStyle(
+        fontStyle: FontStyle.normal,
+        color: bodyColor,
+        fontSize: baseSize,
+        height: baseHeight,
+      ),
+      strong: TextStyle(
+        fontWeight: FontWeight.w600,
+        color: bodyColor,
+        fontSize: baseSize,
+        height: baseHeight,
+      ),
+      del: TextStyle(
+        decoration: TextDecoration.lineThrough,
+        color: colorScheme.onSurfaceVariant,
+        fontSize: baseSize,
+        height: baseHeight,
+      ),
     );
   }
 
