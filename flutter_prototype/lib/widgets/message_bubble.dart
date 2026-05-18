@@ -244,7 +244,7 @@ class MessageBubble extends StatelessWidget {
       child: ExpansionTile(
         dense: true,
         visualDensity: VisualDensity.compact,
-        initiallyExpanded: true,
+        initiallyExpanded: false,
         leading: ToolPill(name: toolName, status: toolStatus),
         title: Row(
           children: [
