@@ -1,10 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:markdown/markdown.dart' as md;
 import '../models/card_message.dart';
-import '../models/content_block.dart';
-import 'content_block_renderer.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
@@ -112,15 +109,25 @@ class MessageBubble extends StatelessWidget {
       ColorScheme colorScheme, bool isUser, bool isDark) {
     final List<Widget> children = [];
     final thought = message.metadata?['thought'] as String?;
+    final isReasoningType = message.metadata?['type'] == 'reasoning';
     
-    if (thought != null && thought.isNotEmpty) {
+    // 1. Thinking Process
+    if (isReasoningType) {
+      children.add(ThinkingBlock(
+        text: message.content,
+        isCollapsed: true,
+        styleSheet: _getMarkdownStyle(context, false),
+      ));
+    } else if (thought != null && thought.isNotEmpty) {
       children.add(ThinkingBlock(
         text: thought,
         isCollapsed: true,
+        styleSheet: _getMarkdownStyle(context, false),
       ));
     }
 
-    if (message.content.isNotEmpty) {
+    // 2. Main Content
+    if (message.content.isNotEmpty && !isReasoningType) {
       if (message.metadata?['type'] == 'plan_update') {
         children.add(_buildPlanPanel(context));
       } else {
@@ -137,6 +144,7 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
+    // 3. Tool Activity (Structured)
     final List<dynamic>? toolCalls = message.metadata?['tool_calls'];
     if (toolCalls != null && toolCalls.isNotEmpty) {
       children.add(const SizedBox(height: AppConstants.space8));

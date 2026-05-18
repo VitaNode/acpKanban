@@ -9,10 +9,6 @@ class AGUIMapper:
     Ensures semantic continuity across different UI protocols.
     """
     
-    # Regex pattern for extracting tool call markers from legacy content
-    # Matches: 🛠️ tool_name(args): result
-    TOOL_MARKER_PATTERN = re.compile(r'🛠️\s+(\w+)\(([^)]*)\):\s*(.+)')
-    
     @staticmethod
     def map_history_message(msg: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -69,9 +65,8 @@ class AGUIMapper:
             else:
                 ag_event["reasoning"] = thought
         
-        # Smart tool extraction from content (Scheme B: Intelligent parsing)
+        # Tool extraction: Only from structured metadata or if role is 'tool'
         tool_calls = []
-        clean_text = ag_event.get("text", "")
         
         # Handle structured tool_calls from metadata if present
         meta_tool_calls = metadata.get("tool_calls")
@@ -86,27 +81,8 @@ class AGUIMapper:
                     "status": tc.get("status", "completed")
                 })
         
-        # Fallback to pattern matching if no structured tool calls
-        if not tool_calls:
-            for match in AGUIMapper.TOOL_MARKER_PATTERN.finditer(content):
-                tool_name = match.group(1)
-                tool_args = match.group(2)
-                tool_result = match.group(3)
-                
-                tool_calls.append({
-                    "tool": tool_name,
-                    "args": tool_args,
-                    "result": tool_result,
-                    "status": "completed"  # Historical messages are always completed
-                })
-                
-                # Remove the tool marker from clean text
-                if clean_text:
-                    clean_text = clean_text.replace(match.group(0), f"[{tool_name} completed]")
-        
         if tool_calls:
             ag_event["tool_calls"] = tool_calls
-            ag_event["text"] = clean_text
         
         return ag_event
     

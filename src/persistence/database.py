@@ -783,6 +783,61 @@ class SessionRepository(BaseRepository):
                 VALUES (?, 'assistant', ?, ?, ?, 0, ?)
             """, (card_id, reasoning_chunk, json.dumps({'type': 'reasoning'}), now, seq_id))
 
+    def upsert_tool_message(self, card_id: str, tool_id: str, name: str, arguments: Any = None, result: Any = None, status: str = "running", seq_id: int = None):
+        """
+        Upsert a tool activity message.
+        If a message with the same tool_id (in metadata) exists for this card, update it.
+        Otherwise, insert a new one with role='tool'.
+        """
+        now = datetime.now().isoformat()
+        with self.db.get_connection() as conn:
+            # Look for existing tool message by tool_id in metadata
+            cursor = conn.execute("""
+                SELECT id, metadata FROM card_sessions 
+                WHERE card_id = ? AND role = 'tool' 
+                ORDER BY created_at DESC LIMIT 20
+            """, (card_id,))
+            
+            found_id = None
+            existing_meta = {}
+            for row in cursor.fetchall():
+                try:
+                    meta = json.loads(row[1]) if row[1] else {}
+                    if meta.get("tool_id") == tool_id:
+                        found_id = row[0]
+                        existing_meta = meta
+                        break
+                except Exception:
+                    continue
+            
+            # Prepare metadata
+            new_meta = {
+                "tool_id": tool_id,
+                "name": name,
+                "status": status,
+                "type": "tool_activity"
+            }
+            if arguments is not None:
+                new_meta["arguments"] = arguments
+            elif "arguments" in existing_meta:
+                new_meta["arguments"] = existing_meta["arguments"]
+                
+            content = str(result) if result is not None else ""
+            
+            if found_id:
+                # Merge metadata
+                existing_meta.update(new_meta)
+                conn.execute("""
+                    UPDATE card_sessions 
+                    SET content = ?, metadata = ?, seq_id = ? 
+                    WHERE id = ?
+                """, (content, json.dumps(existing_meta), seq_id, found_id))
+            else:
+                conn.execute("""
+                    INSERT INTO card_sessions (card_id, role, content, metadata, created_at, seq_id)
+                    VALUES (?, 'tool', ?, ?, ?, ?)
+                """, (card_id, content, json.dumps(new_meta), now, seq_id))
+
     def update_message_with_metadata(self, card_id: str, metadata_key: str, metadata_val: Any, content: str = None, is_complete: bool = True, append_content: bool = False):
         """Update the metadata of the last assistant message for a card."""
         with self.db.get_connection() as conn:
@@ -1088,6 +1143,8 @@ class KanbanDB:
     def add_thought(self, card_id, thought, seq_id=None): return self.sessions.append_thought(card_id, thought, seq_id)
     def append_thought(self, card_id, thought_chunk, seq_id=None): return self.sessions.append_thought(card_id, thought_chunk, seq_id)
     def append_reasoning(self, card_id, reasoning_chunk, seq_id=None): return self.sessions.append_reasoning(card_id, reasoning_chunk, seq_id)
+    def upsert_tool_message(self, card_id: str, tool_id: str, name: str, arguments: Any = None, result: Any = None, status: str = "running", seq_id: int = None):
+        return self.sessions.upsert_tool_message(card_id, tool_id, name, arguments, result, status, seq_id)
 
     def get_timeline(self, project_id, limit=100): return self.timeline.get_by_project(project_id, limit)
     def add_timeline_event(self, project_id, card_id, event_type, content, metadata=None): return self.timeline.add_event(project_id, card_id, event_type, content, metadata)

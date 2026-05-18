@@ -909,56 +909,17 @@ class MessageDispatcher:
             status = update.get("status", "pending")
             title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
             
-            # Phase 5.3: Integrate tool call into thought trace for end-to-end transparency
-            trace_msg = ""
-            seq_id = await self._get_next_seq(card_id)
-            if status == "pending":
-                trace_msg = f"\n\n🛠️ **Calling tool:** `{title}`\n"
-            elif status == "completed":
-                trace_msg = f"\n✅ **Tool call finished:** `{title}`\n"
-            elif status == "failed":
-                trace_msg = f"\n❌ **Tool call failed:** `{title}`\n"
-                
-            if trace_msg:
-                # Use append_reasoning in AG-UI mode to ensure it shows up in thinking blocks
-                if ui_format == "ag_ui":
-                    await asyncio.to_thread(self.db.append_reasoning, card_id, trace_msg, seq_id=seq_id)
-                else:
-                    await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
-                bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
-
-            # We no longer add a separate message for tool calls to avoid "message explosion"
-            # All tool lifecycle info is now in the thought trace.
+            # Phase 5.3: Tool lifecycle is now handled via structured AG-UI events.
+            # We trigger a flush to ensure the tool_call_start is persisted.
+            if self._card_ui_formats.get(card_id) == "ag_ui":
+                await self._trigger_flush(card_id, "tool_call")
+            
             bus.publish(card_id, {"type": "refresh"})
         elif utype == "tool_call_update":
-            tcid = update.get("toolCallId")
-            status = update.get("status")
-            content = update.get("content")
-            
-            # Extract text from content list if possible
-            output_text = None
-            if content and isinstance(content, list):
-                output_text = "\n".join([c.get("content", {}).get("text", "") for c in content if c.get("type") == "content" and "text" in c.get("content", {})])
-            
-            # Phase 5.3: Integrate summary of tool result into thought trace
-            if output_text and status in ["completed", "failed"]:
-                # Deduplicate/Compact: If output is just "Success" or "OK", use a single line
-                clean_output = output_text.strip()
-                if clean_output in ["Success", "OK", "Success.", "{}"]:
-                    trace_msg = f"> Result: {clean_output}\n"
-                else:
-                    preview = clean_output[:500] + ("..." if len(clean_output) > 500 else "")
-                    trace_msg = f"\n> **Output:** {preview}\n"
-                
-                seq_id = await self._get_next_seq(card_id)
-                if ui_format == "ag_ui":
-                    await asyncio.to_thread(self.db.append_reasoning, card_id, trace_msg, seq_id=seq_id)
-                else:
-                    await asyncio.to_thread(self.db.append_thought, card_id, trace_msg, seq_id=seq_id)
-                bus.publish(card_id, {"type": "agent_thought_chunk", "content": {"type": "text", "text": trace_msg}})
-
-            # We no longer update the "message body" with tool output to avoid redundant info
-            bus.publish(card_id, {"type": "refresh"})
+            # tool_call_update usually contains partial results, we don't trigger a flush
+            # every time to avoid DB overhead, let the timer handle it.
+            # No refresh here to avoid lag.
+            pass
         elif utype == "session_info_update":
             if self._card_ui_formats.get(card_id) == "ag_ui":
                 await self._flush_on_event(card_id, "message_end")
@@ -1120,62 +1081,49 @@ class MessageDispatcher:
                             )
                     elif event_type == "tool_call_start":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
-                        trace_msg = f"\n\n🛠️ **Calling tool:** `{name}`\n"
                         logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_start seqId={seq_id} to DB for {card_id}")
                         
-                        # In AG-UI mode, try to use structured metadata if possible
+                        # In AG-UI mode, use structured tool messages instead of polluting reasoning
                         await asyncio.to_thread(
-                            self.db.sessions.update_message_with_metadata,
-                            card_id, "tool_calls", [{
-                                "tool_id": chunk.get("tool_id"),
-                                "name": name,
-                                "status": "running",
-                                "arguments": chunk.get("args")
-                            }],
-                            content=trace_msg, # Set content so it's not a blank bubble
-                            is_complete=False,
-                            append_content=True # Don't overwrite existing reasoning
+                            self.db.upsert_tool_message,
+                            card_id,
+                            tool_id=chunk.get("tool_id"),
+                            name=name,
+                            arguments=chunk.get("args"),
+                            status="running",
+                            seq_id=seq_id
                         )
 
                     elif event_type == "tool_call_result":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         status = chunk.get("status", "success")
-                        if status == "success":
-                            trace_msg = f"\n✅ **Tool call finished:** `{name}`\n"
-                        elif status == "failed":
-                            trace_msg = f"\n❌ **Tool call failed:** `{name}`\n"
-                        else:
-                            trace_msg = ""
                         
                         logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
                         
-                        # In AG-UI mode, update the structured metadata
+                        # In AG-UI mode, update the structured tool message
                         await asyncio.to_thread(
-                            self.db.sessions.update_message_with_metadata,
-                            card_id, "tool_calls", [{
-                                "tool_id": chunk.get("tool_id"),
-                                "name": name,
-                                "status": status,
-                                "arguments": chunk.get("args"),
-                                "result": chunk.get("result")
-                            }],
-                            content=trace_msg if trace_msg else None,
-                            is_complete=True,
-                            append_content=True # Append result marker to reasoning
+                            self.db.upsert_tool_message,
+                            card_id,
+                            tool_id=chunk.get("tool_id"),
+                            name=name,
+                            result=chunk.get("result"),
+                            status=status,
+                            seq_id=seq_id
                         )
                     elif event_type == "tool_call_update":
-                        # tool_call_update usually contains partial results or status, treat similar to a trace
+                        # tool_call_update contains partial results or status, update the tool message
                         result = chunk.get("result", "")
-                        if result:
-                            # Trim result to avoid excessive history size while still providing visibility
-                            preview = result[:500] + ("..." if len(result) > 500 else "")
-                            trace_msg = f"\n> Update: {preview}\n"
-                            logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
-                            # AG-UI Fix: Use append_reasoning to keep in main thinking flow
-                            await asyncio.to_thread(
-                                self.db.append_reasoning,
-                                card_id, trace_msg, seq_id=seq_id
-                            )
+                        status = chunk.get("status", "running")
+                        logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
+                        await asyncio.to_thread(
+                            self.db.upsert_tool_message,
+                            card_id,
+                            tool_id=chunk.get("tool_id"),
+                            name=chunk.get("name") or chunk.get("tool", "unknown"),
+                            result=result if result else None,
+                            status=status,
+                            seq_id=seq_id
+                        )
                     elif event_type in ("commands_update", "plan_update", "config_update"):
                         # 系统事件不需要写入内容，但记录日志以确认 seqId 处理，防止前端认为丢失
                         logger.debug(f"[AG-UI] Persisting system event {event_type} seqId={seq_id} (no content write)")

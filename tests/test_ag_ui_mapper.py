@@ -23,7 +23,7 @@ class TestAGUIMapper(unittest.TestCase):
         self.assertEqual(result["reasoning"], "I am thinking...")
 
     def test_map_history_message_tool_extraction(self):
-        """测试从旧格式 content 中智能提取工具调用标记"""
+        """测试不再从旧格式 content 中智能提取工具调用标记（已移除该功能以保证严格分层）"""
         msg = {
             "role": "assistant",
             "content": "Running tool... 🛠️ read_file(path='test.py'): success",
@@ -32,7 +32,10 @@ class TestAGUIMapper(unittest.TestCase):
             "is_complete": True
         }
         result = self.mapper.map_history_message(msg)
-        self.assertIn("read_file", str(result))
+        # 验证不再提取为 tool_calls 字段
+        self.assertNotIn("tool_calls", result)
+        # 验证原文保持不变（或至少包含工具信息，但不被移动）
+        self.assertIn("read_file", result["text"])
         self.assertIn("Running tool", result["text"])
 
     def test_map_notification_agent_message_chunk(self):

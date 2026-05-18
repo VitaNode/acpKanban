@@ -137,5 +137,74 @@ class TestAgUiDefectFix(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(published_data["type"], "ag_ui_event")
         self.assertEqual(published_data["event"], "plan_update")
 
+    async def test_ag_ui_tool_isolation_fix(self):
+        """Verify tool calls are isolated from reasoning and stored as separate messages."""
+        card_id = "test_card_tool_isolation"
+        self.dispatcher.set_ui_format(card_id, "ag_ui")
+        
+        # 1. Simulate tool call start
+        tool_call_start = {
+            "method": "session/update",
+            "params": {
+                "card_id": card_id,
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call_1",
+                    "tool": "read_file",
+                    "status": "pending",
+                    "rawInput": {"path": "test.txt"}
+                }
+            }
+        }
+        await self.dispatcher._forward_notification(card_id, tool_call_start, ui_format="ag_ui")
+        await self.dispatcher._trigger_flush(card_id) # Force flush
+        
+        # 2. Check DB
+        history = self.db.get_session_history(card_id)
+        # Should have a 'tool' message
+        tool_msgs = [m for m in history if m['role'] == 'tool']
+        self.assertEqual(len(tool_msgs), 1)
+        
+        # Check metadata (comes back as JSON string from get_session_history if not formatted)
+        # Wait, get_session_history usually returns formatted dicts in this project
+        meta = tool_msgs[0]['metadata']
+        if isinstance(meta, str): meta = json.loads(meta)
+        
+        self.assertEqual(meta['tool_id'], "call_1")
+        self.assertEqual(meta['status'], "running")
+        
+        # 3. Check that reasoning is NOT polluted
+        assistant_msgs = [m for m in history if m['role'] == 'assistant']
+        for m in assistant_msgs:
+            self.assertNotIn("Calling tool", m['content'])
+            self.assertNotIn("read_file", m['content'])
+
+        # 4. Simulate tool result
+        tool_call_result = {
+            "method": "session/update",
+            "params": {
+                "card_id": card_id,
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "call_1",
+                    "tool": "read_file",
+                    "status": "completed",
+                    "content": [{"type": "content", "content": {"text": "file content"}}]
+                }
+            }
+        }
+        await self.dispatcher._forward_notification(card_id, tool_call_result, ui_format="ag_ui")
+        await self.dispatcher._trigger_flush(card_id) # Force flush
+        
+        # 5. Check DB again
+        history = self.db.get_session_history(card_id)
+        tool_msgs = [m for m in history if m['role'] == 'tool']
+        self.assertEqual(len(tool_msgs), 1) # Should still be 1 (upserted)
+        
+        meta = tool_msgs[0]['metadata']
+        if isinstance(meta, str): meta = json.loads(meta)
+        self.assertEqual(meta['status'], "success")
+        self.assertEqual(tool_msgs[0]['content'], "file content")
+
 if __name__ == '__main__':
     unittest.main()
