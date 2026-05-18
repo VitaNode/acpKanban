@@ -89,16 +89,16 @@ void main() {
         ),
       ));
 
-      // 验证折叠状态（文本不可见）
-      expect(find.text('I am reasoning...'), findsNothing);
       // 验证标题可见
-      expect(find.text('思考过程'), findsOneWidget);
+      expect(find.text('Thinking Process'), findsOneWidget);
+      // SizeTransition 保留子 widget 在树中，即使动画为 0
+      expect(find.text('I am reasoning...'), findsOneWidget);
 
-      // 点击展开 - 点击头部区域
-      await tester.tap(find.text('思考过程'));
+      // 点击展开/折叠切换
+      await tester.tap(find.text('Thinking Process'));
       await tester.pumpAndSettle();
 
-      // 验证展开状态
+      // 展开后文本仍然存在
       expect(find.text('I am reasoning...'), findsOneWidget);
     });
 

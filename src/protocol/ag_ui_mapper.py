@@ -13,23 +13,10 @@ class AGUIMapper:
     def map_history_message(msg: Dict[str, Any]) -> Dict[str, Any]:
         """
         Maps legacy history message format to AG-UI bundled event.
-        
-        Supports:
-        - Plain text messages
-        - Messages with thought metadata
-        - Reasoning records (type: reasoning)
-        - Smart extraction of tool call markers from content
-        
-        Args:
-            msg: Legacy message dict with keys: role, content, metadata, created_at, is_complete
-            
-        Returns:
-            AG-UI bundled event dict
         """
         role = msg.get("role", "assistant")
         content = msg.get("content", "")
         
-        # Ensure metadata is a dict
         raw_metadata = msg.get("metadata")
         metadata = {}
         if isinstance(raw_metadata, str):
@@ -43,7 +30,46 @@ class AGUIMapper:
         created_at = msg.get("created_at", "")
         is_complete = msg.get("is_complete", True)
         
-        # Base event structure
+        # Handle role='tool' messages
+        if role == "tool":
+            tc_name = metadata.get("name") or metadata.get("tool", "unknown")
+            tc_args = metadata.get("arguments")
+            result = content
+            
+            cmd_preview = metadata.get("command_preview")
+            file_targets = metadata.get("file_targets", [])
+            op_kind = metadata.get("op_kind", "other")
+            diff = metadata.get("diff")
+            
+            if not cmd_preview:
+                extracted = AGUIMapper._extract_tool_metadata(tc_name, tc_args)
+                cmd_preview = extracted.get("command_preview")
+                file_targets = extracted.get("file_targets", [])
+                op_kind = extracted.get("op_kind", "other")
+                diff = extracted.get("diff")
+            
+            tool_call = {
+                "tool_id": metadata.get("tool_id"),
+                "tool": tc_name,
+                "name": cmd_preview or tc_name,
+                "args": tc_args,
+                "result": result,
+                "status": metadata.get("status", "completed"),
+                "command_preview": cmd_preview,
+                "file_targets": file_targets,
+                "op_kind": op_kind,
+                "diff": diff,
+            }
+            
+            return {
+                "event": "message_bundled",
+                "role": "tool",
+                "text": "",
+                "timestamp": created_at,
+                "is_complete": is_complete,
+                "tool_calls": [tool_call]
+            }
+        
         ag_event = {
             "event": "message_bundled",
             "role": role,
@@ -52,12 +78,10 @@ class AGUIMapper:
             "is_complete": is_complete
         }
         
-        # AG-UI Fix: Handle explicit reasoning records
         if metadata.get("type") == "reasoning":
             ag_event["reasoning"] = content
             ag_event["text"] = ""
         
-        # Extract thought from metadata if present (Legacy support)
         thought = metadata.get("thought")
         if thought:
             if ag_event.get("reasoning"):
@@ -65,20 +89,22 @@ class AGUIMapper:
             else:
                 ag_event["reasoning"] = thought
         
-        # Tool extraction: Only from structured metadata or if role is 'tool'
         tool_calls = []
         
-        # Handle structured tool_calls from metadata if present
         meta_tool_calls = metadata.get("tool_calls")
         if meta_tool_calls and isinstance(meta_tool_calls, list):
             for tc in meta_tool_calls:
+                tc_args = tc.get("arguments") or tc.get("args")
+                extracted = AGUIMapper._extract_tool_metadata(tc.get("tool") or tc.get("name"), tc_args)
+                
                 tool_calls.append({
                     "tool_id": tc.get("tool_id"),
                     "tool": tc.get("tool") or tc.get("name"),
-                    "name": tc.get("name"),
-                    "args": tc.get("arguments") or tc.get("args"),
+                    "name": tc.get("name") or extracted.get("command_preview") or tc.get("tool"),
+                    "args": tc_args,
                     "result": tc.get("result"),
-                    "status": tc.get("status", "completed")
+                    "status": tc.get("status", "completed"),
+                    **extracted
                 })
         
         if tool_calls:
@@ -140,7 +166,7 @@ class AGUIMapper:
         elif utype == "tool_call":
             # Map tool_call to tool_call_start/tool_call_result based on status
             status = update.get("status", "pending")
-            if status in ("pending", "running"):
+            if status in ("pending", "running", "in_progress"):
                 event_type = "tool_call_start"
             elif status in ("completed", "success"):
                 event_type = "tool_call_result"
@@ -148,23 +174,13 @@ class AGUIMapper:
                 event_type = "tool_call_result"
             
             # Extract args from rawInput (contains the tool parameters)
+            args_dict = update.get("rawInput")
             args_text = None
-            raw_input = update.get("rawInput")
-            if raw_input and isinstance(raw_input, dict):
-                # Convert rawInput dict to a readable string representation
-                # Prioritize 'content' field for file operations
-                if "content" in raw_input:
-                    args_text = f"content: {raw_input['content']}"
-                    if "filePath" in raw_input:
-                        args_text += f"\nfilePath: {raw_input['filePath']}"
-                elif "path" in raw_input:
-                    args_text = f"path: {raw_input['path']}"
-                # Fallback: convert entire dict to JSON string
-                if not args_text:
-                    try:
-                        args_text = json.dumps(raw_input, indent=2)
-                    except Exception:
-                        args_text = str(raw_input)
+            if args_dict and isinstance(args_dict, dict):
+                try:
+                    args_text = json.dumps(args_dict, indent=2)
+                except Exception:
+                    args_text = str(args_dict)
             
             # Extract result from content array or rawOutput
             result_text = None
@@ -177,6 +193,8 @@ class AGUIMapper:
                         item_content = item.get("content", {})
                         if isinstance(item_content, dict) and "text" in item_content:
                             text_parts.append(item_content["text"])
+                        elif "text" in item:
+                            text_parts.append(item["text"])
                 if text_parts:
                     result_text = "\n".join(text_parts)
             
@@ -188,33 +206,30 @@ class AGUIMapper:
                     if output:
                         result_text = output
             
+            tool_name = update.get("tool")
+            extracted = AGUIMapper._extract_tool_metadata(tool_name, args_dict or args_text)
+            
             ag_event.update({
                 "event": event_type,
                 "tool_id": update.get("toolCallId"),
-                "tool": update.get("tool"),
-                "name": update.get("title") or update.get("tool"),
+                "tool": tool_name,
+                "name": update.get("title") or extracted.get("command_preview") or tool_name,
                 "status": AGUIMapper._map_tool_status(status),
                 "args": args_text,
-                "result": result_text
+                "result": result_text,
+                **extracted
             })
         elif utype == "tool_call_update":
             status = update.get("status", "running")
             
-            # Extract args from rawInput if available (may be missing if already sent in tool_call)
+            # Extract args from rawInput if available
+            args_dict = update.get("rawInput")
             args_text = None
-            raw_input = update.get("rawInput")
-            if raw_input and isinstance(raw_input, dict):
-                if "content" in raw_input:
-                    args_text = f"content: {raw_input['content']}"
-                    if "filePath" in raw_input:
-                        args_text += f"\nfilePath: {raw_input['filePath']}"
-                elif "path" in raw_input:
-                    args_text = f"path: {raw_input['path']}"
-                if not args_text:
-                    try:
-                        args_text = json.dumps(raw_input, indent=2)
-                    except Exception:
-                        args_text = str(raw_input)
+            if args_dict and isinstance(args_dict, dict):
+                try:
+                    args_text = json.dumps(args_dict, indent=2)
+                except Exception:
+                    args_text = str(args_dict)
             
             # Extract result from content array or rawOutput
             result_text = None
@@ -226,6 +241,8 @@ class AGUIMapper:
                         item_content = item.get("content", {})
                         if isinstance(item_content, dict) and "text" in item_content:
                             text_parts.append(item_content["text"])
+                        elif "text" in item:
+                            text_parts.append(item["text"])
                 if text_parts:
                     result_text = "\n".join(text_parts)
             
@@ -236,12 +253,18 @@ class AGUIMapper:
                     if output:
                         result_text = output
             
+            tool_name = update.get("tool")
+            extracted = AGUIMapper._extract_tool_metadata(tool_name, args_dict or args_text)
+            
             ag_event.update({
                 "event": "tool_call_update",
                 "tool_id": update.get("toolCallId"),
+                "tool": tool_name,
+                "name": update.get("title") or extracted.get("command_preview") or tool_name,
                 "status": AGUIMapper._map_tool_status(status),
                 "args": args_text,
-                "result": result_text
+                "result": result_text,
+                **extracted
             })
         elif utype == "agent_thought_chunk":
             ag_event.update({
@@ -264,6 +287,77 @@ class AGUIMapper:
 
         return ag_event
     
+    @staticmethod
+    def _extract_tool_metadata(tool_name: Optional[str], args: Any) -> Dict[str, Any]:
+        """
+        Extract structured metadata from tool arguments.
+        Returns: {command_preview, file_targets, op_kind, diff}
+        """
+        metadata = {
+            "command_preview": None,
+            "file_targets": [],
+            "op_kind": "other",
+            "diff": None
+        }
+        
+        if not tool_name:
+            return metadata
+            
+        # Parse args if it's a string
+        args_dict = {}
+        if isinstance(args, str):
+            try:
+                args_dict = json.loads(args)
+            except Exception:
+                pass
+        elif isinstance(args, dict):
+            args_dict = args
+            
+        tn = tool_name.lower()
+        
+        # Determine op_kind and extract fields
+        if any(x in tn for x in ["read", "cat", "view", "get_file"]):
+            metadata["op_kind"] = "read"
+            path = args_dict.get("path") or args_dict.get("file_path") or args_dict.get("filePath")
+            if path: metadata["file_targets"] = [path]
+            metadata["command_preview"] = f"Read {path}" if path else "Read file"
+            
+        elif any(x in tn for x in ["search", "grep", "find", "glob", "list_dir"]):
+            metadata["op_kind"] = "search"
+            pattern = args_dict.get("pattern") or args_dict.get("query") or args_dict.get("include_pattern")
+            path = args_dict.get("path") or args_dict.get("dir_path") or args_dict.get("dirPath")
+            metadata["command_preview"] = f"Search '{pattern}'" if pattern else "Search"
+            if path: metadata["file_targets"] = [path]
+            
+        elif any(x in tn for x in ["edit", "write", "replace", "apply", "patch"]):
+            metadata["op_kind"] = "edit"
+            path = args_dict.get("path") or args_dict.get("file_path") or args_dict.get("filePath")
+            if path: metadata["file_targets"] = [path]
+            
+            # Extract diff info if available
+            old_text = args_dict.get("old_string") or args_dict.get("oldText")
+            new_text = args_dict.get("new_string") or args_dict.get("newText") or args_dict.get("content")
+            if old_text or new_text:
+                metadata["diff"] = {"path": path, "old": old_text, "new": new_text}
+                
+            metadata["command_preview"] = f"Edit {path}" if path else "Edit file"
+            
+        elif any(x in tn for x in ["exec", "run", "terminal", "shell", "bash"]):
+            metadata["op_kind"] = "execute"
+            cmd = args_dict.get("command") or args_dict.get("script") or args_dict.get("cmd")
+            metadata["command_preview"] = cmd
+            metadata["file_targets"] = [] # Shell commands might not have clear file targets
+            
+        # Specific tool handling: ACP common tools
+        if tn == "glob":
+            pattern = args_dict.get("pattern")
+            metadata["command_preview"] = f"Glob: '{pattern}'"
+        elif tn == "grep_search":
+            pattern = args_dict.get("pattern")
+            metadata["command_preview"] = f"Grep: '{pattern}'"
+            
+        return metadata
+
     @staticmethod
     def map_request(method: str, params: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         """

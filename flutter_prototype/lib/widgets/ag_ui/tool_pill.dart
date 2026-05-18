@@ -3,47 +3,52 @@ import 'package:flutter/material.dart';
 class ToolPill extends StatelessWidget {
   final String name;
   final String status;
+  final IconData? icon;
+  final String? subtitle;
 
   const ToolPill({
     Key? key,
     required this.name,
     required this.status,
+    this.icon,
+    this.subtitle,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // Determine colors and icon based on status
     Color backgroundColor;
     Color foregroundColor;
-    IconData icon;
+    IconData statusIcon;
     String label;
 
     switch (status) {
       case 'running':
         backgroundColor = Theme.of(context).colorScheme.primary.withOpacity(0.1);
         foregroundColor = Theme.of(context).colorScheme.primary;
-        icon = Icons.refresh;
+        statusIcon = Icons.refresh;
         label = '$name...';
         break;
       case 'success':
         backgroundColor = Theme.of(context).colorScheme.secondary.withOpacity(0.1);
         foregroundColor = Theme.of(context).colorScheme.secondary;
-        icon = Icons.check_circle;
+        statusIcon = Icons.check_circle;
         label = '$name ✓';
         break;
       case 'failed':
         backgroundColor = Theme.of(context).colorScheme.error.withOpacity(0.1);
         foregroundColor = Theme.of(context).colorScheme.error;
-        icon = Icons.error;
+        statusIcon = Icons.error;
         label = '$name ✗';
         break;
       default:
         backgroundColor = Theme.of(context).colorScheme.surfaceVariant;
         foregroundColor = Theme.of(context).colorScheme.onSurfaceVariant;
-        icon = Icons.help_outline;
+        statusIcon = Icons.help_outline;
         label = name;
         break;
     }
+
+    final displayIcon = icon ?? statusIcon;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -58,14 +63,32 @@ class ToolPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: foregroundColor),
+          Icon(displayIcon, size: 16, color: foregroundColor),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: foregroundColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: foregroundColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty)
+                  Text(
+                    subtitle!,
+                    style: TextStyle(
+                      color: foregroundColor.withOpacity(0.7),
+                      fontSize: 10,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
             ),
           ),
         ],

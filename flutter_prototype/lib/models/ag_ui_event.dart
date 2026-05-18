@@ -47,15 +47,20 @@ class AgUiEvent {
       if (json['tool_calls'] != null && json['tool_calls'] is List) {
         // New format: tool_calls array
         toolCalls = _parseToolCalls(json['tool_calls']);
-      } else if (json['toolId'] != null || json['name'] != null) {
+      } else if (json['toolId'] != null || json['tool_id'] != null || json['name'] != null) {
         // Legacy format: single tool call at root level
-        toolCalls = [ToolCall(
-          toolId: json['toolId'] as String?,
-          name: json['name'] as String?,
-          status: json['status'] as String?,
-          args: json['args'] as String?,
-          result: json['result'] as String?,
-        )];
+        final tcJson = <String, dynamic>{
+          'tool_id': json['tool_id'] ?? json['toolId'],
+          'name': json['name'],
+          'status': json['status'],
+          'args': json['args'],
+          'result': json['result'],
+          if (json['command_preview'] != null) 'command_preview': json['command_preview'],
+          if (json['file_targets'] != null) 'file_targets': json['file_targets'],
+          if (json['op_kind'] != null) 'op_kind': json['op_kind'],
+          if (json['diff'] != null) 'diff': json['diff'],
+        };
+        toolCalls = [ToolCall.fromJson(tcJson)];
       }
       
       return AgUiEvent(
@@ -93,6 +98,10 @@ class ToolCall {
   final String? status;
   final String? args;
   final String? result;
+  final String? commandPreview;
+  final List<String>? fileTargets;
+  final String? opKind;
+  final Map<String, dynamic>? diff;
 
   ToolCall({
     this.toolId,
@@ -100,15 +109,29 @@ class ToolCall {
     this.status,
     this.args,
     this.result,
+    this.commandPreview,
+    this.fileTargets,
+    this.opKind,
+    this.diff,
   });
 
   factory ToolCall.fromJson(Map<String, dynamic> json) {
+    List<String>? fileTargets;
+    if (json['file_targets'] != null) {
+      if (json['file_targets'] is List) {
+        fileTargets = (json['file_targets'] as List).map((e) => e.toString()).toList();
+      }
+    }
     return ToolCall(
       toolId: json['tool_id'] as String?,
       name: json['name'] as String?,
       status: json['status'] as String?,
       args: json['args'] as String?,
       result: json['result'] as String?,
+      commandPreview: json['command_preview'] as String?,
+      fileTargets: fileTargets,
+      opKind: json['op_kind'] as String?,
+      diff: json['diff'] as Map<String, dynamic>?,
     );
   }
 }

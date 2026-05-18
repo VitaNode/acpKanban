@@ -768,7 +768,7 @@ class MessageDispatcher:
             await on_output({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}})
         finally: self.tasks.remove(task_key)
 
-    async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None, ui_format: str = "acp"):
+    async def _forward_notification(self, card_id, n, on_output: Optional[Callable] = None, ui_format: str = None):
         """Shared notification forwarding logic for both user and system prompts."""
         # Phase 7.1 FIX: Drop notifications if engine is currently being cancelled
         engine = self.engines.get(card_id)
@@ -782,6 +782,10 @@ class MessageDispatcher:
                 self._extract_and_update_tokens(n["params"], card_id)
                 if "update" in n["params"] and isinstance(n["params"]["update"], dict):
                     self._extract_and_update_tokens(n["params"]["update"], card_id)
+
+        # AG-UI Fix: Fallback to stored format if not provided
+        if not ui_format:
+            ui_format = self._card_ui_formats.get(card_id, "acp")
 
         method = n.get("method")
         params = n.get("params", {})
@@ -804,9 +808,9 @@ class MessageDispatcher:
                 # Buffer all AG-UI events for consistent sequencing and persistence
                 await self._buffer_chunk(card_id, ag_event, on_output)
                 
-                # If it's a stop/end event, trigger an immediate flush
-                if ag_event.get("event") in ("session_stop", "stop"):
-                    await self._flush_on_event(card_id, "session_stop")
+                # If it's a stop/end event, or a tool call transition, trigger an immediate flush
+                if ag_event.get("event") in ("session_stop", "stop", "tool_call_start", "tool_call_result"):
+                    await self._trigger_flush(card_id, ag_event.get("event"))
                 
                 # AG-UI Fix: For system-level events (commands, plan, config), DO NOT return here.
                 # We need to fall through to the fallback path to execute side-effects like
@@ -904,22 +908,6 @@ class MessageDispatcher:
                 engine._save_available_commands_to_db()
                 # Re-advertise merged list
                 await self._advertise_commands(engine.acp_session_id, on_output, card_id=card_id)
-        elif utype == "tool_call":
-            tcid = update.get("toolCallId")
-            status = update.get("status", "pending")
-            title = update.get("title") or f"Tool: {update.get('tool', 'unknown')}"
-            
-            # Phase 5.3: Tool lifecycle is now handled via structured AG-UI events.
-            # We trigger a flush to ensure the tool_call_start is persisted.
-            if self._card_ui_formats.get(card_id) == "ag_ui":
-                await self._trigger_flush(card_id, "tool_call")
-            
-            bus.publish(card_id, {"type": "refresh"})
-        elif utype == "tool_call_update":
-            # tool_call_update usually contains partial results, we don't trigger a flush
-            # every time to avoid DB overhead, let the timer handle it.
-            # No refresh here to avoid lag.
-            pass
         elif utype == "session_info_update":
             if self._card_ui_formats.get(card_id) == "ag_ui":
                 await self._flush_on_event(card_id, "message_end")
@@ -1045,6 +1033,7 @@ class MessageDispatcher:
         
         async with self._flush_locks[card_id]:
             buffer_to_flush = self._chunk_buffers.get(card_id, [])
+            print(f"DEBUG: _flush_buffer card_id={card_id}, buffer_size={len(buffer_to_flush)}")
             # Snapshot and Clear IMMEDIATELY to prevent new chunks from being mixed into this cycle during async writes
             self._chunk_buffers[card_id] = []
             
@@ -1082,8 +1071,7 @@ class MessageDispatcher:
                     elif event_type == "tool_call_start":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_start seqId={seq_id} to DB for {card_id}")
-                        
-                        # In AG-UI mode, use structured tool messages instead of polluting reasoning
+
                         await asyncio.to_thread(
                             self.db.upsert_tool_message,
                             card_id,
@@ -1091,16 +1079,19 @@ class MessageDispatcher:
                             name=name,
                             arguments=chunk.get("args"),
                             status="running",
-                            seq_id=seq_id
+                            seq_id=seq_id,
+                            command_preview=chunk.get("command_preview"),
+                            file_targets=chunk.get("file_targets"),
+                            op_kind=chunk.get("op_kind"),
+                            diff=chunk.get("diff"),
                         )
 
                     elif event_type == "tool_call_result":
                         name = chunk.get("name") or chunk.get("tool", "unknown")
                         status = chunk.get("status", "success")
-                        
+
                         logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_result seqId={seq_id} to DB for {card_id}")
-                        
-                        # In AG-UI mode, update the structured tool message
+
                         await asyncio.to_thread(
                             self.db.upsert_tool_message,
                             card_id,
@@ -1108,21 +1099,29 @@ class MessageDispatcher:
                             name=name,
                             result=chunk.get("result"),
                             status=status,
-                            seq_id=seq_id
+                            seq_id=seq_id,
+                            command_preview=chunk.get("command_preview"),
+                            file_targets=chunk.get("file_targets"),
+                            op_kind=chunk.get("op_kind"),
+                            diff=chunk.get("diff"),
                         )
                     elif event_type == "tool_call_update":
-                        # tool_call_update contains partial results or status, update the tool message
                         result = chunk.get("result", "")
                         status = chunk.get("status", "running")
+                        new_name = chunk.get("name") or chunk.get("tool")
                         logger.debug(f"[DB-WRITE-EXEC] Writing tool_call_update seqId={seq_id} to DB for {card_id}")
                         await asyncio.to_thread(
                             self.db.upsert_tool_message,
                             card_id,
                             tool_id=chunk.get("tool_id"),
-                            name=chunk.get("name") or chunk.get("tool", "unknown"),
+                            name=new_name,
                             result=result if result else None,
                             status=status,
-                            seq_id=seq_id
+                            seq_id=seq_id,
+                            command_preview=chunk.get("command_preview"),
+                            file_targets=chunk.get("file_targets"),
+                            op_kind=chunk.get("op_kind"),
+                            diff=chunk.get("diff"),
                         )
                     elif event_type in ("commands_update", "plan_update", "config_update"):
                         # 系统事件不需要写入内容，但记录日志以确认 seqId 处理，防止前端认为丢失
@@ -1138,18 +1137,7 @@ class MessageDispatcher:
                             self.db.append_thought,
                             card_id, reasoning, seq_id=seq_id
                         )
-                    
-                    # Handle bundled tool calls (from history mapping or legacy chunks)
-                    tool_calls = chunk.get("tool_calls", [])
-                    for tc in tool_calls:
-                        status = tc.get("status", "success")
-                        marker = "✅" if status == "success" else "❌"
-                        trace_msg = f"\n{marker} **Tool:** `{tc.get('name', 'unknown')}` - {status}\n"
-                        logger.debug(f"[DB-WRITE-EXEC] Writing bundled tool_call seqId={seq_id} to DB for {card_id}")
-                        await asyncio.to_thread(
-                            self.db.append_thought,
-                            card_id, trace_msg, seq_id=seq_id
-                        )
+
                 
                 # If this flush was triggered by a terminal event, mark the message as complete
                 if is_terminal:

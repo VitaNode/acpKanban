@@ -476,6 +476,10 @@ class SessionWebSocketService {
     if (event.toolCalls != null) {
       agEventMap['tool_calls'] = event.toolCalls!.map((tc) => {
         'tool_id': tc.toolId, 'name': tc.name, 'status': tc.status, 'args': tc.args, 'result': tc.result,
+        if (tc.commandPreview != null) 'command_preview': tc.commandPreview,
+        if (tc.fileTargets != null) 'file_targets': tc.fileTargets,
+        if (tc.opKind != null) 'op_kind': tc.opKind,
+        if (tc.diff != null) 'diff': tc.diff,
       }).toList();
     }
     if (event.commands != null) agEventMap['commands'] = event.commands;
@@ -528,17 +532,28 @@ class SessionWebSocketService {
       if (existingIndex != -1) {
         final existing = _currentMessages[existingIndex];
         final updatedMetadata = Map<String, dynamic>.from(existing.metadata ?? {});
-        if (updatedMetadata['name'] == 'Unknown' && toolName != 'Unknown') updatedMetadata['name'] = toolName;
+        if ((updatedMetadata['name'] == null || updatedMetadata['name'] == 'Unknown') && toolName != 'Unknown') updatedMetadata['name'] = toolName;
         updatedMetadata['status'] = toolStatus;
         if (toolCall.args != null && toolCall.args!.isNotEmpty) updatedMetadata['arguments'] = toolCall.args;
+        if (toolCall.commandPreview != null) updatedMetadata['command_preview'] = toolCall.commandPreview;
+        if (toolCall.fileTargets != null) updatedMetadata['file_targets'] = toolCall.fileTargets;
+        if (toolCall.opKind != null) updatedMetadata['op_kind'] = toolCall.opKind;
+        if (toolCall.diff != null) updatedMetadata['diff'] = toolCall.diff;
         String content = existing.content;
         if (toolCall.result != null && toolCall.result!.isNotEmpty) content = toolCall.result!;
         _currentMessages[existingIndex] = existing.copyWith(content: content, isComplete: event.eventType == 'tool_call_result', metadata: updatedMetadata);
       } else {
+        final meta = <String, dynamic>{
+          'name': toolName, 'status': toolStatus, 'arguments': toolCall.args ?? '', 'tool_id': toolId,
+          if (toolCall.commandPreview != null) 'command_preview': toolCall.commandPreview,
+          if (toolCall.fileTargets != null) 'file_targets': toolCall.fileTargets,
+          if (toolCall.opKind != null) 'op_kind': toolCall.opKind,
+          if (toolCall.diff != null) 'diff': toolCall.diff,
+        };
         _currentMessages.add(CardMessage(
           id: 'tool-${event.seqId ?? 0}-${DateTime.now().millisecondsSinceEpoch}',
           cardId: _currentCardId ?? '', role: 'tool', content: toolCall.result ?? '', createdAt: DateTime.now().toIso8601String(), isComplete: event.eventType == 'tool_call_result', seqId: event.seqId,
-          metadata: {'name': toolName, 'status': toolStatus, 'arguments': toolCall.args ?? '', 'tool_id': toolId}
+          metadata: meta,
         ));
       }
       _messageController.add(List.from(_currentMessages));
@@ -551,6 +566,10 @@ class SessionWebSocketService {
       if (event.toolCalls != null && event.toolCalls!.isNotEmpty) {
         metadata['tool_calls'] = event.toolCalls!.map((tc) => {
           'tool_id': tc.toolId, 'name': tc.name, 'status': tc.status, 'args': tc.args, 'result': tc.result,
+          if (tc.commandPreview != null) 'command_preview': tc.commandPreview,
+          if (tc.fileTargets != null) 'file_targets': tc.fileTargets,
+          if (tc.opKind != null) 'op_kind': tc.opKind,
+          if (tc.diff != null) 'diff': tc.diff,
         }).toList();
       }
       _currentMessages.add(CardMessage(

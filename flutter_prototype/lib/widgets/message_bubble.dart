@@ -15,6 +15,32 @@ import '../models/ag_ui_event.dart';
 import '../models/agent_plan.dart';
 import 'plan_panel.dart';
 
+String _opKindLabel(String? opKind) {
+  switch (opKind) {
+    case 'read': return 'Read';
+    case 'search': return 'Search';
+    case 'edit': return 'Edit';
+    case 'execute': return 'Run';
+    default: return 'Tool';
+  }
+}
+
+IconData _opKindIcon(String? opKind) {
+  switch (opKind) {
+    case 'read': return Icons.description_outlined;
+    case 'search': return Icons.search;
+    case 'edit': return Icons.edit_outlined;
+    case 'execute': return Icons.terminal;
+    default: return Icons.build_outlined;
+  }
+}
+
+String _formatFileTargets(List<dynamic>? targets) {
+  if (targets == null || targets.isEmpty) return '';
+  if (targets.length == 1) return targets[0].toString();
+  return '${targets.length} files  ·  ${targets.first}';
+}
+
 class MessageBubble extends StatelessWidget {
   final CardMessage message;
   final String providerName;
@@ -111,17 +137,17 @@ class MessageBubble extends StatelessWidget {
     final thought = message.metadata?['thought'] as String?;
     final isReasoningType = message.metadata?['type'] == 'reasoning';
     
-    // 1. Thinking Process
+    // 1. Thinking Process (default expanded)
     if (isReasoningType) {
       children.add(ThinkingBlock(
         text: message.content,
-        isCollapsed: true,
+        isCollapsed: false,
         styleSheet: _getMarkdownStyle(context, false),
       ));
     } else if (thought != null && thought.isNotEmpty) {
       children.add(ThinkingBlock(
         text: thought,
-        isCollapsed: true,
+        isCollapsed: false,
         styleSheet: _getMarkdownStyle(context, false),
       ));
     }
@@ -151,9 +177,19 @@ class MessageBubble extends StatelessWidget {
       for (var tc in toolCalls) {
         final toolName = tc['name'] ?? 'unknown';
         final status = tc['status'] ?? 'completed';
+        final cmdPreview = tc['command_preview'] as String?;
+        final fileTargets = tc['file_targets'] as List<dynamic>?;
+        final opKind = tc['op_kind'] as String?;
+        final displayTitle = cmdPreview ?? toolName;
+        final subtitle = _formatFileTargets(fileTargets);
         children.add(Padding(
           padding: const EdgeInsets.only(bottom: 4),
-          child: ToolPill(name: toolName, status: status),
+          child: ToolPill(
+            name: displayTitle,
+            status: status,
+            icon: _opKindIcon(opKind),
+            subtitle: subtitle.isNotEmpty ? subtitle : null,
+          ),
         ));
       }
     }
@@ -183,8 +219,19 @@ class MessageBubble extends StatelessWidget {
   Widget _buildToolLog(BuildContext context, bool isDark) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final toolName = message.metadata?['name'] ?? 'unknown';
-    final toolStatus = message.metadata?['status'] ?? 'completed';
+    final meta = message.metadata ?? {};
+    final toolName = meta['name'] ?? 'unknown';
+    final toolStatus = meta['status'] ?? 'completed';
+    final commandPreview = meta['command_preview'] as String?;
+    final fileTargets = meta['file_targets'] as List<dynamic>?;
+    final opKind = meta['op_kind'] as String?;
+    final diff = meta['diff'] as Map<String, dynamic>?;
+    final arguments = meta['arguments'] as String?;
+    final hasResult = message.content.isNotEmpty;
+    final hasDiff = diff != null;
+
+    final displayTitle = commandPreview ?? toolName;
+    final displaySubtitle = _formatFileTargets(fileTargets);
 
     return Container(
       margin: const EdgeInsets.symmetric(
@@ -197,29 +244,60 @@ class MessageBubble extends StatelessWidget {
       child: ExpansionTile(
         dense: true,
         visualDensity: VisualDensity.compact,
+        initiallyExpanded: true,
         leading: ToolPill(name: toolName, status: toolStatus),
-        title: Text(
-          UICopy.toolLog,
-          style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-              fontFamily: 'monospace',
-              color: isDark ? colorScheme.onSurface : Colors.blueGrey),
+        title: Row(
+          children: [
+            Icon(_opKindIcon(opKind),
+                size: 14, color: colorScheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                displayTitle,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.onSurface),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
-        subtitle: Text(
-          DateFormatter.formatTimeOnly(message.createdAt),
-          style: theme.textTheme.bodySmall,
-        ),
+        subtitle: displaySubtitle.isNotEmpty
+            ? Text(
+                displaySubtitle,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: colorScheme.onSurfaceVariant),
+                overflow: TextOverflow.ellipsis,
+              )
+            : Text(
+                DateFormatter.formatTimeOnly(message.createdAt),
+                style: theme.textTheme.bodySmall,
+              ),
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(AppConstants.space12),
-            color: Colors.black.withOpacity(0.02),
+            padding: const EdgeInsets.fromLTRB(
+                AppConstants.space12, 8, AppConstants.space12, AppConstants.space12),
+            color: isDark ? Colors.black.withOpacity(0.15) : Colors.black.withOpacity(0.02),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (message.metadata?['arguments'] != null) ...[
+                if (hasDiff)
+                  _buildDiffPreview(context, diff, isDark),
+                if (hasResult) ...[
+                  if (hasDiff) const SizedBox(height: AppConstants.space8),
+                  Text(UICopy.result,
+                      style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: isDark
+                              ? colorScheme.primary
+                              : Colors.blueGrey)),
+                  const SizedBox(height: AppConstants.space4),
+                  _buildCodeBlock(context, message.content),
+                ] else if (!hasDiff && arguments != null && arguments.isNotEmpty) ...[
                   Text(UICopy.arguments,
                       style: TextStyle(
                           fontSize: 9,
@@ -228,23 +306,93 @@ class MessageBubble extends StatelessWidget {
                               ? colorScheme.primary
                               : Colors.blueGrey)),
                   const SizedBox(height: AppConstants.space4),
-                  _buildCodeBlock(context, message.metadata!['arguments'].toString()),
-                  const SizedBox(height: AppConstants.space8),
+                  _buildCodeBlock(context, arguments),
                 ],
-                Text(UICopy.result,
-                    style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        color: isDark
-                            ? colorScheme.primary
-                            : Colors.blueGrey)),
-                const SizedBox(height: AppConstants.space4),
-                _buildCodeBlock(context, message.content),
+                if (!hasResult && !hasDiff && (arguments == null || arguments.isEmpty))
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      'Running...',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                          color: colorScheme.onSurfaceVariant),
+                    ),
+                  ),
               ],
             ),
           )
         ],
       ),
+    );
+  }
+
+  Widget _buildDiffPreview(BuildContext context, Map<String, dynamic>? diff, bool isDark) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    if (diff == null) return const SizedBox.shrink();
+    final oldText = diff['old'] as String? ?? '';
+    final newText = diff['new'] as String? ?? '';
+    final path = diff['path'] as String?;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (path != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              children: [
+                Icon(Icons.insert_drive_file_outlined,
+                    size: 12, color: colorScheme.primary),
+                const SizedBox(width: 4),
+                Text(
+                  path,
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                      color: colorScheme.primary),
+                ),
+              ],
+            ),
+          ),
+        if (oldText.isNotEmpty && newText.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.black38 : Colors.grey[100],
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDiffLine(oldText, '−', colorScheme.error),
+                const SizedBox(height: 4),
+                _buildDiffLine(newText, '+', Colors.green),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDiffLine(String text, String prefix, Color color) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$prefix ',
+            style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: color)),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11, height: 1.4),
+          ),
+        ),
+      ],
     );
   }
 
