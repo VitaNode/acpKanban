@@ -131,11 +131,14 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isUser = message.role.toLowerCase() == 'user';
-    final isAssistant = message.role.toLowerCase() == 'assistant';
-    final isTool = message.role.toLowerCase() == 'tool';
+    final role = message.role.toLowerCase();
+    final isUser = role == 'user';
+    final isAssistant = role == 'assistant';
+    final isTool = role == 'tool';
+    final isSystem = role == 'system';
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final screenWidth = MediaQuery.of(context).size.width;
 
     if (isAssistant) {
       final event = AgUiEvent.fromMessage(message);
@@ -148,41 +151,56 @@ class MessageBubble extends StatelessWidget {
       }
     }
 
+    // Width: user/system = 85%, assistant/tool = 68% (85% * 0.8)
+    final double contentMaxWidth = (isUser || isSystem)
+        ? screenWidth * 0.85
+        : screenWidth * 0.68;
+
     if (isTool) {
-      return _buildToolLog(context, isDark, theme, colorScheme);
+      return Container(
+        margin: const EdgeInsets.symmetric(
+            horizontal: AppConstants.space16, vertical: AppConstants.space8),
+        constraints: BoxConstraints(maxWidth: contentMaxWidth),
+        child: _buildToolLog(context, isDark, theme, colorScheme),
+      );
     }
 
     return Container(
       margin: const EdgeInsets.symmetric(
           horizontal: AppConstants.space16, vertical: AppConstants.space8),
-      constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.85),
-      child: SelectionArea(
-        child: Column(
-          crossAxisAlignment:
-              isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            _buildHeader(theme, colorScheme, isUser),
-            const SizedBox(height: AppConstants.space4),
-            _buildContent(context, theme, colorScheme, isUser, isDark),
-            const SizedBox(height: AppConstants.space4),
-            _buildFooter(theme, colorScheme, isUser),
-          ],
-        ),
+      constraints: BoxConstraints(maxWidth: contentMaxWidth),
+      child: Column(
+        crossAxisAlignment:
+            isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          _buildHeader(theme, colorScheme, isUser, isSystem),
+          const SizedBox(height: AppConstants.space4),
+          _buildContent(context, theme, colorScheme, isUser, isDark),
+          const SizedBox(height: AppConstants.space4),
+          _buildFooter(theme, colorScheme, isUser),
+        ],
       ),
     );
   }
 
-  Widget _buildHeader(ThemeData theme, ColorScheme colorScheme, bool isUser) {
+  Widget _buildHeader(ThemeData theme, ColorScheme colorScheme, bool isUser, [bool isSystem = false]) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (!isUser) ...[
+        if (!isUser && !isSystem) ...[
           Icon(IconUtil.getProviderIcon(providerId),
               size: 12, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space4),
           Text(_getProviderName().toUpperCase(),
               style: theme.textTheme.labelLarge),
+        ],
+        if (isSystem) ...[
+          Icon(Icons.settings_rounded,
+              size: 12, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: AppConstants.space4),
+          Text('SYSTEM CONTEXT',
+              style: theme.textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onSurfaceVariant)),
         ],
         if (isUser) ...[
           Text(UICopy.you,
