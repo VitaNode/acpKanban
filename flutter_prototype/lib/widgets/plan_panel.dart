@@ -7,8 +7,9 @@ import '../theme/app_theme.dart';
 class PlanPanel extends StatefulWidget {
   final AgentPlan plan;
   final MarkdownStyleSheet? styleSheet;
+  final Map<String, MarkdownElementBuilder>? builders;
 
-  const PlanPanel({super.key, required this.plan, this.styleSheet});
+  const PlanPanel({super.key, required this.plan, this.styleSheet, this.builders});
 
   @override
   State<PlanPanel> createState() => _PlanPanelState();
@@ -131,6 +132,7 @@ class _PlanPanelState extends State<PlanPanel> {
                         fontWeight: step.status == PlanStepStatus.inProgress ? FontWeight.w600 : FontWeight.normal,
                       ),
                     ),
+                    builders: widget.builders ?? const {},
                   )
                 else
                   Text(

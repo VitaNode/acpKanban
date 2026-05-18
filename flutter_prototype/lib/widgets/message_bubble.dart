@@ -149,22 +149,26 @@ class MessageBubble extends StatelessWidget {
     }
 
     if (isTool) {
-      return _buildToolLog(context, isDark);
+      return _buildToolLog(context, isDark, theme, colorScheme);
     }
 
     return Container(
       margin: const EdgeInsets.symmetric(
           horizontal: AppConstants.space16, vertical: AppConstants.space8),
-      child: Column(
-        crossAxisAlignment:
-            isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          _buildHeader(theme, colorScheme, isUser),
-          const SizedBox(height: AppConstants.space4),
-          _buildContent(context, theme, colorScheme, isUser, isDark),
-          const SizedBox(height: AppConstants.space4),
-          _buildFooter(theme, colorScheme, isUser),
-        ],
+      constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.85),
+      child: SelectionArea(
+        child: Column(
+          crossAxisAlignment:
+              isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            _buildHeader(theme, colorScheme, isUser),
+            const SizedBox(height: AppConstants.space4),
+            _buildContent(context, theme, colorScheme, isUser, isDark),
+            const SizedBox(height: AppConstants.space4),
+            _buildFooter(theme, colorScheme, isUser),
+          ],
+        ),
       ),
     );
   }
@@ -269,8 +273,6 @@ class MessageBubble extends StatelessWidget {
     }
 
     return Container(
-      constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.85),
       padding: isUser 
           ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
           : const EdgeInsets.all(0),
@@ -290,9 +292,7 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildToolLog(BuildContext context, bool isDark) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+  Widget _buildToolLog(BuildContext context, bool isDark, ThemeData theme, ColorScheme colorScheme) {
     final meta = message.metadata ?? {};
     final toolName = meta['name'] ?? 'unknown';
     final toolStatus = meta['status'] ?? 'completed';
@@ -308,12 +308,11 @@ class MessageBubble extends StatelessWidget {
     final displaySubtitle = _formatFileTargets(fileTargets);
 
     return Container(
-      margin: const EdgeInsets.symmetric(
-          horizontal: AppConstants.space16, vertical: AppConstants.space4),
+      margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.02),
-        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.05)),
+        color: colorScheme.surfaceVariant.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
       ),
       child: ExpansionTile(
         dense: true,
@@ -584,6 +583,7 @@ class MessageBubble extends StatelessWidget {
       return PlanPanel(
         plan: plan,
         styleSheet: _getMarkdownStyle(context, false),
+        builders: _headingBuilders,
       );
     } catch (e) {
       AppLogger.error('Plan rendering error', e);
