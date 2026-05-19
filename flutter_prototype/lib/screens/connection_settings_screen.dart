@@ -168,14 +168,18 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       userId: _userIdController.text.isEmpty ? null : _userIdController.text,
       useMdns: true,
       systemConfig: SystemProxyConfig(
-          providerId: 'openai', // Default to openai for system tasks
-          config: {
-            'base_url': _systemBaseUrlController.text,
-            'api_key': _systemApiKeyController.text,
-            'summary_model': _summaryModelController.text,
-            'embedding_model': _embeddingModelController.text,
-          }),
-    );
+        providerId: 'openai', // Default to openai for system tasks
+        baseUrl: _systemBaseUrlController.text,
+        apiKey: _systemApiKeyController.text,
+        summaryModel: _summaryModelController.text,
+        embeddingModel: _embeddingModelController.text,
+        config: {
+          'base_url': _systemBaseUrlController.text,
+          'api_key': _systemApiKeyController.text,
+          'summary_model': _summaryModelController.text,
+          'embedding_model': _embeddingModelController.text,
+        },
+      ),    );
 
     await configManager.saveConfig(config);
 
