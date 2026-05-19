@@ -8,6 +8,7 @@ import '../constants/error_copy.dart';
 import '../utils/app_logger.dart';
 import 'acp_client.dart';
 import 'smart_connect.dart';
+import '../models/connection_config.dart';
 
 class ProjectService {
   static final ProjectService _instance = ProjectService._internal();

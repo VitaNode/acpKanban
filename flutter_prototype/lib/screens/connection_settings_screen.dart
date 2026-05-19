@@ -5,6 +5,7 @@ import '../models/connection_config.dart';
 import '../services/connection_config_manager.dart';
 import '../services/smart_connect.dart';
 import '../services/acp_client.dart';
+import '../services/project_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/ui_copy.dart';
 import '../constants/error_copy.dart';
@@ -31,6 +32,7 @@ class ConnectionSettingsView extends StatefulWidget {
 
 class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   late ConnectionMode _selectedMode;
+  final ProjectService _projectService = ProjectService();
   late TextEditingController _localIpController;
   late TextEditingController _relayHostController;
   late TextEditingController _relayTokenController;
