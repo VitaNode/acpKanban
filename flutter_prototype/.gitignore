@@ -44,3 +44,8 @@ config.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# db
+*.db
+*.db-shm
+*.db-wal
