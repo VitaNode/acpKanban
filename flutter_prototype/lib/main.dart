@@ -781,13 +781,6 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         actions: [
-          if (_currentProject != null) ...[
-            IconButton(
-              icon: const Icon(Icons.view_column_outlined),
-              tooltip: UICopy.manageColumns,
-              onPressed: _showColumnManager,
-            ),
-          ],
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: UICopy.refreshTooltip,
@@ -908,20 +901,31 @@ class _MainScreenState extends State<MainScreen> {
 
     return Column(
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.space16,
-                vertical: AppConstants.space8),
-            child: ProjectSelector(
-              currentProject: _currentProject,
-              projects: _projects,
-              onProjectSelected: _switchProject,
-              onCreateProject: _showCreateProjectDialog,
-              onManageProjects: _showProjectManager,
-              isLoading: _isLoadingProjects,
-            ),
+        Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.space16,
+              vertical: AppConstants.space8),
+          child: Row(
+            children: [
+              Flexible(
+                child: ProjectSelector(
+                  currentProject: _currentProject,
+                  projects: _projects,
+                  onProjectSelected: _switchProject,
+                  onCreateProject: _showCreateProjectDialog,
+                  onManageProjects: _showProjectManager,
+                  isLoading: _isLoadingProjects,
+                ),
+              ),
+              if (_currentProject != null) ...[
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _showColumnManager,
+                  icon: const Icon(Icons.view_column_rounded, size: 18),
+                  label: const Text(UICopy.manageColumns),
+                ),
+              ],
+            ],
           ),
         ),
         StatusSummaryWidget(statuses: _agentStatuses),
