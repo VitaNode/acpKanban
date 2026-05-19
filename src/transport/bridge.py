@@ -455,6 +455,19 @@ class UnifiedBridge:
                         except Exception as e: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e), "error_code": ErrorCode.INTERNAL_ERROR}})
                     else: await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected", "error_code": ErrorCode.SESSION_NOT_FOUND}})
                     return
+                if action == "ping":
+                    ws = self._card_sessions.get(card_id)
+                    if ws:
+                        try:
+                            # Send a ping to the local API WebSocket
+                            await ws.send(json.dumps({"type": "ping"}))
+                            await safe_send({"jsonrpc": "2.0", "id": request_id, "result": {"success": True}})
+                        except Exception as e:
+                            self.logger.error(f"WS Proxy ping failed: {e}")
+                            await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 500, "message": str(e), "error_code": ErrorCode.INTERNAL_ERROR}})
+                    else:
+                        await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": 404, "message": "Session not connected", "error_code": ErrorCode.SESSION_NOT_FOUND}})
+                    return
                 if action == "disconnect":
                     ws = self._card_sessions.pop(card_id, None)
                     if ws: await ws.close()

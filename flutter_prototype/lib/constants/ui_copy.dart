@@ -41,6 +41,9 @@ class UICopy {
   static const String projectNameUnique = 'Project name must be unique';
   static const String projectUpdated = 'Project updated';
   static const String toggleTheme = 'Toggle Theme';
+  static const String refresh = 'Refresh';
+  static const String refreshTooltip = 'Refresh data from server';
+  static const String dataRefreshed = 'Data refreshed';
   static const String collapseSidebar = 'Collapse Sidebar';
   static const String expandSidebar = 'Expand Sidebar';
   static const String addCardTo = 'Add Card to';

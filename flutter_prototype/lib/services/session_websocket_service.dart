@@ -164,7 +164,6 @@ class SessionWebSocketService {
   }
 
   void _reconnectIfNecessary() {
-    if (_useProxy) return;
     _reconnectTimer?.cancel();
     if (_currentCardId != null && _reconnectCount < 5) {
       _reconnectCount++;
@@ -175,14 +174,26 @@ class SessionWebSocketService {
   }
 
   void _startHeartbeat() {
-    if (_useProxy) return;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (t) {
-      if (_isConnected && _channel != null) {
-        try {
-          _channel!.sink.add(jsonEncode({'type': 'ping'}));
-        } catch (e) {
-          _isConnected = false;
+      if (_isConnected) {
+        if (_useProxy) {
+          // Heartbeat for Proxy mode
+          _acpClient.sendRequest('session/ws_proxy', {
+            'action': 'ping',
+            'card_id': _currentCardId,
+          }).catchError((e) {
+            _isConnected = false;
+            _reconnectIfNecessary();
+          });
+        } else if (_channel != null) {
+          // Heartbeat for Direct mode
+          try {
+            _channel!.sink.add(jsonEncode({'type': 'ping'}));
+          } catch (e) {
+            _isConnected = false;
+            _reconnectIfNecessary();
+          }
         }
       }
     });

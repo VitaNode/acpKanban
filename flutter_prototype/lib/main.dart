@@ -710,6 +710,19 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ],
           IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: UICopy.refreshTooltip,
+            onPressed: () async {
+              await _loadProjects();
+              if (_currentProject != null) {
+                await _loadProjectData(_currentProject!.id);
+              }
+              if (mounted) {
+                AppFeedback.showSuccess(context, UICopy.dataRefreshed);
+              }
+            },
+          ),
+          IconButton(
             icon: Icon(ThemeService().isDarkMode
                 ? Icons.light_mode_outlined
                 : Icons.dark_mode_outlined),
