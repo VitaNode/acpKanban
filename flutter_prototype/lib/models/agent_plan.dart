@@ -26,18 +26,25 @@ class PlanStep {
 
   static PlanStepStatus _parseStatus(String? status) {
     switch (status) {
-      case 'in_progress': return PlanStepStatus.inProgress;
-      case 'completed': return PlanStepStatus.completed;
-      case 'failed': return PlanStepStatus.failed;
-      default: return PlanStepStatus.pending;
+      case 'in_progress':
+        return PlanStepStatus.inProgress;
+      case 'completed':
+        return PlanStepStatus.completed;
+      case 'failed':
+        return PlanStepStatus.failed;
+      default:
+        return PlanStepStatus.pending;
     }
   }
 
   static PlanStepPriority _parsePriority(String? priority) {
     switch (priority) {
-      case 'high': return PlanStepPriority.high;
-      case 'low': return PlanStepPriority.low;
-      default: return PlanStepPriority.medium;
+      case 'high':
+        return PlanStepPriority.high;
+      case 'low':
+        return PlanStepPriority.low;
+      default:
+        return PlanStepPriority.medium;
     }
   }
 }
@@ -50,13 +57,16 @@ class AgentPlan {
   factory AgentPlan.fromJson(Map<String, dynamic> json) {
     final list = (json['entries'] ?? json['steps'] ?? []) as List;
     return AgentPlan(
-      entries: list.map((e) => PlanStep.fromJson(e as Map<String, dynamic>)).toList(),
+      entries: list
+          .map((e) => PlanStep.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 
   double get progress {
     if (entries.isEmpty) return 0.0;
-    final completed = entries.where((s) => s.status == PlanStepStatus.completed).length;
+    final completed =
+        entries.where((s) => s.status == PlanStepStatus.completed).length;
     return completed / entries.length;
   }
 }

@@ -5,7 +5,7 @@ import 'package:cryptography/cryptography.dart';
 class E2EEManager {
   List<int>? _secretKeyBytes;
   bool _isReady = false;
-  
+
   // Use cryptography's AES-GCM implementation
   final _algorithm = AesGcm.with256bits(nonceLength: 12);
 
@@ -34,7 +34,8 @@ class E2EEManager {
   }
 
   /// Derives a 32-byte shared secret using X25519 + HKDF.
-  static Future<String> deriveSharedSecret(KeyPair ownKeyPair, String peerPublicHex) async {
+  static Future<String> deriveSharedSecret(
+      KeyPair ownKeyPair, String peerPublicHex) async {
     final algorithm = X25519();
     final peerPublicKey = SimplePublicKey(
       _hexToBytes(peerPublicHex),
@@ -60,51 +61,50 @@ class E2EEManager {
   /// Output Format: [Nonce (12 bytes)] + [Ciphertext] + [Tag (16 bytes)]
   Future<String> encrypt(String plaintext) async {
     if (!_isReady) throw Exception('E2EE session not ready');
-    
+
     final secretKey = await _algorithm.newSecretKeyFromBytes(_secretKeyBytes!);
     final nonce = _algorithm.newNonce(); // 12 bytes random
-    
+
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plaintext),
       secretKey: secretKey,
       nonce: nonce,
     );
-    
+
     // Concatenate: Nonce + Ciphertext + Mac (Tag)
     final combined = Uint8List.fromList(
-      secretBox.nonce + secretBox.cipherText + secretBox.mac.bytes
-    );
-    
+        secretBox.nonce + secretBox.cipherText + secretBox.mac.bytes);
+
     return base64.encode(combined);
   }
 
   /// Decrypts AES-GCM payload.
   Future<String> decrypt(String b64Payload) async {
     if (!_isReady) throw Exception('E2EE session not ready');
-    
+
     final payload = base64.decode(b64Payload);
     if (payload.length < 12 + 16) {
       throw Exception('Invalid E2EE payload: Too short');
     }
-    
+
     final nonce = payload.sublist(0, 12);
     final tagStart = payload.length - 16;
     final cipherText = payload.sublist(12, tagStart);
     final macBytes = payload.sublist(tagStart);
-    
+
     final secretBox = SecretBox(
       cipherText,
       nonce: nonce,
       mac: Mac(macBytes),
     );
-    
+
     final secretKey = await _algorithm.newSecretKeyFromBytes(_secretKeyBytes!);
-    
+
     final decryptedBytes = await _algorithm.decrypt(
       secretBox,
       secretKey: secretKey,
     );
-    
+
     return utf8.decode(decryptedBytes);
   }
 

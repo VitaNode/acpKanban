@@ -47,9 +47,11 @@ class ProjectSelector extends StatelessWidget {
     return PopupMenuButton<String>(
       tooltip: UICopy.switchProject,
       offset: const Offset(0, 45),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.space12, vertical: AppConstants.space8),
         decoration: BoxDecoration(
           color: colorScheme.primary.withOpacity(0.08),
           borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
@@ -69,7 +71,8 @@ class ProjectSelector extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppConstants.space4),
-            Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: colorScheme.primary),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                size: 18, color: colorScheme.primary),
           ],
         ),
       ),
@@ -83,7 +86,10 @@ class ProjectSelector extends StatelessWidget {
                 Icon(
                   isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
                   size: 20,
-                  color: isCurrent ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+                  color: isCurrent
+                      ? colorScheme.primary
+                      : colorScheme.onSurface
+                          .withOpacity(AppConstants.mediumEmphasis),
                 ),
                 const SizedBox(width: AppConstants.space12),
                 Expanded(
@@ -94,8 +100,11 @@ class ProjectSelector extends StatelessWidget {
                       Text(
                         project.name,
                         style: TextStyle(
-                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                          color: isCurrent ? colorScheme.primary : colorScheme.onSurface,
+                          fontWeight:
+                              isCurrent ? FontWeight.bold : FontWeight.w600,
+                          color: isCurrent
+                              ? colorScheme.primary
+                              : colorScheme.onSurface,
                         ),
                       ),
                       Text(
@@ -106,7 +115,8 @@ class ProjectSelector extends StatelessWidget {
                   ),
                 ),
                 if (isCurrent)
-                  Icon(Icons.check_rounded, size: 18, color: colorScheme.primary),
+                  Icon(Icons.check_rounded,
+                      size: 18, color: colorScheme.primary),
               ],
             ),
           );
@@ -116,7 +126,8 @@ class ProjectSelector extends StatelessWidget {
           value: '_manage_',
           child: Row(
             children: [
-              Icon(Icons.settings_suggest_rounded, size: 20, color: colorScheme.primary),
+              Icon(Icons.settings_suggest_rounded,
+                  size: 20, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space12),
               Text(UICopy.manageProjects, style: theme.textTheme.bodyMedium),
             ],
@@ -148,7 +159,8 @@ class ProjectSelector extends StatelessWidget {
 }
 
 class ProjectCreationDialog extends StatefulWidget {
-  final Function(String name, String? workspacePath, String? description) onCreate;
+  final Function(String name, String? workspacePath, String? description)
+      onCreate;
 
   const ProjectCreationDialog({
     super.key,
@@ -196,7 +208,7 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
-    
+
     return AlertDialog(
       title: Row(
         children: [
@@ -205,7 +217,8 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
           Text(UICopy.newProject, style: theme.textTheme.headlineMedium),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 450,
@@ -240,7 +253,8 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
                 const SizedBox(height: AppConstants.space8),
                 Text(
                   UICopy.descriptionHint,
-                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.primary),
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
@@ -265,13 +279,15 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
           style: ElevatedButton.styleFrom(
             backgroundColor: colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
           ),
           child: _isCreating
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
                 )
               : const Text(UICopy.create),
         ),

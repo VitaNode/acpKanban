@@ -66,7 +66,7 @@ class AppTheme {
   // Desaturated brand color for dark mode
   static const Color _primaryDark = Color(0xFF4DB6AC); // Desaturated Teal
   static const Color _surfaceDark = Color(0xFF121212); // Material Deep Grey
-  
+
   static ThemeData get lightTheme {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppConstants.primaryColor,
@@ -76,16 +76,19 @@ class AppTheme {
       surfaceContainer: const Color(0xFFF3F3F3),
     );
 
-    return _buildTheme(colorScheme, const CustomColors(
-      success: Color(0xFF2E7D32),
-      warning: Color(0xFFED6C02),
-      info: Color(0xFF0288D1),
-      codeBackground: Color(0xFFF8F8F8),
-      codeText: Color(0xFF92230D), // Deep brick red for high contrast in light mode
-      diffAdded: Color(0xFF2E7D32),
-      diffRemoved: Color(0xFFD32F2F),
-      diffUnchanged: Color(0xFF757575),
-    ));
+    return _buildTheme(
+        colorScheme,
+        const CustomColors(
+          success: Color(0xFF2E7D32),
+          warning: Color(0xFFED6C02),
+          info: Color(0xFF0288D1),
+          codeBackground: Color(0xFFF8F8F8),
+          codeText: Color(
+              0xFF92230D), // Deep brick red for high contrast in light mode
+          diffAdded: Color(0xFF2E7D32),
+          diffRemoved: Color(0xFFD32F2F),
+          diffUnchanged: Color(0xFF757575),
+        ));
   }
 
   static ThemeData get darkTheme {
@@ -95,24 +98,29 @@ class AppTheme {
       onPrimary: const Color(0xFF002020),
       brightness: Brightness.dark,
       surface: _surfaceDark, // Avoid pure black
-      surfaceContainer: const Color(0xFF1E1E1E), // Brighter container (Elevation 1)
-      surfaceContainerHigh: const Color(0xFF2C2C2C), // Dialog/high elevation (Elevation 3)
+      surfaceContainer:
+          const Color(0xFF1E1E1E), // Brighter container (Elevation 1)
+      surfaceContainerHigh:
+          const Color(0xFF2C2C2C), // Dialog/high elevation (Elevation 3)
       onSurface: const Color(0xFFE1E3E1), // Avoid pure white, use off-white
     );
 
-    return _buildTheme(colorScheme, const CustomColors(
-      success: Color(0xFFA5D6A7), // Desaturated green for dark mode
-      warning: Color(0xFFFFCC80), // Desaturated orange for dark mode
-      info: Color(0xFF90CAF9),    // Desaturated blue for dark mode
-      codeBackground: Color(0xFF1E1E1E),
-      codeText: Color(0xFFCE9178),
-      diffAdded: Color(0xFFB5CEA8),
-      diffRemoved: Color(0xFFF44747),
-      diffUnchanged: Color(0xFFD4D4D4),
-    ));
+    return _buildTheme(
+        colorScheme,
+        const CustomColors(
+          success: Color(0xFFA5D6A7), // Desaturated green for dark mode
+          warning: Color(0xFFFFCC80), // Desaturated orange for dark mode
+          info: Color(0xFF90CAF9), // Desaturated blue for dark mode
+          codeBackground: Color(0xFF1E1E1E),
+          codeText: Color(0xFFCE9178),
+          diffAdded: Color(0xFFB5CEA8),
+          diffRemoved: Color(0xFFF44747),
+          diffUnchanged: Color(0xFFD4D4D4),
+        ));
   }
 
-  static ThemeData _buildTheme(ColorScheme colorScheme, CustomColors customColors) {
+  static ThemeData _buildTheme(
+      ColorScheme colorScheme, CustomColors customColors) {
     final bool isDark = colorScheme.brightness == Brightness.dark;
     final Color onSurfaceBase = colorScheme.onSurface;
 
@@ -121,7 +129,7 @@ class AppTheme {
       colorScheme: colorScheme,
       extensions: [customColors],
       scaffoldBackgroundColor: colorScheme.surface,
-      
+
       appBarTheme: AppBarTheme(
         backgroundColor: colorScheme.surface,
         foregroundColor: onSurfaceBase,
@@ -140,7 +148,7 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
           side: BorderSide(
-            color: isDark 
+            color: isDark
                 ? Colors.white.withOpacity(0.05) // Subtle edge border
                 : colorScheme.outlineVariant.withOpacity(0.1),
             width: 1,
@@ -151,35 +159,29 @@ class AppTheme {
 
       textTheme: TextTheme(
         headlineLarge: TextStyle(
-          fontSize: 24, 
-          fontWeight: FontWeight.bold, 
-          color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)
-        ),
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)),
         headlineMedium: TextStyle(
-          fontSize: 18, 
-          fontWeight: FontWeight.bold, 
-          color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)
-        ),
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)),
         bodyLarge: TextStyle(
-          fontSize: 16, 
-          fontWeight: FontWeight.w500, 
-          color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)
-        ),
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)),
         bodyMedium: TextStyle(
-          fontSize: 14, 
-          fontWeight: FontWeight.normal, 
-          color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)
-        ),
+            fontSize: 14,
+            fontWeight: FontWeight.normal,
+            color: onSurfaceBase.withOpacity(AppConstants.highEmphasis)),
         bodySmall: TextStyle(
-          fontSize: 12, 
-          fontWeight: FontWeight.normal, 
-          color: onSurfaceBase.withOpacity(AppConstants.mediumEmphasis)
-        ),
+            fontSize: 12,
+            fontWeight: FontWeight.normal,
+            color: onSurfaceBase.withOpacity(AppConstants.mediumEmphasis)),
         labelLarge: TextStyle(
-          fontSize: 12, 
-          fontWeight: FontWeight.w600, 
-          color: colorScheme.primary
-        ),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: colorScheme.primary),
       ),
 
       inputDecorationTheme: InputDecorationTheme(
@@ -192,19 +194,19 @@ class AppTheme {
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
           borderSide: BorderSide(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.transparent
-          ),
+              color:
+                  isDark ? Colors.white.withOpacity(0.05) : Colors.transparent),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
           borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
         ),
-        labelStyle: TextStyle(color: onSurfaceBase.withOpacity(AppConstants.mediumEmphasis)),
-        hintStyle: TextStyle(color: onSurfaceBase.withOpacity(AppConstants.disabledOpacity)),
+        labelStyle: TextStyle(
+            color: onSurfaceBase.withOpacity(AppConstants.mediumEmphasis)),
+        hintStyle: TextStyle(
+            color: onSurfaceBase.withOpacity(AppConstants.disabledOpacity)),
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: AppConstants.space16, 
-          vertical: AppConstants.space12
-        ),
+            horizontal: AppConstants.space16, vertical: AppConstants.space12),
       ),
 
       dividerTheme: DividerThemeData(

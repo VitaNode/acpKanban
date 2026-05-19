@@ -12,19 +12,20 @@ import 'package:flutter/foundation.dart';
 /// - Back from CardSessionScreen
 /// - Hot restart
 class KanbanRefreshService {
-  static final KanbanRefreshService _instance = KanbanRefreshService._internal();
+  static final KanbanRefreshService _instance =
+      KanbanRefreshService._internal();
   factory KanbanRefreshService() => _instance;
   KanbanRefreshService._internal();
 
   /// List of refresh callback functions
   final List<Function(RefreshEvent)> _listeners = [];
-  
+
   /// Debounce timer
   Timer? _debounceTimer;
-  
+
   /// Debounce delay in milliseconds
   static const int _debounceMs = 500;
-  
+
   /// Flag indicating if refresh is needed
   bool _needsRefresh = false;
 
@@ -41,12 +42,13 @@ class KanbanRefreshService {
   }
 
   /// Mark refresh as needed with debounce
-  void markNeedsRefresh(RefreshSource source, {Map<String, dynamic>? metadata}) {
+  void markNeedsRefresh(RefreshSource source,
+      {Map<String, dynamic>? metadata}) {
     _needsRefresh = true;
-    
+
     // Cancel previous timer
     _debounceTimer?.cancel();
-    
+
     // Start new debounce timer
     _debounceTimer = Timer(const Duration(milliseconds: _debounceMs), () {
       if (_needsRefresh) {
@@ -57,7 +59,8 @@ class KanbanRefreshService {
   }
 
   /// Trigger immediate refresh (no debounce)
-  void triggerImmediate(RefreshSource source, {Map<String, dynamic>? metadata}) {
+  void triggerImmediate(RefreshSource source,
+      {Map<String, dynamic>? metadata}) {
     _debounceTimer?.cancel();
     _executeRefresh(source, metadata);
     _needsRefresh = false;

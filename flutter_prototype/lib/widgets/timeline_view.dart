@@ -30,12 +30,15 @@ class TimelineView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.history_rounded, size: 64, 
-                color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+            Icon(Icons.history_rounded,
+                size: 64,
+                color: colorScheme.onSurface
+                    .withOpacity(AppConstants.mediumEmphasis)),
             const SizedBox(height: AppConstants.space16),
-            Text('No events recorded yet.', 
+            Text('No events recorded yet.',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))),
+                    color: colorScheme.onSurface
+                        .withOpacity(AppConstants.mediumEmphasis))),
             const SizedBox(height: AppConstants.space16),
             TextButton.icon(
               onPressed: onRefresh,
@@ -60,7 +63,8 @@ class TimelineView extends StatelessWidget {
     );
   }
 
-  Widget _buildEventItem(BuildContext context, TimelineEvent event, bool isLast) {
+  Widget _buildEventItem(
+      BuildContext context, TimelineEvent event, bool isLast) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final iconData = _getIconData(event.type);
@@ -85,7 +89,8 @@ class TimelineView extends StatelessWidget {
                 Expanded(
                   child: Container(
                     width: 1,
-                    margin: const EdgeInsets.symmetric(vertical: AppConstants.space4),
+                    margin: const EdgeInsets.symmetric(
+                        vertical: AppConstants.space4),
                     color: theme.dividerTheme.color,
                   ),
                 ),
@@ -117,7 +122,8 @@ class TimelineView extends StatelessWidget {
                 const SizedBox(height: AppConstants.space4),
                 Text(
                   event.content,
-                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w500),
                 ),
                 if (event.metadata != null && event.metadata!.isNotEmpty) ...[
                   const SizedBox(height: AppConstants.space8),
@@ -126,7 +132,8 @@ class TimelineView extends StatelessWidget {
                     padding: const EdgeInsets.all(AppConstants.space8),
                     decoration: BoxDecoration(
                       color: colorScheme.surfaceContainer,
-                      borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusSmall),
                       border: Border.all(color: theme.dividerTheme.color!),
                     ),
                     child: Text(

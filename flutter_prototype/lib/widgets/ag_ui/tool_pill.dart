@@ -23,13 +23,15 @@ class ToolPill extends StatelessWidget {
 
     switch (status) {
       case 'running':
-        backgroundColor = Theme.of(context).colorScheme.primary.withOpacity(0.1);
+        backgroundColor =
+            Theme.of(context).colorScheme.primary.withOpacity(0.1);
         foregroundColor = Theme.of(context).colorScheme.primary;
         statusIcon = Icons.refresh;
         label = '$name...';
         break;
       case 'success':
-        backgroundColor = Theme.of(context).colorScheme.secondary.withOpacity(0.1);
+        backgroundColor =
+            Theme.of(context).colorScheme.secondary.withOpacity(0.1);
         foregroundColor = Theme.of(context).colorScheme.secondary;
         statusIcon = Icons.check_circle;
         label = '$name ✓';

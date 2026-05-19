@@ -24,7 +24,8 @@ class ConfigOptionsBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
         itemCount: options.length,
-        separatorBuilder: (context, index) => const SizedBox(width: AppConstants.space8),
+        separatorBuilder: (context, index) =>
+            const SizedBox(width: AppConstants.space8),
         itemBuilder: (context, index) {
           final option = options[index];
           return _buildOptionChip(context, option);
@@ -38,7 +39,8 @@ class ConfigOptionsBar extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final currentValue = option.options.firstWhere(
       (o) => o.value == option.currentValue,
-      orElse: () => ConfigOptionValue(value: option.currentValue, name: option.currentValue),
+      orElse: () => ConfigOptionValue(
+          value: option.currentValue, name: option.currentValue),
     );
 
     return Center(
@@ -46,7 +48,8 @@ class ConfigOptionsBar extends StatelessWidget {
         onTap: () => _showOptionPicker(context, option),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.space12, vertical: AppConstants.space8),
           decoration: BoxDecoration(
             color: theme.cardTheme.color,
             borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
@@ -55,19 +58,22 @@ class ConfigOptionsBar extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(_getIconForOption(option.category), size: 14, color: colorScheme.primary),
+              Icon(_getIconForOption(option.category),
+                  size: 14, color: colorScheme.primary),
               const SizedBox(width: AppConstants.space8),
               Text(
                 currentValue.name,
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
+                  color: colorScheme.onSurface
+                      .withOpacity(AppConstants.highEmphasis),
                 ),
               ),
               const SizedBox(width: AppConstants.space4),
-              Icon(Icons.keyboard_arrow_down_rounded, 
-                  size: 16, 
-                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+              Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 16,
+                  color: colorScheme.onSurface
+                      .withOpacity(AppConstants.mediumEmphasis)),
             ],
           ),
         ),
@@ -84,7 +90,8 @@ class ConfigOptionsBar extends StatelessWidget {
       context: context,
       backgroundColor: theme.scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusMedium)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusMedium)),
       ),
       builder: (context) {
         return SafeArea(
@@ -132,20 +139,25 @@ class ConfigOptionsBar extends StatelessWidget {
                           ? Icon(_getModeIcon(val.value),
                               color: isSelected
                                   ? colorScheme.primary
-                                  : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))
+                                  : colorScheme.onSurface
+                                      .withOpacity(AppConstants.mediumEmphasis))
                           : null,
                       title: Text(val.name,
                           style: TextStyle(
-                            fontWeight:
-                                isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? colorScheme.primary : colorScheme.onSurface,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? colorScheme.primary
+                                : colorScheme.onSurface,
                           )),
                       subtitle: val.description != null
                           ? Text(val.description!,
                               style: theme.textTheme.bodySmall)
                           : null,
                       trailing: isSelected
-                          ? Icon(Icons.check_rounded, color: colorScheme.primary)
+                          ? Icon(Icons.check_rounded,
+                              color: colorScheme.primary)
                           : null,
                       onTap: () {
                         SessionWebSocketService()
@@ -178,9 +190,11 @@ class ConfigOptionsBar extends StatelessWidget {
 
   IconData _getModeIcon(String mode) {
     final m = mode.toLowerCase();
-    if (m.contains('ask') || m.contains('autoedit')) return Icons.question_answer_rounded;
+    if (m.contains('ask') || m.contains('autoedit'))
+      return Icons.question_answer_rounded;
     if (m.contains('code') || m.contains('yolo')) return Icons.code_rounded;
-    if (m.contains('plan') || m.contains('architect')) return Icons.architecture_rounded;
+    if (m.contains('plan') || m.contains('architect'))
+      return Icons.architecture_rounded;
     return Icons.security_rounded;
   }
 }

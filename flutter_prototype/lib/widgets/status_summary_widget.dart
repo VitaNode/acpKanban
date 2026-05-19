@@ -4,12 +4,7 @@ import '../models/project.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
-enum AgentState {
-  idle,
-  working,
-  needsAuthorization,
-  completed
-}
+enum AgentState { idle, working, needsAuthorization, completed }
 
 class ProjectAgentStatus {
   final Project project;
@@ -53,7 +48,8 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final activeStatuses = widget.statuses.where((s) => s.state != AgentState.idle).toList();
+    final activeStatuses =
+        widget.statuses.where((s) => s.state != AgentState.idle).toList();
     if (activeStatuses.isEmpty) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
@@ -79,7 +75,7 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final customColors = theme.extension<CustomColors>()!;
-    
+
     Color color;
     String text;
     IconData icon;
@@ -88,7 +84,8 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
       case AgentState.working:
         color = customColors.warning!;
         icon = Icons.bolt_rounded;
-        final duration = DateTime.now().difference(status.startTime ?? DateTime.now());
+        final duration =
+            DateTime.now().difference(status.startTime ?? DateTime.now());
         text = 'Working (${_formatDuration(duration)})';
         break;
       case AgentState.needsAuthorization:
@@ -125,13 +122,15 @@ class _StatusSummaryWidgetState extends State<StatusSummaryWidget> {
             status.project.name,
             style: theme.textTheme.labelLarge?.copyWith(
               fontSize: 11,
-              color: colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
+              color:
+                  colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
             ),
           ),
           const SizedBox(width: AppConstants.space4),
           Text(
             text,
-            style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+            style: TextStyle(
+                fontSize: 11, color: color, fontWeight: FontWeight.w600),
           ),
         ],
       ),

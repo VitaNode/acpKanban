@@ -8,7 +8,8 @@ import 'app_feedback.dart';
 
 class ProjectManagementDialog extends StatefulWidget {
   final List<Project> projects;
-  final Function(Project, String name, String? workspacePath, {String? description}) onUpdate;
+  final Function(Project, String name, String? workspacePath,
+      {String? description}) onUpdate;
   final Function(Project) onDelete;
   final Project? currentProject;
 
@@ -21,7 +22,8 @@ class ProjectManagementDialog extends StatefulWidget {
   });
 
   @override
-  State<ProjectManagementDialog> createState() => _ProjectManagementDialogState();
+  State<ProjectManagementDialog> createState() =>
+      _ProjectManagementDialogState();
 }
 
 class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
@@ -55,10 +57,14 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
         children: [
           Icon(Icons.settings_suggest_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Expanded(child: Text(UICopy.manageProjectsTitle, style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
+          Expanded(
+              child: Text(UICopy.manageProjectsTitle,
+                  style: theme.textTheme.headlineMedium,
+                  overflow: TextOverflow.ellipsis)),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: isMobile ? size.width * 0.95 : size.width * 0.8,
@@ -71,26 +77,38 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
               : ListView.separated(
                   shrinkWrap: true,
                   itemCount: _localProjects.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: AppConstants.space8),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: AppConstants.space8),
                   itemBuilder: (context, index) {
                     final project = _localProjects[index];
                     final isCurrent = project.id == widget.currentProject?.id;
                     return Container(
                       decoration: BoxDecoration(
                         color: colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                        borderRadius:
+                            BorderRadius.circular(AppConstants.radiusSmall),
                       ),
                       child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: AppConstants.space4),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: AppConstants.space12,
+                            vertical: AppConstants.space4),
                         leading: Icon(
-                          isCurrent ? Icons.folder_open_rounded : Icons.folder_rounded,
-                          color: isCurrent ? colorScheme.primary : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+                          isCurrent
+                              ? Icons.folder_open_rounded
+                              : Icons.folder_rounded,
+                          color: isCurrent
+                              ? colorScheme.primary
+                              : colorScheme.onSurface
+                                  .withOpacity(AppConstants.mediumEmphasis),
                         ),
                         title: Text(
                           project.name,
                           style: TextStyle(
-                            fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                            color: isCurrent ? colorScheme.primary : theme.textTheme.bodyLarge?.color,
+                            fontWeight:
+                                isCurrent ? FontWeight.bold : FontWeight.w600,
+                            color: isCurrent
+                                ? colorScheme.primary
+                                : theme.textTheme.bodyLarge?.color,
                           ),
                         ),
                         subtitle: Column(
@@ -105,7 +123,8 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                             ),
                             Text(
                               '${UICopy.lastActive}: ${project.lastActive}',
-                              style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(fontSize: 10),
                             ),
                           ],
                         ),
@@ -121,11 +140,14 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                                   builder: (context) => ProjectEditDialog(
                                     project: project,
                                     onUpdate: (name, path, desc) async {
-                                      await widget.onUpdate(project, name, path, description: desc);
+                                      await widget.onUpdate(project, name, path,
+                                          description: desc);
                                       setState(() {
-                                        final idx = _localProjects.indexWhere((p) => p.id == project.id);
+                                        final idx = _localProjects.indexWhere(
+                                            (p) => p.id == project.id);
                                         if (idx != -1) {
-                                          _localProjects[idx] = project.copyWith(
+                                          _localProjects[idx] =
+                                              project.copyWith(
                                             name: name,
                                             workspacePath: path,
                                             description: desc,
@@ -215,7 +237,8 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
 
     return AlertDialog(
       title: const Text(UICopy.deleteProjectTitle),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 400,
@@ -285,7 +308,9 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          Text('$label: ',
+              style:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
         ],
       ),
@@ -295,7 +320,8 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
 
 class ProjectEditDialog extends StatefulWidget {
   final Project project;
-  final Function(String name, String? workspacePath, String? description) onUpdate;
+  final Function(String name, String? workspacePath, String? description)
+      onUpdate;
 
   const ProjectEditDialog({
     super.key,
@@ -365,7 +391,8 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
           Text(UICopy.editProject, style: theme.textTheme.headlineMedium),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: isMobile ? size.width * 0.9 : 450,
@@ -399,7 +426,8 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
                 const SizedBox(height: AppConstants.space8),
                 Text(
                   UICopy.descriptionHint,
-                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.primary),
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
@@ -431,7 +459,8 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
                 )
               : const Text(UICopy.saveChanges),
         ),

@@ -84,7 +84,8 @@ class Project {
       lastIndexedAt: lastIndexedAt ?? this.lastIndexedAt,
       totalFiles: totalFiles ?? this.totalFiles,
       totalSymbols: totalSymbols ?? this.totalSymbols,
-      totalVectorizedSymbols: totalVectorizedSymbols ?? this.totalVectorizedSymbols,
+      totalVectorizedSymbols:
+          totalVectorizedSymbols ?? this.totalVectorizedSymbols,
     );
   }
 

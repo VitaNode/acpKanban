@@ -7,7 +7,8 @@ import '../utils/app_logger.dart';
 class RoadmapManagerDialog extends StatefulWidget {
   final String projectId;
   final String? initialFeatureId;
-  final Function(ProjectMilestone milestone, ProjectFeature? feature)? onFeatureSelected;
+  final Function(ProjectMilestone milestone, ProjectFeature? feature)?
+      onFeatureSelected;
 
   const RoadmapManagerDialog({
     Key? key,
@@ -34,9 +35,10 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final data = await ACPClient().getProjectProgress(widget.projectId, depth: 2);
+      final data =
+          await ACPClient().getProjectProgress(widget.projectId, depth: 2);
       final milestones = data.map((m) => ProjectMilestone.fromJson(m)).toList();
-      
+
       ProjectMilestone? foundMilestone;
       ProjectFeature? foundFeature;
 
@@ -55,7 +57,8 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
 
       setState(() {
         _milestones = milestones;
-        _selectedMilestone = foundMilestone ?? (milestones.isNotEmpty ? milestones.first : null);
+        _selectedMilestone =
+            foundMilestone ?? (milestones.isNotEmpty ? milestones.first : null);
         _isLoading = false;
       });
     } catch (e) {
@@ -76,7 +79,9 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
           decoration: const InputDecoration(labelText: 'Milestone Title'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, titleController.text),
             child: const Text('Create'),
@@ -93,7 +98,7 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
 
   Future<void> _addFeature() async {
     if (_selectedMilestone == null) return;
-    
+
     final titleController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
@@ -105,7 +110,9 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
           decoration: const InputDecoration(labelText: 'Feature Title'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, titleController.text),
             child: const Text('Create'),
@@ -121,14 +128,15 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
   }
 
   @override
-    Widget build(BuildContext context) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 600;
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusLarge)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusLarge)),
       child: Container(
         width: isMobile ? size.width * 0.95 : size.width * 0.8,
         height: isMobile ? size.height * 0.9 : size.height * 0.8,
@@ -139,19 +147,24 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text('Roadmap Planning', 
+                  child: Text(
+                    'Roadmap Planning',
                     style: theme.textTheme.headlineSmall,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
+                IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close)),
               ],
             ),
             const Divider(),
             Expanded(
-              child: _isLoading 
-                ? const Center(child: CircularProgressIndicator())
-                : isMobile ? _buildMobileLayout(theme, colorScheme) : _buildDesktopLayout(theme, colorScheme),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : isMobile
+                      ? _buildMobileLayout(theme, colorScheme)
+                      : _buildDesktopLayout(theme, colorScheme),
             ),
           ],
         ),
@@ -221,14 +234,20 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
               final m = _milestones[index];
               final isSelected = _selectedMilestone?.id == m.id;
               return ListTile(
-                title: Text(m.title, 
-                  style: TextStyle(fontWeight: isSelected ? FontWeight.bold : null, fontSize: 13),
+                title: Text(
+                  m.title,
+                  style: TextStyle(
+                      fontWeight: isSelected ? FontWeight.bold : null,
+                      fontSize: 13),
                   overflow: TextOverflow.ellipsis,
                 ),
                 selected: isSelected,
-                selectedTileColor: colorScheme.primaryContainer.withOpacity(0.3),
+                selectedTileColor:
+                    colorScheme.primaryContainer.withOpacity(0.3),
                 onTap: () => setState(() => _selectedMilestone = m),
-                trailing: isSelected ? const Icon(Icons.chevron_right, size: 16) : null,
+                trailing: isSelected
+                    ? const Icon(Icons.chevron_right, size: 16)
+                    : null,
                 dense: true,
                 visualDensity: VisualDensity.compact,
               );
@@ -252,7 +271,8 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
-                child: Text('Features: ${_selectedMilestone!.title}', 
+                child: Text(
+                  'Features: ${_selectedMilestone!.title}',
                   style: theme.textTheme.titleMedium,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -267,35 +287,39 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
         ),
         Expanded(
           child: _selectedMilestone!.features.isEmpty
-            ? const Center(child: Text('No features defined for this milestone.'))
-            : ListView.builder(
-                itemCount: _selectedMilestone!.features.length,
-                itemBuilder: (context, index) {
-                  final f = _selectedMilestone!.features[index];
-                  return ListTile(
-                    leading: const Icon(Icons.extension_outlined, size: 16),
-                    title: Text(f.title, 
-                      style: const TextStyle(fontSize: 13),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text('Progress: ${f.progress.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11)),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      onPressed: () async {
-                        await ACPClient().deleteFeature(f.id);
-                        _loadData();
+              ? const Center(
+                  child: Text('No features defined for this milestone.'))
+              : ListView.builder(
+                  itemCount: _selectedMilestone!.features.length,
+                  itemBuilder: (context, index) {
+                    final f = _selectedMilestone!.features[index];
+                    return ListTile(
+                      leading: const Icon(Icons.extension_outlined, size: 16),
+                      title: Text(
+                        f.title,
+                        style: const TextStyle(fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                          'Progress: ${f.progress.toStringAsFixed(1)}%',
+                          style: const TextStyle(fontSize: 11)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        onPressed: () async {
+                          await ACPClient().deleteFeature(f.id);
+                          _loadData();
+                        },
+                      ),
+                      onTap: () {
+                        if (widget.onFeatureSelected != null) {
+                          widget.onFeatureSelected!(_selectedMilestone!, f);
+                        }
                       },
-                    ),
-                    onTap: () {
-                      if (widget.onFeatureSelected != null) {
-                        widget.onFeatureSelected!(_selectedMilestone!, f);
-                      }
-                    },
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                  );
-                },
-              ),
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                    );
+                  },
+                ),
         ),
       ],
     );

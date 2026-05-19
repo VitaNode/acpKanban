@@ -31,9 +31,10 @@ class ThemeService extends ChangeNotifier {
     } else {
       _themeMode = ThemeMode.dark;
     }
-    
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_themeKey, _themeMode == ThemeMode.dark ? 'dark' : 'light');
+    await prefs.setString(
+        _themeKey, _themeMode == ThemeMode.dark ? 'dark' : 'light');
     notifyListeners();
   }
 }

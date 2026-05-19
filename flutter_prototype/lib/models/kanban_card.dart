@@ -68,7 +68,8 @@ class KanbanCard {
       columnName: json['column_name'],
       summary: json['summary'],
       sessionMode: json['session_mode'],
-      availableCommands: (json['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
+      availableCommands:
+          (json['available_commands'] as List?)?.cast<Map<String, dynamic>>(),
       inputTokens: json['input_tokens'] ?? 0,
       outputTokens: json['output_tokens'] ?? 0,
     );

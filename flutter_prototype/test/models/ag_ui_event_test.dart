@@ -13,7 +13,7 @@ void main() {
         'toolId': 't1',
         'name': 'search'
       });
-      
+
       final resultJson = jsonEncode({
         'type': 'ag_ui_event',
         'event': 'tool_call_result',
@@ -21,12 +21,22 @@ void main() {
         'status': 'success'
       });
 
-      final event1 = AgUiEvent.fromMessage(CardMessage(id: '1', cardId: 'c1', role: 'assistant', content: startJson, createdAt: ''));
-      final event2 = AgUiEvent.fromMessage(CardMessage(id: '2', cardId: 'c1', role: 'assistant', content: resultJson, createdAt: ''));
+      final event1 = AgUiEvent.fromMessage(CardMessage(
+          id: '1',
+          cardId: 'c1',
+          role: 'assistant',
+          content: startJson,
+          createdAt: ''));
+      final event2 = AgUiEvent.fromMessage(CardMessage(
+          id: '2',
+          cardId: 'c1',
+          role: 'assistant',
+          content: resultJson,
+          createdAt: ''));
 
       expect(event1.eventType, 'tool_call_start');
       expect(event1.toolCalls?.first.toolId, 't1');
-      
+
       expect(event2.eventType, 'tool_call_result');
       expect(event2.toolCalls?.first.status, 'success');
     });
@@ -37,10 +47,10 @@ void main() {
         {'seqId': 2, 'text': 'World'},
         {'seqId': 1, 'text': 'Hello '},
       ];
-      
+
       // 模拟前端排序逻辑
       events.sort((a, b) => (a['seqId'] as int).compareTo(b['seqId'] as int));
-      
+
       final result = events.map((e) => e['text']).join();
       expect(result, 'Hello World');
     });
@@ -56,7 +66,8 @@ void main() {
         // 如果收到了 end，但前面的 seq 还没到齐，不能标记为 complete
         if (isEnd && !receivedSeqs.contains(1)) {
           isRenderedAsComplete = false;
-        } else if (receivedSeqs.contains(1) && receivedSeqs.contains(expectedEndSeq)) {
+        } else if (receivedSeqs.contains(1) &&
+            receivedSeqs.contains(expectedEndSeq)) {
           isRenderedAsComplete = true;
         }
       }
@@ -75,10 +86,11 @@ void main() {
         id: '1',
         cardId: 'c1',
         role: 'assistant',
-        content: jsonEncode({'type': 'ag_ui_event', 'event': 'text_message', 'text': longText}),
+        content: jsonEncode(
+            {'type': 'ag_ui_event', 'event': 'text_message', 'text': longText}),
         createdAt: '',
       );
-      
+
       final event = AgUiEvent.fromMessage(msg);
       expect(event.text?.length, 10000);
     });

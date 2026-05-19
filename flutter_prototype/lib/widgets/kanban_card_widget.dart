@@ -31,7 +31,8 @@ class KanbanCardWidget extends StatelessWidget {
 
     final cardWidget = Card(
       elevation: isCompleted ? 0 : 1,
-      margin: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
+      margin: const EdgeInsets.symmetric(
+          horizontal: AppConstants.space8, vertical: AppConstants.space4),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
@@ -47,14 +48,17 @@ class KanbanCardWidget extends StatelessWidget {
                   children: [
                     if (isCompleted)
                       Padding(
-                        padding: const EdgeInsets.only(right: AppConstants.space8, top: 2),
-                        child: Icon(Icons.check_circle, size: 16, color: customColors.success),
+                        padding: const EdgeInsets.only(
+                            right: AppConstants.space8, top: 2),
+                        child: Icon(Icons.check_circle,
+                            size: 16, color: customColors.success),
                       ),
                     Expanded(
                       child: Text(
                         card.title,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          decoration: isCompleted ? TextDecoration.lineThrough : null,
+                          decoration:
+                              isCompleted ? TextDecoration.lineThrough : null,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -71,7 +75,8 @@ class KanbanCardWidget extends StatelessWidget {
                         color: theme.textTheme.bodySmall?.color,
                       ),
                     if (card.summary != null && card.summary!.isNotEmpty) ...[
-                      if (card.description.isNotEmpty) const SizedBox(width: AppConstants.space8),
+                      if (card.description.isNotEmpty)
+                        const SizedBox(width: AppConstants.space8),
                       Icon(
                         Icons.article_outlined,
                         size: 16,
@@ -81,7 +86,8 @@ class KanbanCardWidget extends StatelessWidget {
                     const Spacer(),
                     InkWell(
                       onTap: onSessionTap,
-                      borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusSmall),
                       child: _buildSessionBadge(context),
                     ),
                     _buildMenu(context),
@@ -115,7 +121,8 @@ class KanbanCardWidget extends StatelessWidget {
   Widget _buildMenu(BuildContext context) {
     final customColors = Theme.of(context).extension<CustomColors>()!;
     return PopupMenuButton<String>(
-      icon: Icon(Icons.more_horiz, size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
+      icon: Icon(Icons.more_horiz,
+          size: 18, color: Theme.of(context).textTheme.bodySmall?.color),
       padding: EdgeInsets.zero,
       onSelected: (value) {
         if (value == 'complete') onComplete?.call(card);
@@ -128,7 +135,8 @@ class KanbanCardWidget extends StatelessWidget {
             value: 'complete',
             child: Row(
               children: [
-                Icon(Icons.check_circle_outline, size: 18, color: customColors.success),
+                Icon(Icons.check_circle_outline,
+                    size: 18, color: customColors.success),
                 const SizedBox(width: 8),
                 const Text(UICopy.complete),
               ],
@@ -149,7 +157,8 @@ class KanbanCardWidget extends StatelessWidget {
           value: 'delete',
           child: Row(
             children: [
-              Icon(Icons.delete_outline, size: 18, color: Theme.of(context).colorScheme.error),
+              Icon(Icons.delete_outline,
+                  size: 18, color: Theme.of(context).colorScheme.error),
               const SizedBox(width: 8),
               const Text(UICopy.delete),
             ],
@@ -170,7 +179,8 @@ class KanbanCardWidget extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.chat_bubble_outline_rounded, size: 12, color: theme.colorScheme.primary),
+          Icon(Icons.chat_bubble_outline_rounded,
+              size: 12, color: theme.colorScheme.primary),
           const SizedBox(width: 4),
           Text(
             '${card.sessionCount}',

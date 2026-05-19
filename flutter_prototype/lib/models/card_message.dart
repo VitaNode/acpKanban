@@ -27,7 +27,9 @@ class CardMessage {
       content: json['content'] ?? '',
       createdAt: json['created_at'] ?? DateTime.now().toIso8601String(),
       metadata: json['metadata'],
-      isComplete: json['is_complete'] == 0 || json['is_complete'] == false ? false : true,
+      isComplete: json['is_complete'] == 0 || json['is_complete'] == false
+          ? false
+          : true,
       seqId: json['seq_id'] is int ? json['seq_id'] : null,
     );
   }

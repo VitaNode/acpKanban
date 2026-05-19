@@ -56,7 +56,7 @@ class ConnectionConfigManager {
       // Load tokens from secure storage
       final relayToken = await _secureStorage.read(key: _tokenKey);
       final apiToken = await _secureStorage.read(key: _apiTokenKey);
-      
+
       final config = ConnectionConfig.fromJson(json);
       // Ensure userId exists
       final finalConfig =

@@ -36,7 +36,8 @@ class _ProjectRoadmapViewState extends State<ProjectRoadmapView> {
     });
 
     try {
-      final data = await ACPClient().getProjectProgress(widget.projectId, depth: 3);
+      final data =
+          await ACPClient().getProjectProgress(widget.projectId, depth: 3);
       setState(() {
         _roadmap = data.map((m) => ProjectMilestone.fromJson(m)).toList();
         _isLoading = false;
@@ -76,14 +77,18 @@ class _ProjectRoadmapViewState extends State<ProjectRoadmapView> {
               children: [
                 const Icon(Icons.alt_route_rounded, size: 20),
                 const SizedBox(width: 12),
-                const Text('PROJECT ROADMAP', 
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.5)),
+                const Text('PROJECT ROADMAP',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        letterSpacing: 0.5)),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: widget.onManageTap,
                   icon: const Icon(Icons.edit_note_rounded, size: 18),
                   label: const Text('Manage'),
-                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                  style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact),
                 ),
               ],
             ),
@@ -129,17 +134,22 @@ class _ProjectRoadmapViewState extends State<ProjectRoadmapView> {
         subtitle: Text('Progress: ${feature.progress.toStringAsFixed(1)}%'),
         leading: const Icon(Icons.extension, size: 18),
         children: [
-          _buildStatusGroup('Completed', feature.counts['completed'] ?? 0, Colors.green, feature.cards, 'completed'),
-          _buildStatusGroup('Active', feature.counts['active'] ?? 0, Colors.blue, feature.cards, 'active'),
-          _buildStatusGroup('Plan', feature.counts['plan'] ?? 0, Colors.grey, feature.cards, 'plan'),
+          _buildStatusGroup('Completed', feature.counts['completed'] ?? 0,
+              Colors.green, feature.cards, 'completed'),
+          _buildStatusGroup('Active', feature.counts['active'] ?? 0,
+              Colors.blue, feature.cards, 'active'),
+          _buildStatusGroup('Plan', feature.counts['plan'] ?? 0, Colors.grey,
+              feature.cards, 'plan'),
         ],
       ),
     );
   }
 
-  Widget _buildStatusGroup(String label, int count, Color color, List<RoadmapCardSummary>? allCards, String status) {
-    final statusCards = allCards?.where((c) => c.planStatus == status).toList() ?? [];
-    
+  Widget _buildStatusGroup(String label, int count, Color color,
+      List<RoadmapCardSummary>? allCards, String status) {
+    final statusCards =
+        allCards?.where((c) => c.planStatus == status).toList() ?? [];
+
     return Padding(
       padding: const EdgeInsets.only(left: 32.0),
       child: ExpansionTile(
@@ -148,13 +158,16 @@ class _ProjectRoadmapViewState extends State<ProjectRoadmapView> {
           style: TextStyle(fontSize: 13, color: color),
         ),
         dense: true,
-        children: statusCards.map((c) => ListTile(
-          title: Text(c.title, style: const TextStyle(fontSize: 12)),
-          onTap: () => widget.onCardTap(c.id),
-          dense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 48.0, vertical: 0),
-          visualDensity: VisualDensity.compact,
-        )).toList(),
+        children: statusCards
+            .map((c) => ListTile(
+                  title: Text(c.title, style: const TextStyle(fontSize: 12)),
+                  onTap: () => widget.onCardTap(c.id),
+                  dense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 48.0, vertical: 0),
+                  visualDensity: VisualDensity.compact,
+                ))
+            .toList(),
       ),
     );
   }

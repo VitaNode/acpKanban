@@ -195,7 +195,8 @@ class ACPClient {
           }
 
           Map<String, dynamic> data = decoded;
-          AppLogger.debug('[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
+          AppLogger.debug(
+              '[ACP] Decoded data method: ${data['method'] ?? 'N/A'}');
 
           if (_e2ee != null &&
               data.containsKey('method') &&
@@ -317,7 +318,7 @@ class ACPClient {
 
       _agentCapabilities = response['result']?['agentCapabilities'] ?? {};
       AppLogger.info('[ACP] Agent capabilities: $_agentCapabilities');
-      
+
       if (_readyCompleter != null && !_readyCompleter!.isCompleted) {
         _readyCompleter!.complete();
       }

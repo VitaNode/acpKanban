@@ -25,15 +25,19 @@ class UICopy {
   static const String projectDescription = 'Project Description';
   static const String briefDescription = 'Brief description...';
   static const String workspacePath = 'Workspace Path';
-  static const String descriptionHint = '💡 Description is included in the AI context.';
+  static const String descriptionHint =
+      '💡 Description is included in the AI context.';
   static const String noProjectSelected = 'No project selected';
   static const String createProject = 'Create Project';
   static const String noColumnsFound = 'No columns found for this project.';
-  static const String noCardsYet = 'No cards yet. Add your first task to begin.';
+  static const String noCardsYet =
+      'No cards yet. Add your first task to begin.';
   static const String addFirstCard = 'Add Card';
   static const String openSettings = 'Open Settings';
-  static const String connectionRequired = 'Connection required. Open Settings to configure your endpoint.';
-  static const String unknownErrorOccurred = 'An unknown error occurred during initialization.';
+  static const String connectionRequired =
+      'Connection required. Open Settings to configure your endpoint.';
+  static const String unknownErrorOccurred =
+      'An unknown error occurred during initialization.';
   static const String cardTitleLabel = 'Title *';
   static const String enterCardTitle = 'Enter card title';
   static const String enterCardDescription = 'Enter card description';
@@ -52,9 +56,11 @@ class UICopy {
   static const String editProject = 'Edit Project';
   static const String deleteProject = 'Delete Project';
   static const String deleteProjectTitle = 'Delete Project?';
-  static const String confirmDeleteProjectMsg = 'Are you sure you want to delete';
+  static const String confirmDeleteProjectMsg =
+      'Are you sure you want to delete';
   static const String cannotDeleteActiveMsg = 'Cannot delete active project';
-  static const String deleteWarning = 'This action cannot be undone and will delete all cards, columns, and history associated with this project.';
+  static const String deleteWarning =
+      'This action cannot be undone and will delete all cards, columns, and history associated with this project.';
   static const String confirmDeleteHint = 'Type project name to confirm';
   static const String deletePermanently = 'Delete Permanently';
   static const String saveChanges = 'Save Changes';
@@ -70,7 +76,8 @@ class UICopy {
   static const String titleRequired = 'Title is required';
   static const String moveCard = 'Move to Column';
   static const String cardNotFound = 'Card not found in current project view';
-  static const String confirmDeleteCard = 'Are you sure you want to delete this card?';
+  static const String confirmDeleteCard =
+      'Are you sure you want to delete this card?';
   static const String cardCompleted = 'Card completed';
   static const String cardReactivated = 'Card reactivated';
   static const String cardDeleted = 'Card deleted';
@@ -94,8 +101,10 @@ class UICopy {
   static const String selectMilestone = 'Select Milestone';
   static const String addDescriptionHint = 'Add a description...';
   static const String autoGenerateSummary = 'Auto-generate summary';
-  static const String addSummaryHint = 'Add a summary of the current progress...';
-  static const String noSummaryYet = 'No summary available yet. Summaries are automatically generated when moving cards or completing tasks.';
+  static const String addSummaryHint =
+      'Add a summary of the current progress...';
+  static const String noSummaryYet =
+      'No summary available yet. Summaries are automatically generated when moving cards or completing tasks.';
   static const String unreadMessages = 'new messages';
   static const String injectSystemContext = 'Inject System Context';
   static const String slashCommands = 'Slash Commands';
@@ -110,14 +119,16 @@ class UICopy {
   static const String error = 'Error';
   static const String authorized = 'Authorized';
   static const String permissionRequest = 'Permission Request';
-  static const String agentNeedsPermission = 'The agent needs your permission to continue.';
+  static const String agentNeedsPermission =
+      'The agent needs your permission to continue.';
   static const String cardStatusUpdate = 'Card status updated';
   static const String disconnected = 'Disconnected';
   static const String connecting = 'Connecting...';
   static const String connected = 'Connected';
   static const String scanFailed = 'Scan failed';
   static const String howToGetCredentials = 'How to get Credentials?';
-  static const String credentialsGuide = '1. Start the AI Kanban API on your computer.\n2. Open "config.json" in the project root.\n3. Find "user_id", "token" (relay) and "api_token" (system).\n4. Copy and paste them into the fields below.';
+  static const String credentialsGuide =
+      '1. Start the AI Kanban API on your computer.\n2. Open "config.json" in the project root.\n3. Find "user_id", "token" (relay) and "api_token" (system).\n4. Copy and paste them into the fields below.';
   static const String connectionMode = 'CONNECTION TARGET';
   static const String unifiedCredentials = 'UNIFIED CREDENTIALS';
   static const String systemAgent = 'SYSTEM AGENT (LLM)';
@@ -149,7 +160,8 @@ class UICopy {
   static const String startConversation = 'Start a conversation...';
   static const String agentThinking = 'Agent is thinking...';
   static const String stopAgent = 'Stop Agent';
-  static const String confirmStopAgent = 'Are you sure you want to interrupt the agent?';
+  static const String confirmStopAgent =
+      'Are you sure you want to interrupt the agent?';
   static const String contextInjection = 'CONTEXT INJECTION';
   static const String progressSummary = 'PROGRESS SUMMARY';
   static const String sendToAgent = 'SEND TO AGENT';
@@ -170,8 +182,10 @@ class UICopy {
   static const String connectionSettings = 'Connection Settings';
   static const String connectedSuccessfully = 'Connected successfully!';
   static const String connectionFailed = 'Connection failed';
-  static const String configureCredentials = 'Please configure your User ID and Token to continue.';
-  static const String webLocalNotSupported = 'Local connection is not supported on Web. Please use Relay or Cloud mode.';
+  static const String configureCredentials =
+      'Please configure your User ID and Token to continue.';
+  static const String webLocalNotSupported =
+      'Local connection is not supported on Web. Please use Relay or Cloud mode.';
 
   // Column Management
   static const String manageColumns = 'Manage Columns';
@@ -184,8 +198,10 @@ class UICopy {
   static const String defaultAiProvider = 'Default AI Provider';
   static const String noneManualSelection = 'None (Manual selection)';
   static const String promptTemplate = 'Prompt Template';
-  static const String promptTemplateHint = 'Instructions for AI in this column...';
-  static const String customPromptDescription = '💡 Custom prompt for cards in this column.';
+  static const String promptTemplateHint =
+      'Instructions for AI in this column...';
+  static const String customPromptDescription =
+      '💡 Custom prompt for cards in this column.';
   static const String targetColumn = 'Target Column';
   static const String selectTargetColumn = 'Select target column';
   static const String selectAgentForColumn = 'Select an agent for this column';

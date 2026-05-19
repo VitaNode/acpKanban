@@ -7,7 +7,7 @@ void main() {
     test('test_ui_format_negotiation', () async {
       // 模拟 WebSocket 消息发送逻辑
       Map<String, dynamic> lastSentData = {};
-      
+
       void mockSend(dynamic data) {
         lastSentData = data as Map<String, dynamic>;
       }
@@ -30,13 +30,10 @@ void main() {
     test('test_network_reconnection_recovery_logic', () async {
       // 模拟前端已收到的 seqId
       int lastReceivedSeq = 10;
-      
+
       // 模拟重连请求历史时带上 offset
       Map<String, dynamic> requestHistory(int lastSeq) {
-        return {
-          'type': 'get_history',
-          'after_seq': lastSeq
-        };
+        return {'type': 'get_history', 'after_seq': lastSeq};
       }
 
       final req = requestHistory(lastReceivedSeq);

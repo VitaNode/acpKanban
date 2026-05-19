@@ -18,10 +18,10 @@ class AppConstants {
   static const double space48 = 48.0;
 
   // Radius Tokens
-  static const double radiusSmall = 8.0;   // Buttons, small containers
+  static const double radiusSmall = 8.0; // Buttons, small containers
   static const double radiusMedium = 12.0; // Cards, dialogs
-  static const double radiusLarge = 24.0;  // Input fields, chips
-  static const double radiusFull = 99.0;   // Pill buttons
+  static const double radiusLarge = 24.0; // Input fields, chips
+  static const double radiusFull = 99.0; // Pill buttons
 
   // Emphasis (Opacity)
   static const double highEmphasis = 0.87;

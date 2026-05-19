@@ -5,9 +5,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 Future<WebSocketChannel?> connectWebSocket(String url, String? token) async {
   try {
     final uri = Uri.parse(url);
-    final headers = token != null
-        ? {'Authorization': 'Bearer $token'}
-        : <String, String>{};
+    final headers =
+        token != null ? {'Authorization': 'Bearer $token'} : <String, String>{};
     final channel = IOWebSocketChannel.connect(uri, headers: headers);
     await channel.ready.timeout(const Duration(seconds: 3));
     return channel;

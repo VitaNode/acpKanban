@@ -12,7 +12,7 @@ void main() {
     // === 高优先级补充：节流逻辑验证 ===
     testWidgets('test_throttle_timing', (WidgetTester tester) async {
       String currentText = "";
-      
+
       // 模拟一个简单的节流渲染组件逻辑
       await tester.pumpWidget(MaterialApp(
         home: StatefulBuilder(
@@ -25,7 +25,7 @@ void main() {
                 setState(() {});
               });
             }
-            
+
             return Scaffold(
               body: Column(
                 children: [
@@ -47,7 +47,7 @@ void main() {
 
       await tester.tap(find.text("Send Chunks"));
       // 立即检查：由于节流，UI 应该还没刷新
-      await tester.pump(); 
+      await tester.pump();
       expect(find.text("ABC"), findsNothing);
 
       // 等待超过 60ms
@@ -56,7 +56,8 @@ void main() {
     });
 
     // === 高优先级补充：ToolPill 状态切换渲染 ===
-    testWidgets('test_tool_pill_state_transition_ui', (WidgetTester tester) async {
+    testWidgets('test_tool_pill_state_transition_ui',
+        (WidgetTester tester) async {
       // 初始状态：Running
       await tester.pumpWidget(const MaterialApp(
         home: Scaffold(
@@ -71,11 +72,13 @@ void main() {
           body: ToolPill(name: 'read_file', status: 'success'),
         ),
       ));
-      expect(find.byIcon(Icons.check_circle), findsOneWidget); // 假设 success 显示勾选图标
+      expect(
+          find.byIcon(Icons.check_circle), findsOneWidget); // 假设 success 显示勾选图标
     });
 
     // === 中优先级补充：ThinkingBlock 展开/折叠交互 ===
-    testWidgets('test_thinking_block_expand_collapse', (WidgetTester tester) async {
+    testWidgets('test_thinking_block_expand_collapse',
+        (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: SizedBox(
@@ -103,17 +106,22 @@ void main() {
     });
 
     // === 中优先级补充：长对话列表性能 (Mock) ===
-    testWidgets('test_long_conversation_performance_rendering', (WidgetTester tester) async {
+    testWidgets('test_long_conversation_performance_rendering',
+        (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(
         home: Scaffold(
           body: Center(
-            child: Text('Test placeholder - MessageBubble integration requires full app context'),
+            child: Text(
+                'Test placeholder - MessageBubble integration requires full app context'),
           ),
         ),
       ));
-      
+
       // 验证占位文本可见
-      expect(find.text('Test placeholder - MessageBubble integration requires full app context'), findsOneWidget);
+      expect(
+          find.text(
+              'Test placeholder - MessageBubble integration requires full app context'),
+          findsOneWidget);
     });
   });
 }

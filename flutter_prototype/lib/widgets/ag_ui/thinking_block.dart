@@ -78,7 +78,7 @@ class _ThinkingBlockState extends State<ThinkingBlock>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
@@ -117,7 +117,8 @@ class _ThinkingBlockState extends State<ThinkingBlock>
                     ),
                   ),
                   RotationTransition(
-                    turns: Tween(begin: 0.0, end: 0.5).animate(_expandAnimation),
+                    turns:
+                        Tween(begin: 0.0, end: 0.5).animate(_expandAnimation),
                     child: const Icon(Icons.expand_more, size: 18),
                   ),
                 ],
@@ -130,21 +131,21 @@ class _ThinkingBlockState extends State<ThinkingBlock>
             axisAlignment: -1.0,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: widget.styleSheet != null 
-                ? MarkdownBody(
-                    data: widget.text,
-                    styleSheet: widget.styleSheet,
-                    builders: widget.builders ?? const {},
-                  )
-                : Text(
-                    widget.text,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: colorScheme.onSurfaceVariant.withOpacity(0.9),
-                      fontFamily: 'monospace',
+              child: widget.styleSheet != null
+                  ? MarkdownBody(
+                      data: widget.text,
+                      styleSheet: widget.styleSheet,
+                      builders: widget.builders ?? const {},
+                    )
+                  : Text(
+                      widget.text,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: colorScheme.onSurfaceVariant.withOpacity(0.9),
+                        fontFamily: 'monospace',
+                      ),
                     ),
-                  ),
             ),
           ),
         ],

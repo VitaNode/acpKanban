@@ -31,9 +31,9 @@ class SmartConnect {
     String? userId,
     String? cloudUrl,
   }) async {
-    // Both Local and Relay modes in the new UI use the Relay protocol 
+    // Both Local and Relay modes in the new UI use the Relay protocol
     // to tunnel through the Bridge for security (since API is on 127.0.0.1).
-    
+
     String? targetHost;
     ConnectionPath path;
 
@@ -48,7 +48,8 @@ class SmartConnect {
         break;
       case ConnectionMode.cloud:
         // Cloud mode remains for direct SaaS connection if needed
-        final targetUrl = cloudUrl ?? 'ws://${relayHost ?? "localhost"}:$relayPort/direct';
+        final targetUrl =
+            cloudUrl ?? 'ws://${relayHost ?? "localhost"}:$relayPort/direct';
         return _connectStrict(targetUrl, ConnectionPath.cloud, relayToken);
     }
 
@@ -61,7 +62,8 @@ class SmartConnect {
 
     // Fallback/Legacy logic if userId is missing
     if (mode == ConnectionMode.local) {
-      return _connectLocal(localIp: localIp, useMdns: useMdns, token: relayToken);
+      return _connectLocal(
+          localIp: localIp, useMdns: useMdns, token: relayToken);
     }
 
     throw Exception('Connection failed. Missing userId or target host.');
@@ -134,10 +136,10 @@ class SmartConnect {
         print('[SmartConnect] mDNS client start failed: $e');
         return null;
       }
-      
+
       final String? ip = await (() async {
         try {
-          // Phase 5.3 FIX: In some environments, even calling lookup() can throw 
+          // Phase 5.3 FIX: In some environments, even calling lookup() can throw
           // a synchronous SocketException before the stream is returned.
           Stream<PtrResourceRecord>? lookupStream;
           try {
@@ -150,22 +152,29 @@ class SmartConnect {
 
           if (lookupStream == null) return null;
 
-          await for (final PtrResourceRecord ptr in lookupStream.handleError((e) => print('mDNS Stream Error: $e'))) {
+          await for (final PtrResourceRecord ptr in lookupStream
+              .handleError((e) => print('mDNS Stream Error: $e'))) {
             try {
               final srvStream = client.lookup<SrvResourceRecord>(
                   ResourceRecordQuery.service(ptr.domainName));
 
-              await for (final SrvResourceRecord srv in srvStream.handleError((e) => print('SRV Stream Error: $e'))) {
+              await for (final SrvResourceRecord srv in srvStream
+                  .handleError((e) => print('SRV Stream Error: $e'))) {
                 try {
                   final ipStream = client.lookup<IPAddressResourceRecord>(
                       ResourceRecordQuery.addressIPv4(srv.target));
 
-                  await for (final IPAddressResourceRecord ipRecord in ipStream.handleError((e) => print('IP Stream Error: $e'))) {
+                  await for (final IPAddressResourceRecord ipRecord in ipStream
+                      .handleError((e) => print('IP Stream Error: $e'))) {
                     return ipRecord.address.address;
                   }
-                } catch (ipE) { print('IP Outer Error: $ipE'); }
+                } catch (ipE) {
+                  print('IP Outer Error: $ipE');
+                }
               }
-            } catch (srvE) { print('SRV Outer Error: $srvE'); }
+            } catch (srvE) {
+              print('SRV Outer Error: $srvE');
+            }
           }
         } catch (lookupError) {
           print('[SmartConnect] mDNS lookup major error: $lookupError');

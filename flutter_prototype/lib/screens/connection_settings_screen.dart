@@ -26,8 +26,7 @@ class ConnectionSettingsView extends StatefulWidget {
   });
 
   @override
-  State<ConnectionSettingsView> createState() =>
-      _ConnectionSettingsViewState();
+  State<ConnectionSettingsView> createState() => _ConnectionSettingsViewState();
 }
 
 class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
@@ -36,11 +35,9 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   late TextEditingController _relayHostController;
   late TextEditingController _relayTokenController;
   late TextEditingController _apiTokenController;
-  late TextEditingController _cloudUrlController;
   late TextEditingController _userIdController;
   late TextEditingController _localPortController;
   late TextEditingController _relayPortController;
-  late TextEditingController _apiPortController;
   late TextEditingController _systemBaseUrlController;
   late TextEditingController _systemApiKeyController;
   late TextEditingController _summaryModelController;
@@ -48,7 +45,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
 
   late int _relayPort;
   late int _localPort;
-  late int _apiPort;
 
   bool _isConnecting = false;
   String _connectionStatus = UICopy.disconnected;
@@ -64,10 +60,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _relayTokenController = TextEditingController();
     _apiTokenController = TextEditingController();
     _userIdController = TextEditingController(text: widget.userId);
-    _cloudUrlController = TextEditingController();
     _localPortController = TextEditingController(text: '8766');
     _relayPortController = TextEditingController(text: '8766');
-    _apiPortController = TextEditingController(text: '8000');
     _systemBaseUrlController = TextEditingController();
     _systemApiKeyController = TextEditingController();
     _summaryModelController = TextEditingController(text: 'gpt-4o-mini');
@@ -75,7 +69,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         TextEditingController(text: 'text-embedding-3-small');
     _relayPort = 8766;
     _localPort = 8766;
-    _apiPort = 8000;
     _loadConfig();
   }
 
@@ -89,17 +82,18 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       _relayHostController.text = config.relayHost ?? '';
       _relayTokenController.text = config.relayToken ?? '';
       _apiTokenController.text = config.apiToken ?? '';
-      _userIdController.text = (config.userId == null || config.userId!.isEmpty) ? widget.userId : config.userId!;
-      _cloudUrlController.text = config.cloudUrl ?? '';
+      _userIdController.text = (config.userId == null || config.userId!.isEmpty)
+          ? widget.userId
+          : config.userId!;
       _localPortController.text = (config.localPort ?? 8766).toString();
       _relayPortController.text = (config.relayPort ?? 8766).toString();
-      _apiPortController.text = (config.localPort ?? 8000).toString();
-      
+
       _systemBaseUrlController.text = config.systemConfig?.baseUrl ?? '';
       _systemApiKeyController.text = config.systemConfig?.apiKey ?? '';
       if (config.systemConfig != null) {
         _summaryModelController.text = config.systemConfig!.summaryModel ?? '';
-        _embeddingModelController.text = config.systemConfig!.embeddingModel ?? '';
+        _embeddingModelController.text =
+            config.systemConfig!.embeddingModel ?? '';
       }
 
       _relayPort = config.relayPort ?? 8766;
@@ -114,7 +108,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _userIdController.dispose();
     _relayTokenController.dispose();
     _apiTokenController.dispose();
-    _cloudUrlController.dispose();
     _localPortController.dispose();
     _relayPortController.dispose();
     _systemBaseUrlController.dispose();
@@ -168,22 +161,18 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       relayToken: _relayTokenController.text.isEmpty
           ? null
           : _relayTokenController.text,
-      apiToken: _apiTokenController.text.isEmpty
-          ? null
-          : _apiTokenController.text,
-      cloudUrl:
-          _cloudUrlController.text.isEmpty ? null : _cloudUrlController.text,
+      apiToken:
+          _apiTokenController.text.isEmpty ? null : _apiTokenController.text,
       userId: _userIdController.text.isEmpty ? null : _userIdController.text,
       useMdns: true,
       systemConfig: SystemProxyConfig(
-        providerId: 'openai', // Default to openai for system tasks
-        config: {
-          'base_url': _systemBaseUrlController.text,
-          'api_key': _systemApiKeyController.text,
-          'summary_model': _summaryModelController.text,
-          'embedding_model': _embeddingModelController.text,
-        }
-      ),
+          providerId: 'openai', // Default to openai for system tasks
+          config: {
+            'base_url': _systemBaseUrlController.text,
+            'api_key': _systemApiKeyController.text,
+            'summary_model': _summaryModelController.text,
+            'embedding_model': _embeddingModelController.text,
+          }),
     );
 
     await configManager.saveConfig(config);
@@ -198,7 +187,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     try {
       widget.acpClient.disconnect();
 
-      final acpConfig = ACPConfig.fromConnectionConfig(config, config.userId ?? widget.userId);
+      final acpConfig = ACPConfig.fromConnectionConfig(
+          config, config.userId ?? widget.userId);
       await widget.acpClient.smartConnect(acpConfig);
       await widget.acpClient.initialize(acpConfig.systemConfig);
 
@@ -206,7 +196,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         setState(() {
           _connectionStatus = UICopy.connected;
         });
-        
+
         widget.onConnectionChanged?.call(
           widget.acpClient.activeMode,
           widget.acpClient.activeUrl,
@@ -233,7 +223,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   Color _getStatusColor() {
     final customColors = Theme.of(context).extension<CustomColors>()!;
     if (_connectionStatus == UICopy.connected) return customColors.success!;
-    if (_connectionStatus.startsWith(UICopy.error)) return Theme.of(context).colorScheme.error;
+    if (_connectionStatus.startsWith(UICopy.error))
+      return Theme.of(context).colorScheme.error;
     return customColors.warning!;
   }
 
@@ -287,15 +278,20 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.power_settings_new_rounded),
-              label: Text(_isConnecting ? UICopy.scanning : UICopy.saveAndConnect),
+              label:
+                  Text(_isConnecting ? UICopy.scanning : UICopy.saveAndConnect),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                padding:
+                    const EdgeInsets.symmetric(vertical: AppConstants.space16),
+                shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusSmall)),
               ),
             ),
           ),
@@ -361,7 +357,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         children: [
           Row(
             children: [
-              Icon(Icons.help_outline_rounded, color: colorScheme.primary, size: 20),
+              Icon(Icons.help_outline_rounded,
+                  color: colorScheme.primary, size: 20),
               const SizedBox(width: 8),
               Text(
                 UICopy.howToGetCredentials,
@@ -408,12 +405,12 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     final isSelected = _selectedMode == mode;
     final colorScheme = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
-    
+
     return Expanded(
       child: Material(
-        color: isSelected 
-          ? colorScheme.primary.withOpacity(0.1) 
-          : colorScheme.surfaceContainer,
+        color: isSelected
+            ? colorScheme.primary.withOpacity(0.1)
+            : colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
         child: InkWell(
           onTap: () => setState(() => _selectedMode = mode),
@@ -423,24 +420,30 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
               border: Border.all(
-                color: isSelected ? colorScheme.primary : theme.dividerTheme.color!,
+                color: isSelected
+                    ? colorScheme.primary
+                    : theme.dividerTheme.color!,
                 width: isSelected ? 2 : 1,
               ),
             ),
             child: Column(
               children: [
-                Icon(icon, 
-                  color: isSelected 
-                    ? colorScheme.primary 
-                    : theme.textTheme.bodySmall?.color, 
-                  size: 20),
+                Icon(icon,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : theme.textTheme.bodySmall?.color,
+                    size: 20),
                 const SizedBox(height: 4),
                 Text(
                   label,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? colorScheme.primary : theme.textTheme.bodyMedium?.color?.withOpacity(AppConstants.mediumEmphasis),
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : theme.textTheme.bodyMedium?.color
+                            ?.withOpacity(AppConstants.mediumEmphasis),
                   ),
                 ),
               ],
@@ -464,7 +467,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
         children: [
           Row(
             children: [
-              Icon(Icons.info_outline_rounded, size: 16, color: Theme.of(context).colorScheme.primary),
+              Icon(Icons.info_outline_rounded,
+                  size: 16, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 8),
               Text(
                 '${_selectedMode.name.toUpperCase()} ${UICopy.configuration}',
@@ -486,7 +490,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   Widget _buildLocalFields() {
     final customColors = Theme.of(context).extension<CustomColors>()!;
     final isMac = !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
-    
+
     if (isMac) {
       _localIpController.text = 'localhost';
     }
@@ -507,10 +511,13 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.search_rounded, size: 18),
-                  label: Text(_isScanning ? UICopy.scanning : UICopy.scanLocalNetwork),
+                  label: Text(
+                      _isScanning ? UICopy.scanning : UICopy.scanLocalNetwork),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(AppConstants.radiusSmall)),
                   ),
                 ),
               ),
@@ -520,9 +527,13 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
             const SizedBox(height: AppConstants.space8),
             Center(
               child: Text(
-                _scannedIp!.startsWith('Scan') ? _scannedIp! : '${UICopy.found}: $_scannedIp',
+                _scannedIp!.startsWith('Scan')
+                    ? _scannedIp!
+                    : '${UICopy.found}: $_scannedIp',
                 style: TextStyle(
-                  color: _scannedIp!.startsWith('Scan') ? Theme.of(context).colorScheme.error : customColors.success,
+                  color: _scannedIp!.startsWith('Scan')
+                      ? Theme.of(context).colorScheme.error
+                      : customColors.success,
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
                 ),
@@ -540,31 +551,14 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           ),
         ),
         const SizedBox(height: AppConstants.space12),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _localPortController,
-                decoration: const InputDecoration(
-                  labelText: UICopy.wsPort,
-                ),
-                keyboardType: TextInputType.number,
-                onChanged: (v) =>
-                    setState(() => _localPort = int.tryParse(v) ?? 8766),
-              ),
-            ),
-            const SizedBox(width: AppConstants.space12),
-            Expanded(
-              child: TextField(
-                controller: _apiPortController,
-                decoration: const InputDecoration(
-                  labelText: UICopy.apiPort,
-                ),
-                keyboardType: TextInputType.number,
-                onChanged: (v) => setState(() => _apiPort = int.tryParse(v) ?? 8000),
-              ),
-            ),
-          ],
+        TextField(
+          controller: _localPortController,
+          decoration: const InputDecoration(
+            labelText: UICopy.wsPort,
+          ),
+          keyboardType: TextInputType.number,
+          onChanged: (v) =>
+              setState(() => _localPort = int.tryParse(v) ?? 8766),
         ),
       ],
     );
@@ -666,18 +660,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
               _connectionStatus.toUpperCase(),
               style: TextStyle(
                 fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: _getStatusColor(),
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-ontSize: 11,
                 fontWeight: FontWeight.bold,
                 color: _getStatusColor(),
                 letterSpacing: 0.5,

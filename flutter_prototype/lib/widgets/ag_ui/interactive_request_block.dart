@@ -21,7 +21,7 @@ class InteractiveRequestBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       width: double.infinity,
@@ -38,11 +38,8 @@ class InteractiveRequestBlock extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: [
-                Icon(
-                  _getIconForMethod(event.method), 
-                  size: 18, 
-                  color: colorScheme.primary
-                ),
+                Icon(_getIconForMethod(event.method),
+                    size: 18, color: colorScheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -55,7 +52,8 @@ class InteractiveRequestBlock extends StatelessWidget {
                 ),
                 if (isResponded)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(4),
@@ -72,29 +70,34 @@ class InteractiveRequestBlock extends StatelessWidget {
               ],
             ),
           ),
-          
+
           // Body
-          if ((event.text != null && event.text!.isNotEmpty) || (event.title != null && event.title!.isNotEmpty))
+          if ((event.text != null && event.text!.isNotEmpty) ||
+              (event.title != null && event.title!.isNotEmpty))
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: MarkdownBody(
-                data: (event.text != null && event.text!.isNotEmpty) ? event.text! : event.title!,
+                data: (event.text != null && event.text!.isNotEmpty)
+                    ? event.text!
+                    : event.title!,
                 selectable: false,
-                styleSheet: styleSheet ?? MarkdownStyleSheet.fromTheme(theme).copyWith(
-                  p: theme.textTheme.bodyMedium?.copyWith(height: 1.5, fontSize: 13),
-                  code: TextStyle(
-                    backgroundColor: colorScheme.surfaceContainer,
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  ),
-                  codeblockDecoration: BoxDecoration(
-                    color: colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
+                styleSheet: styleSheet ??
+                    MarkdownStyleSheet.fromTheme(theme).copyWith(
+                      p: theme.textTheme.bodyMedium
+                          ?.copyWith(height: 1.5, fontSize: 13),
+                      code: TextStyle(
+                        backgroundColor: colorScheme.surfaceContainer,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                      codeblockDecoration: BoxDecoration(
+                        color: colorScheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
               ),
             ),
-            
+
           // Buttons
           if (!isResponded)
             Padding(
@@ -106,12 +109,13 @@ class InteractiveRequestBlock extends StatelessWidget {
                   final optionId = opt['id']?.toString() ?? '';
                   final label = opt['label']?.toString() ?? 'Option';
                   final isPrimary = opt['primary'] == true;
-                  
+
                   if (isPrimary) {
                     return FilledButton.tonal(
                       onPressed: () => onOptionSelected(optionId),
                       style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 0),
                         minimumSize: const Size(0, 32),
                         visualDensity: VisualDensity.compact,
                       ),
@@ -121,7 +125,8 @@ class InteractiveRequestBlock extends StatelessWidget {
                     return OutlinedButton(
                       onPressed: () => onOptionSelected(optionId),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 0),
                         minimumSize: const Size(0, 32),
                         visualDensity: VisualDensity.compact,
                       ),

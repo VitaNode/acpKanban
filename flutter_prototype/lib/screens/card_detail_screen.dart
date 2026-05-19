@@ -59,7 +59,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   List<Map<String, dynamic>> _availableCommands = [];
   int _inputTokens = 0;
   int _outputTokens = 0;
-  
+
   String? _summary;
   late TextEditingController _summaryController;
   bool _isEditingSummary = false;
@@ -96,7 +96,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   StreamSubscription? _initializingSub;
   StreamSubscription? _contextSub;
   Timer? _debounceTimer;
-  
+
   Timer? _renderThrottleTimer;
   List<CardMessage> _pendingMessages = [];
 
@@ -104,7 +104,10 @@ class _CardDetailViewState extends State<CardDetailView> {
   void initState() {
     super.initState();
     _card = widget.card;
-    _columnName = (_card.columnName != null && _card.columnName!.toLowerCase() != 'detail') ? _card.columnName : null;
+    _columnName = (_card.columnName != null &&
+            _card.columnName!.toLowerCase() != 'detail')
+        ? _card.columnName
+        : null;
     _availableCommands = _card.availableCommands ?? [];
     _inputTokens = _card.inputTokens;
     _outputTokens = _card.outputTokens;
@@ -112,7 +115,8 @@ class _CardDetailViewState extends State<CardDetailView> {
     _descriptionController = TextEditingController(text: _card.description);
     _summaryController = TextEditingController();
     _contextController = TextEditingController();
-    _isAgentConnected = _card.acpSessionId != null && _card.acpSessionId!.isNotEmpty;
+    _isAgentConnected =
+        _card.acpSessionId != null && _card.acpSessionId!.isNotEmpty;
     _setupWebSocket();
     _loadSummary();
     _loadEnvironmentInfo();
@@ -129,7 +133,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
     bool atBottom = pos.extentAfter < 100;
-    
+
     if (atBottom != _userIsAtBottom) {
       setState(() {
         _userIsAtBottom = atBottom;
@@ -142,12 +146,13 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   Future<void> _loadRoadmapData() async {
     try {
-      final data = await ACPClient().getProjectProgress(widget.projectId, depth: 2);
+      final data =
+          await ACPClient().getProjectProgress(widget.projectId, depth: 2);
       final milestones = data.map((m) => ProjectMilestone.fromJson(m)).toList();
-      
+
       ProjectMilestone? foundMilestone;
       ProjectFeature? foundFeature;
-      
+
       if (_card.featureId != null) {
         for (var m in milestones) {
           for (var f in m.features) {
@@ -179,9 +184,9 @@ class _CardDetailViewState extends State<CardDetailView> {
       if (project == null) {
         final allProjects = await _projectService.getProjects();
         project = allProjects.cast<Project?>().firstWhere(
-          (p) => p?.id == widget.projectId,
-          orElse: () => null,
-        );
+              (p) => p?.id == widget.projectId,
+              orElse: () => null,
+            );
       }
       if (mounted && project != null) {
         setState(() {
@@ -238,8 +243,10 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   String get _providerDisplayName {
-    if (_card.acpProviderId != null) return _providerNameMap[_card.acpProviderId] ?? _card.acpProviderId!;
-    if (_targetProviderId != null) return _providerNameMap[_targetProviderId] ?? _targetProviderId!;
+    if (_card.acpProviderId != null)
+      return _providerNameMap[_card.acpProviderId] ?? _card.acpProviderId!;
+    if (_targetProviderId != null)
+      return _providerNameMap[_targetProviderId] ?? _targetProviderId!;
     return UICopy.agent;
   }
 
@@ -255,7 +262,8 @@ class _CardDetailViewState extends State<CardDetailView> {
       if (!mounted) return;
       _pendingMessages = msgs;
       if (_renderThrottleTimer == null || !_renderThrottleTimer!.isActive) {
-        _renderThrottleTimer = Timer(AppConstants.streamThrottleMs, _flushMessages);
+        _renderThrottleTimer =
+            Timer(AppConstants.streamThrottleMs, _flushMessages);
       }
     });
 
@@ -314,17 +322,20 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   void _flushMessages() {
     if (!mounted) return;
-    
+
     final pending = List<CardMessage>.from(_pendingMessages);
-    final isProcessing = pending.isNotEmpty && !pending.last.isComplete && pending.last.role == 'assistant';
+    final isProcessing = pending.isNotEmpty &&
+        !pending.last.isComplete &&
+        pending.last.role == 'assistant';
     final bool isInitialLoad = _messages.isEmpty && pending.isNotEmpty;
-    
+
     final Set<String> newRespondedIds = {};
     for (int i = 0; i < pending.length; i++) {
       final m = pending[i];
       if (m.role == 'assistant') {
         final event = AgUiEvent.fromMessage(m);
-        if (event.eventType == 'interactive_request' && event.requestId != null) {
+        if (event.eventType == 'interactive_request' &&
+            event.requestId != null) {
           for (int j = i + 1; j < pending.length; j++) {
             final next = pending[j];
             if (next.role == 'user') {
@@ -342,7 +353,9 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
 
     setState(() {
-      if (!_userIsAtBottom && !isInitialLoad && pending.length > _messages.length) {
+      if (!_userIsAtBottom &&
+          !isInitialLoad &&
+          pending.length > _messages.length) {
         _unreadCount += (pending.length - _messages.length);
       }
 
@@ -378,14 +391,16 @@ class _CardDetailViewState extends State<CardDetailView> {
 
     setState(() {
       final sessionId = updatedCard.acpSessionId;
-      
+
       if (updatedCard.inputTokens > 0) _inputTokens = updatedCard.inputTokens;
-      if (updatedCard.outputTokens > 0) _outputTokens = updatedCard.outputTokens;
+      if (updatedCard.outputTokens > 0)
+        _outputTokens = updatedCard.outputTokens;
 
       _card = _card.copyWith(
         acpSessionId: sessionId ?? _card.acpSessionId,
         acpProviderId: updatedCard.acpProviderId ?? _card.acpProviderId,
-        availableCommands: updatedCard.availableCommands ?? _card.availableCommands,
+        availableCommands:
+            updatedCard.availableCommands ?? _card.availableCommands,
         inputTokens: _inputTokens,
         outputTokens: _outputTokens,
       );
@@ -400,8 +415,10 @@ class _CardDetailViewState extends State<CardDetailView> {
         _columnName = updatedCard.columnName;
       }
 
-      if (!_isAgentConnected && !_isStartingSession && (updatedCard.acpProviderId != null || _targetProviderId != null)) {
-         _initializeAgent();
+      if (!_isAgentConnected &&
+          !_isStartingSession &&
+          (updatedCard.acpProviderId != null || _targetProviderId != null)) {
+        _initializeAgent();
       }
 
       if (sessionId != null) {
@@ -412,14 +429,14 @@ class _CardDetailViewState extends State<CardDetailView> {
           _isAgentConnected = true;
           _isStartingSession = false;
           if (!wasConnected) {
-             _statusMessage = UICopy.sessionReady;
-             Timer(const Duration(seconds: 5), () {
-               if (mounted) setState(() => _statusMessage = null);
-             });
+            _statusMessage = UICopy.sessionReady;
+            Timer(const Duration(seconds: 5), () {
+              if (mounted) setState(() => _statusMessage = null);
+            });
           }
         }
       }
-      
+
       if (updatedCard.title.isNotEmpty) {
         _titleController.text = updatedCard.title;
       }
@@ -450,8 +467,9 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   Future<void> _saveCardInfo() async {
-    if (_titleController.text == _card.title && _descriptionController.text == _card.description) return;
-    
+    if (_titleController.text == _card.title &&
+        _descriptionController.text == _card.description) return;
+
     setState(() => _isSavingCard = true);
     try {
       await _projectService.updateCard(
@@ -489,7 +507,8 @@ class _CardDetailViewState extends State<CardDetailView> {
 
     if (method == 'session/request_permission') {
       if (_wsService.uiFormat == 'ag_ui') {
-        AppLogger.debug('Skipping permission dialog in AG-UI mode (request is in chat)');
+        AppLogger.debug(
+            'Skipping permission dialog in AG-UI mode (request is in chat)');
         return;
       }
 
@@ -544,7 +563,8 @@ class _CardDetailViewState extends State<CardDetailView> {
               if (arguments.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text('${UICopy.details}:', style: Theme.of(context).textTheme.labelSmall),
+                  child: Text('${UICopy.details}:',
+                      style: Theme.of(context).textTheme.labelSmall),
                 ),
               if (arguments.isNotEmpty)
                 Container(
@@ -553,7 +573,8 @@ class _CardDetailViewState extends State<CardDetailView> {
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surfaceContainer,
-                    borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusSmall),
                   ),
                   child: SingleChildScrollView(
                     child: Text(arguments,
@@ -570,9 +591,7 @@ class _CardDetailViewState extends State<CardDetailView> {
             .map((opt) => TextButton(
                   onPressed: () {
                     _wsService.sendResponse(requestId, {
-                      "outcome": {
-                        "optionId": opt['optionId']
-                      }
+                      "outcome": {"optionId": opt['optionId']}
                     });
                     Navigator.pop(context);
                   },
@@ -639,12 +658,14 @@ class _CardDetailViewState extends State<CardDetailView> {
                     child: Material(
                         elevation: 12,
                         shadowColor: Colors.black45,
-                        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                        borderRadius:
+                            BorderRadius.circular(AppConstants.radiusMedium),
                         color: Theme.of(context).cardTheme.color,
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxHeight: 300),
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                            borderRadius: BorderRadius.circular(
+                                AppConstants.radiusMedium),
                             child: SingleChildScrollView(
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Column(
@@ -652,15 +673,21 @@ class _CardDetailViewState extends State<CardDetailView> {
                                   children: _availableCommands
                                       .map((c) => ListTile(
                                             dense: true,
-                                            leading: const Icon(Icons.bolt, size: 18),
+                                            leading: const Icon(Icons.bolt,
+                                                size: 18),
                                             title: Text('/${c['name']}',
-                                                style: const TextStyle(fontWeight: FontWeight.bold)),
-                                            subtitle: Text(c['description'] ?? ''),
+                                                style: const TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                            subtitle:
+                                                Text(c['description'] ?? ''),
                                             onTap: () {
                                               final cmd = '/${c['name']} ';
                                               _chatController.text = cmd;
-                                              _chatController.selection = TextSelection.fromPosition(
-                                                  TextPosition(offset: cmd.length));
+                                              _chatController.selection =
+                                                  TextSelection.fromPosition(
+                                                      TextPosition(
+                                                          offset: cmd.length));
                                               _chatFocusNode.requestFocus();
                                               _hideCommandsOverlay();
                                             },
@@ -690,7 +717,7 @@ class _CardDetailViewState extends State<CardDetailView> {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(_scrollController.position.maxScrollExtent,
             duration: AppConstants.animationDuration, curve: Curves.easeOut);
-        
+
         if (force) {
           setState(() {
             _unreadCount = 0;
@@ -791,23 +818,28 @@ class _CardDetailViewState extends State<CardDetailView> {
               children: [
                 ListView(
                   controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(vertical: AppConstants.space16),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: AppConstants.space16),
                   children: [
                     _buildHeader(),
                     if (_currentPlan != null)
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: AppConstants.space16),
                         child: PlanPanel(plan: _currentPlan!),
                       ),
                     _buildSummarySection(),
                     const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: AppConstants.space16,
+                          vertical: AppConstants.space8),
                       child: Divider(),
                     ),
                     if (_messages.isEmpty)
                       Center(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: AppConstants.space32),
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AppConstants.space32),
                           child: Text(UICopy.startConversation,
                               style: theme.textTheme.bodySmall),
                         ),
@@ -838,7 +870,8 @@ class _CardDetailViewState extends State<CardDetailView> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
-        border: Border(bottom: BorderSide(color: theme.dividerColor.withOpacity(0.05))),
+        border: Border(
+            bottom: BorderSide(color: theme.dividerColor.withOpacity(0.05))),
       ),
       child: SafeArea(
         bottom: false,
@@ -866,10 +899,16 @@ class _CardDetailViewState extends State<CardDetailView> {
                         ),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text('>', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
+                          child: Text('>',
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: colorScheme.onSurfaceVariant
+                                      .withOpacity(0.5))),
                         ),
                       ],
-                      if (_columnName != null && _columnName!.isNotEmpty && _columnName!.toLowerCase() != 'detail')
+                      if (_columnName != null &&
+                          _columnName!.isNotEmpty &&
+                          _columnName!.toLowerCase() != 'detail')
                         Text(
                           _columnName!,
                           style: theme.textTheme.labelSmall?.copyWith(
@@ -880,7 +919,10 @@ class _CardDetailViewState extends State<CardDetailView> {
                   ),
                 ),
                 if (_isSavingCard)
-                  const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
                 const SizedBox(width: 8),
                 _buildActionMenu(colorScheme),
               ],
@@ -948,9 +990,14 @@ class _CardDetailViewState extends State<CardDetailView> {
           value: 'complete',
           child: Row(
             children: [
-              Icon(_card.isCompleted ? Icons.undo_rounded : Icons.check_circle_outline_rounded, size: 18),
+              Icon(
+                  _card.isCompleted
+                      ? Icons.undo_rounded
+                      : Icons.check_circle_outline_rounded,
+                  size: 18),
               const SizedBox(width: 12),
-              Text(_card.isCompleted ? UICopy.markActive : UICopy.markCompleted),
+              Text(
+                  _card.isCompleted ? UICopy.markActive : UICopy.markCompleted),
             ],
           ),
         ),
@@ -959,9 +1006,11 @@ class _CardDetailViewState extends State<CardDetailView> {
           value: 'delete',
           child: Row(
             children: [
-              Icon(Icons.delete_outline_rounded, size: 18, color: colorScheme.error),
+              Icon(Icons.delete_outline_rounded,
+                  size: 18, color: colorScheme.error),
               const SizedBox(width: 12),
-              Text(UICopy.deleteCard, style: TextStyle(color: colorScheme.error)),
+              Text(UICopy.deleteCard,
+                  style: TextStyle(color: colorScheme.error)),
             ],
           ),
         ),
@@ -971,11 +1020,11 @@ class _CardDetailViewState extends State<CardDetailView> {
 
   void _showMoveColumnDialog() async {
     final colorScheme = Theme.of(context).colorScheme;
-    
+
     try {
       final columns = await _projectService.getColumns(widget.projectId);
       if (!mounted) return;
-      
+
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -988,21 +1037,26 @@ class _CardDetailViewState extends State<CardDetailView> {
               itemBuilder: (context, index) {
                 final col = columns[index];
                 final isCurrent = col.id == _card.columnId;
-                
+
                 return ListTile(
                   leading: Icon(
-                    isCurrent ? Icons.radio_button_checked : Icons.radio_button_off,
+                    isCurrent
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
                     color: isCurrent ? colorScheme.primary : null,
                   ),
-                  title: Text(col.name, style: TextStyle(
-                    fontWeight: isCurrent ? FontWeight.bold : null,
-                  )),
+                  title: Text(col.name,
+                      style: TextStyle(
+                        fontWeight: isCurrent ? FontWeight.bold : null,
+                      )),
                   enabled: !isCurrent,
                   onTap: () async {
                     Navigator.pop(context);
-                    final success = await _projectService.moveCard(_card.id, col.id, null);
+                    final success =
+                        await _projectService.moveCard(_card.id, col.id, null);
                     if (success && mounted) {
-                      AppFeedback.showSuccess(context, '${UICopy.movedTo} ${col.name}');
+                      AppFeedback.showSuccess(
+                          context, '${UICopy.movedTo} ${col.name}');
                       widget.onBack?.call();
                     }
                   },
@@ -1035,7 +1089,8 @@ class _CardDetailViewState extends State<CardDetailView> {
             decoration: BoxDecoration(
               color: colorScheme.surfaceContainer,
               borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-              border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+              border: Border.all(
+                  color: colorScheme.outlineVariant.withOpacity(0.5)),
             ),
             child: Row(
               children: [
@@ -1044,16 +1099,20 @@ class _CardDetailViewState extends State<CardDetailView> {
                     child: DropdownButton<ProjectMilestone>(
                       value: _selectedMilestone,
                       isDense: true,
-                      hint: const Text(UICopy.milestone, style: TextStyle(fontSize: 12)),
+                      hint: const Text(UICopy.milestone,
+                          style: TextStyle(fontSize: 12)),
                       style: Theme.of(context).textTheme.bodySmall,
                       items: [
                         const DropdownMenuItem<ProjectMilestone>(
                           value: null,
-                          child: Text(UICopy.uncategorized, style: TextStyle(fontSize: 12)),
+                          child: Text(UICopy.uncategorized,
+                              style: TextStyle(fontSize: 12)),
                         ),
                         ..._milestones.map((m) => DropdownMenuItem(
                               value: m,
-                              child: Text(m.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                              child: Text(m.title,
+                                  style: const TextStyle(fontSize: 12),
+                                  overflow: TextOverflow.ellipsis),
                             )),
                       ],
                       onChanged: (m) {
@@ -1068,29 +1127,39 @@ class _CardDetailViewState extends State<CardDetailView> {
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.chevron_right, size: 14, color: Colors.grey),
+                  child:
+                      Icon(Icons.chevron_right, size: 14, color: Colors.grey),
                 ),
                 Expanded(
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<ProjectFeature>(
                       value: _selectedFeature,
                       isDense: true,
-                      hint: const Text(UICopy.feature, style: TextStyle(fontSize: 12)),
+                      hint: const Text(UICopy.feature,
+                          style: TextStyle(fontSize: 12)),
                       style: Theme.of(context).textTheme.bodySmall,
-                      disabledHint: const Text(UICopy.selectMilestone, style: TextStyle(fontSize: 12)),
+                      disabledHint: const Text(UICopy.selectMilestone,
+                          style: TextStyle(fontSize: 12)),
                       items: _selectedMilestone == null
                           ? []
                           : [
                               const DropdownMenuItem<ProjectFeature>(
                                 value: null,
-                                child: Text(UICopy.none, style: TextStyle(fontSize: 12)),
+                                child: Text(UICopy.none,
+                                    style: TextStyle(fontSize: 12)),
                               ),
-                              ..._selectedMilestone!.features.map((f) => DropdownMenuItem(
-                                    value: f,
-                                    child: Text(f.title, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                  )),
+                              ..._selectedMilestone!.features
+                                  .map((f) => DropdownMenuItem(
+                                        value: f,
+                                        child: Text(f.title,
+                                            style:
+                                                const TextStyle(fontSize: 12),
+                                            overflow: TextOverflow.ellipsis),
+                                      )),
                             ],
-                      onChanged: _selectedMilestone == null ? null : (f) => _onFeatureSelected(f),
+                      onChanged: _selectedMilestone == null
+                          ? null
+                          : (f) => _onFeatureSelected(f),
                     ),
                   ),
                 ),
@@ -1103,20 +1172,26 @@ class _CardDetailViewState extends State<CardDetailView> {
               child: InkWell(
                 onTap: _showRoadmapPicker,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: colorScheme.secondaryContainer.withOpacity(0.5),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: colorScheme.secondary.withOpacity(0.1)),
+                    border: Border.all(
+                        color: colorScheme.secondary.withOpacity(0.1)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.flag_rounded, size: 12, color: colorScheme.secondary),
+                      Icon(Icons.flag_rounded,
+                          size: 12, color: colorScheme.secondary),
                       const SizedBox(width: 4),
                       Text(
                         '${_selectedMilestone!.title} > ${_selectedFeature!.title}',
-                        style: TextStyle(fontSize: 11, color: colorScheme.onSecondaryContainer, fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.onSecondaryContainer,
+                            fontWeight: FontWeight.w500),
                       ),
                     ],
                   ),
@@ -1135,11 +1210,13 @@ class _CardDetailViewState extends State<CardDetailView> {
               fillColor: colorScheme.surfaceContainer.withOpacity(0.3),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                borderSide: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.05)),
+                borderSide: BorderSide(
+                    color: Theme.of(context).dividerColor.withOpacity(0.05)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                borderSide: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.05)),
+                borderSide: BorderSide(
+                    color: Theme.of(context).dividerColor.withOpacity(0.05)),
               ),
             ),
           ),
@@ -1147,14 +1224,16 @@ class _CardDetailViewState extends State<CardDetailView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Icon(Icons.access_time, size: 12, color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
+              Icon(Icons.access_time,
+                  size: 12,
+                  color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
               const SizedBox(width: 4),
               Text(
                 '${UICopy.created} ${DateFormatter.formatShortDate(_card.createdAt)}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant.withOpacity(0.6),
-                  fontSize: 10,
-                ),
+                      color: colorScheme.onSurfaceVariant.withOpacity(0.6),
+                      fontSize: 10,
+                    ),
               ),
             ],
           ),
@@ -1169,10 +1248,15 @@ class _CardDetailViewState extends State<CardDetailView> {
         padding: const EdgeInsets.all(AppConstants.space16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(UICopy.progressSummary, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            Text(UICopy.progressSummary,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.bold, letterSpacing: 1.2)),
             Row(children: [
               if (_isSavingSummary)
-                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
               else ...[
                 if (!_isEditingSummary)
                   IconButton(
@@ -1181,7 +1265,11 @@ class _CardDetailViewState extends State<CardDetailView> {
                     tooltip: UICopy.autoGenerateSummary,
                   ),
                 IconButton(
-                  icon: Icon(_isEditingSummary ? Icons.check_rounded : Icons.edit_outlined, size: 18),
+                  icon: Icon(
+                      _isEditingSummary
+                          ? Icons.check_rounded
+                          : Icons.edit_outlined,
+                      size: 18),
                   onPressed: () {
                     if (_isEditingSummary) {
                       _saveSummary();
@@ -1209,16 +1297,20 @@ class _CardDetailViewState extends State<CardDetailView> {
               padding: const EdgeInsets.all(AppConstants.space12),
               decoration: BoxDecoration(
                   color: Theme.of(context).cardTheme.color,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                  border: Border.all(color: Theme.of(context).dividerTheme.color!)),
+                  borderRadius:
+                      BorderRadius.circular(AppConstants.radiusMedium),
+                  border:
+                      Border.all(color: Theme.of(context).dividerTheme.color!)),
               child: Text(
-                (_summary == null || _summary!.isEmpty) 
-                  ? UICopy.noSummaryYet 
-                  : _summary!,
+                (_summary == null || _summary!.isEmpty)
+                    ? UICopy.noSummaryYet
+                    : _summary!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  height: 1.4,
-                  fontStyle: (_summary == null || _summary!.isEmpty) ? FontStyle.italic : null,
-                ),
+                      height: 1.4,
+                      fontStyle: (_summary == null || _summary!.isEmpty)
+                          ? FontStyle.italic
+                          : null,
+                    ),
               ),
             ),
         ]));
@@ -1228,20 +1320,27 @@ class _CardDetailViewState extends State<CardDetailView> {
     return Padding(
         padding: const EdgeInsets.all(AppConstants.space16),
         child: Row(children: [
-          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: AppConstants.space12),
-          Text(UICopy.agentThinking, style: Theme.of(context).textTheme.bodySmall),
+          Text(UICopy.agentThinking,
+              style: Theme.of(context).textTheme.bodySmall),
         ]));
   }
 
   List<Widget> _buildMessageList() {
-    return _messages.map((m) => MessageBubble(
-      message: m,
-      providerName: _providerDisplayName,
-      providerId: _card.acpProviderId,
-      respondedRequestIds: _respondedRequestIds,
-      onOptionSelected: (requestId, optionId) => _handleInteractiveResponse(requestId, optionId),
-    )).toList();
+    return _messages
+        .map((m) => MessageBubble(
+              message: m,
+              providerName: _providerDisplayName,
+              providerId: _card.acpProviderId,
+              respondedRequestIds: _respondedRequestIds,
+              onOptionSelected: (requestId, optionId) =>
+                  _handleInteractiveResponse(requestId, optionId),
+            ))
+        .toList();
   }
 
   Widget _buildJumpToBottomButton(ColorScheme colorScheme) {
@@ -1262,14 +1361,14 @@ class _CardDetailViewState extends State<CardDetailView> {
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         decoration: BoxDecoration(
             color: Theme.of(context).scaffoldBackgroundColor,
-            border: Border(top: BorderSide(color: Theme.of(context).dividerTheme.color!))),
+            border: Border(
+                top: BorderSide(color: Theme.of(context).dividerTheme.color!))),
         child: SafeArea(
             child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_isAgentConnected && _contextController.text.isNotEmpty)
               _buildContextPanel(),
-            
             if (_isStartingSession)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -1278,40 +1377,43 @@ class _CardDetailViewState extends State<CardDetailView> {
                   child: const LinearProgressIndicator(minHeight: 2),
                 ),
               ),
-
             if (_statusMessage != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4, left: 4),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, size: 10, color: colorScheme.secondary),
+                    Icon(Icons.info_outline,
+                        size: 10, color: colorScheme.secondary),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: Text(_statusMessage!, 
-                        style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: colorScheme.secondary.withOpacity(0.8))),
+                      child: Text(_statusMessage!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 10,
+                              color: colorScheme.secondary.withOpacity(0.8))),
                     ),
                   ],
                 ),
               ),
-            
             Stack(
               children: [
                 Row(children: [
                   if (_isAgentConnected) ...[
                     IconButton(
-                      icon: Icon(Icons.psychology_outlined, 
-                        color: _contextController.text.isNotEmpty 
-                          ? colorScheme.primary 
-                          : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                      icon: Icon(Icons.psychology_outlined,
+                          color: _contextController.text.isNotEmpty
+                              ? colorScheme.primary
+                              : colorScheme.onSurface
+                                  .withOpacity(AppConstants.mediumEmphasis)),
                       onPressed: () => _wsService.getContext(),
                       tooltip: UICopy.injectSystemContext,
                       visualDensity: VisualDensity.compact,
                     ),
                     IconButton(
-                      icon: Icon(Icons.bolt_rounded, 
-                        color: _commandOverlay != null 
-                          ? colorScheme.primary 
-                          : colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                      icon: Icon(Icons.bolt_rounded,
+                          color: _commandOverlay != null
+                              ? colorScheme.primary
+                              : colorScheme.onSurface
+                                  .withOpacity(AppConstants.mediumEmphasis)),
                       onPressed: _toggleCommandsOverlay,
                       tooltip: UICopy.slashCommands,
                       visualDensity: VisualDensity.compact,
@@ -1328,26 +1430,32 @@ class _CardDetailViewState extends State<CardDetailView> {
                           keyboardType: TextInputType.multiline,
                           style: const TextStyle(fontSize: 14),
                           decoration: InputDecoration(
-                              hintText: _isAgentConnected ? UICopy.chatHint : UICopy.connectAgentHint,
-                              contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 8)),
+                              hintText: _isAgentConnected
+                                  ? UICopy.chatHint
+                                  : UICopy.connectAgentHint,
+                              contentPadding:
+                                  const EdgeInsets.fromLTRB(16, 12, 16, 8)),
                           onSubmitted: (_) => _handleSend())),
                   const SizedBox(width: AppConstants.space8),
                   IconButton.filled(
-                    onPressed: _isAgentProcessing 
-                        ? _handleStop 
+                    onPressed: _isAgentProcessing
+                        ? _handleStop
                         : (_isAgentConnected ? _handleSend : null),
-                    icon: Icon(_isAgentProcessing 
-                        ? Icons.stop_rounded 
+                    icon: Icon(_isAgentProcessing
+                        ? Icons.stop_rounded
                         : Icons.arrow_upward_rounded),
                     style: IconButton.styleFrom(
-                      backgroundColor: _isAgentProcessing 
-                          ? colorScheme.error 
-                          : (_isAgentConnected ? colorScheme.primary : colorScheme.surfaceContainerHigh),
+                      backgroundColor: _isAgentProcessing
+                          ? colorScheme.error
+                          : (_isAgentConnected
+                              ? colorScheme.primary
+                              : colorScheme.surfaceContainerHigh),
                       foregroundColor: colorScheme.onPrimary,
                     ),
                   ),
                 ]),
-                if (_isAgentConnected && (_inputTokens > 0 || _outputTokens > 0))
+                if (_isAgentConnected &&
+                    (_inputTokens > 0 || _outputTokens > 0))
                   Positioned(
                     top: 4,
                     right: 60,
@@ -1369,11 +1477,17 @@ class _CardDetailViewState extends State<CardDetailView> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('↑${_formatTokenCount(_inputTokens)}', 
-            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.6), fontWeight: FontWeight.w500)),
+          Text('↑${_formatTokenCount(_inputTokens)}',
+              style: TextStyle(
+                  fontSize: 9,
+                  color: colorScheme.onSurface.withOpacity(0.6),
+                  fontWeight: FontWeight.w500)),
           const SizedBox(width: 4),
-          Text('↓${_formatTokenCount(_outputTokens)}', 
-            style: TextStyle(fontSize: 9, color: colorScheme.onSurface.withOpacity(0.6), fontWeight: FontWeight.w500)),
+          Text('↓${_formatTokenCount(_outputTokens)}',
+              style: TextStyle(
+                  fontSize: 9,
+                  color: colorScheme.onSurface.withOpacity(0.6),
+                  fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -1394,7 +1508,8 @@ class _CardDetailViewState extends State<CardDetailView> {
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color,
         borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
       ),
       child: Column(
         children: [
@@ -1402,13 +1517,19 @@ class _CardDetailViewState extends State<CardDetailView> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(AppConstants.radiusMedium)),
+              borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppConstants.radiusMedium)),
             ),
             child: Row(
               children: [
-                Icon(Icons.psychology_outlined, size: 14, color: Theme.of(context).colorScheme.primary),
+                Icon(Icons.psychology_outlined,
+                    size: 14, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 8),
-                Text(UICopy.contextInjection, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(UICopy.contextInjection,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close, size: 14),
@@ -1427,7 +1548,8 @@ class _CardDetailViewState extends State<CardDetailView> {
                     controller: _contextController,
                     maxLines: 10,
                     minLines: 3,
-                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                    style:
+                        const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                     decoration: const InputDecoration(
                       hintText: UICopy.editContextHint,
                     ),
@@ -1438,7 +1560,10 @@ class _CardDetailViewState extends State<CardDetailView> {
                     child: SingleChildScrollView(
                       child: Text(
                         _contextController.text,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.4),
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(fontFamily: 'monospace', height: 1.4),
                       ),
                     ),
                   ),
@@ -1447,15 +1572,18 @@ class _CardDetailViewState extends State<CardDetailView> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: () => setState(() => _isEditingContext = !_isEditingContext),
-                      child: Text(_isEditingContext ? UICopy.preview : UICopy.edit),
+                      onPressed: () => setState(
+                          () => _isEditingContext = !_isEditingContext),
+                      child: Text(
+                          _isEditingContext ? UICopy.preview : UICopy.edit),
                     ),
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: _sendContextPrompt,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Theme.of(context).colorScheme.primary,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                        foregroundColor:
+                            Theme.of(context).colorScheme.onPrimary,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
                       child: const Text(UICopy.sendToAgent),
@@ -1475,11 +1603,14 @@ class _CardDetailViewState extends State<CardDetailView> {
     try {
       final result = await _projectService.generateCardSummary(_card.id);
       if (mounted) {
-        if (result != null && result['summary'] != null && result['summary'].isNotEmpty) {
+        if (result != null &&
+            result['summary'] != null &&
+            result['summary'].isNotEmpty) {
           AppFeedback.showSuccess(context, UICopy.summaryGenerated);
           _loadSummary();
         } else {
-          AppFeedback.showInfo(context, result?['message'] ?? UICopy.noMessagesToSummarize);
+          AppFeedback.showInfo(
+              context, result?['message'] ?? UICopy.noMessagesToSummarize);
         }
       }
     } catch (e) {
@@ -1494,7 +1625,8 @@ class _CardDetailViewState extends State<CardDetailView> {
   Future<void> _saveSummary() async {
     setState(() => _isSavingSummary = true);
     try {
-      await _projectService.updateCardSummary(_card.id, _summaryController.text);
+      await _projectService.updateCardSummary(
+          _card.id, _summaryController.text);
       if (mounted) {
         setState(() {
           _summary = _summaryController.text;
@@ -1565,7 +1697,8 @@ class _CardDetailViewState extends State<CardDetailView> {
               child: const Text(UICopy.cancel)),
           TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: Text(UICopy.delete, style: const TextStyle(color: Colors.red))),
+              child: Text(UICopy.delete,
+                  style: const TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -1580,7 +1713,8 @@ class _CardDetailViewState extends State<CardDetailView> {
         }
       } catch (e) {
         if (mounted) {
-          AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
+          AppFeedback.showError(
+              context, ErrorCopy.mapError(null, e.toString()));
         }
       }
     }
@@ -1606,8 +1740,9 @@ class _CardDetailViewState extends State<CardDetailView> {
               });
             }
           } catch (e) {
-             if (mounted) {
-              AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
+            if (mounted) {
+              AppFeedback.showError(
+                  context, ErrorCopy.mapError(null, e.toString()));
             }
           }
         },

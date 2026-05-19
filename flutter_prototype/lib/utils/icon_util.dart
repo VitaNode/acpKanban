@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class IconUtil {
   static IconData getProviderIcon(String? icon) {
     if (icon == null) return Icons.smart_toy;
-    
+
     final iconMap = {
       'bolt': Icons.bolt,
       'code': Icons.code,

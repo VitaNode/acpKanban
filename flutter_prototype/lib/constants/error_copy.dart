@@ -1,6 +1,7 @@
 class ErrorCopy {
   static String mapError(String? errorCode, [String? technicalMessage]) {
-    if (errorCode == null) return technicalMessage ?? 'An unknown error occurred';
+    if (errorCode == null)
+      return technicalMessage ?? 'An unknown error occurred';
 
     switch (errorCode) {
       case 'SYSTEM:INTERNAL_ERROR':
@@ -47,11 +48,15 @@ class ErrorCopy {
         return 'AI provider quota exceeded. Please check your account.';
 
       default:
-        return technicalMessage ?? 'An unexpected error occurred. Please try again.';
+        return technicalMessage ??
+            'An unexpected error occurred. Please try again.';
     }
   }
 
-  static const String networkError = 'Network error. Please check your internet connection.';
-  static const String serverUnavailable = 'Server is currently unavailable. Please try again later.';
-  static const String timeoutError = 'Request timed out. Please check your network or server status.';
+  static const String networkError =
+      'Network error. Please check your internet connection.';
+  static const String serverUnavailable =
+      'Server is currently unavailable. Please try again later.';
+  static const String timeoutError =
+      'Request timed out. Please check your network or server status.';
 }

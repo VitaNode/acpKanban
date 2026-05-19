@@ -58,7 +58,7 @@ class AppStateView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     if (isLoading) {
       return Center(
         child: Column(
@@ -84,10 +84,14 @@ class AppStateView extends StatelessWidget {
               Icon(icon, size: 64, color: theme.colorScheme.outline),
             const SizedBox(height: 16),
             if (title != null)
-              Text(title!, style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
+              Text(title!,
+                  style: theme.textTheme.titleLarge,
+                  textAlign: TextAlign.center),
             if (message != null) ...[
               const SizedBox(height: 8),
-              Text(message!, style: theme.textTheme.bodyMedium, textAlign: TextAlign.center),
+              Text(message!,
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.center),
             ],
             const SizedBox(height: 24),
             if (onRetry != null)

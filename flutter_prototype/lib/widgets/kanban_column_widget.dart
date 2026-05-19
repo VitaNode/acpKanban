@@ -12,7 +12,8 @@ class KanbanColumnWidget extends StatefulWidget {
   final Function(KanbanCard) onCardTap;
   final Function(KanbanCard) onCardSessionTap;
   final VoidCallback onAddCard;
-  final Function(KanbanCard, String targetColumnId, {int? targetPosition}) onCardMoved;
+  final Function(KanbanCard, String targetColumnId, {int? targetPosition})
+      onCardMoved;
   final Function(KanbanCard)? onCardComplete;
   final Function(KanbanCard)? onCardUncomplete;
   final Function(KanbanCard)? onCardDelete;
@@ -41,8 +42,10 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final activeCards = widget.cards.where((c) => c.status == 'active').toList();
-    final completedCards = widget.cards.where((c) => c.status == 'completed').toList();
+    final activeCards =
+        widget.cards.where((c) => c.status == 'active').toList();
+    final completedCards =
+        widget.cards.where((c) => c.status == 'completed').toList();
 
     return Container(
       width: 300,
@@ -58,8 +61,11 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
             child: ListView.builder(
               key: PageStorageKey('column_list_${widget.column.id}'),
               padding: const EdgeInsets.symmetric(
-                  horizontal: AppConstants.space8, vertical: AppConstants.space4),
-              itemCount: activeCards.length * 2 + 1 + (completedCards.isNotEmpty ? 2 : 0),
+                  horizontal: AppConstants.space8,
+                  vertical: AppConstants.space4),
+              itemCount: activeCards.length * 2 +
+                  1 +
+                  (completedCards.isNotEmpty ? 2 : 0),
               itemBuilder: (context, index) {
                 if (index < activeCards.length * 2 + 1) {
                   if (index % 2 == 0) {
@@ -79,14 +85,15 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                     );
                   }
                 }
-                
+
                 if (completedCards.isNotEmpty) {
                   final completedIndex = index - (activeCards.length * 2 + 1);
                   if (completedIndex == 0) {
                     return Column(
                       children: [
                         const Padding(
-                          padding: EdgeInsets.symmetric(vertical: AppConstants.space8),
+                          padding: EdgeInsets.symmetric(
+                              vertical: AppConstants.space8),
                           child: SizedBox(height: 1),
                         ),
                         _buildCompletedToggleButton(completedCards.length),
@@ -99,7 +106,8 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                                 key: ValueKey(card.id),
                                 card: card,
                                 onTap: () => widget.onCardTap(card),
-                                onSessionTap: () => widget.onCardSessionTap(card),
+                                onSessionTap: () =>
+                                    widget.onCardSessionTap(card),
                                 onComplete: widget.onCardComplete,
                                 onUncomplete: widget.onCardUncomplete,
                                 onDelete: widget.onCardDelete,
@@ -119,15 +127,18 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
 
   Widget _buildDropTarget(BuildContext context, int position) {
     final colorScheme = Theme.of(context).colorScheme;
-    final activeCards = widget.cards.where((c) => c.status == 'active').toList();
-    
+    final activeCards =
+        widget.cards.where((c) => c.status == 'active').toList();
+
     return DragTarget<KanbanCard>(
       onWillAcceptWithDetails: (details) {
         final card = details.data;
         if (card.columnId == widget.column.id) {
-          final cardIndexInActive = activeCards.indexWhere((c) => c.id == card.id);
+          final cardIndexInActive =
+              activeCards.indexWhere((c) => c.id == card.id);
           if (cardIndexInActive != -1) {
-            if (position == cardIndexInActive || position == cardIndexInActive + 1) {
+            if (position == cardIndexInActive ||
+                position == cardIndexInActive + 1) {
               return false;
             }
           }
@@ -141,7 +152,7 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
         } else if (activeCards.isNotEmpty) {
           actualTargetPosition = activeCards.last.position + 1;
         }
-        
+
         widget.onCardMoved(details.data, widget.column.id,
             targetPosition: actualTargetPosition);
       },
@@ -173,7 +184,8 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
   Widget _buildCompletedToggleButton(int count) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8, vertical: AppConstants.space4),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.space8, vertical: AppConstants.space4),
       child: InkWell(
         onTap: () => setState(() => _showCompleted = !_showCompleted),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
@@ -182,7 +194,9 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
           child: Row(
             children: [
               Icon(
-                _showCompleted ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
+                _showCompleted
+                    ? Icons.keyboard_arrow_down
+                    : Icons.keyboard_arrow_right,
                 size: 18,
                 color: theme.textTheme.bodySmall?.color,
               ),
@@ -190,7 +204,8 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
               Text(
                 '${UICopy.completedLabel} ($count)',
                 style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+                  color: theme.colorScheme.onSurface
+                      .withOpacity(AppConstants.mediumEmphasis),
                 ),
               ),
             ],
@@ -204,9 +219,10 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
     final theme = Theme.of(context);
     final color = _parseColor(widget.column.color);
     final colorScheme = theme.colorScheme;
-    
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(AppConstants.space16, AppConstants.space8, AppConstants.space8, AppConstants.space8),
+      padding: const EdgeInsets.fromLTRB(AppConstants.space16,
+          AppConstants.space8, AppConstants.space8, AppConstants.space8),
       child: Row(
         children: [
           Container(
@@ -229,16 +245,19 @@ class _KanbanColumnWidgetState extends State<KanbanColumnWidget> {
                       fontSize: 14,
                       letterSpacing: 1.2,
                       overflow: TextOverflow.ellipsis,
-                      color: colorScheme.onSurface.withOpacity(AppConstants.highEmphasis),
+                      color: colorScheme.onSurface
+                          .withOpacity(AppConstants.highEmphasis),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(AppConstants.radiusFull),
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusFull),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,

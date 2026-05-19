@@ -21,6 +21,7 @@ def run_api():
     # 设置环境变量，让 API 内部的 Bridge 连到本地 Relay
     os.environ["RELAY_URL"] = "ws://127.0.0.1:8766"
     os.environ["RELAY_TOKEN"] = config.relay_token
+    os.environ["USER_ID"] = config.user_id
     
     logger.info(f"[*] Starting API Server on {config.api_bind_host}:8000...")
     # 注意：API 内部 Bridge 启动时如果发现 8766 被占用会报错，

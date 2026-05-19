@@ -44,12 +44,13 @@ async def lifespan(app: FastAPI):
         from src.transport.bridge import UnifiedBridge
         
         # Pull credentials from central ConfigManager
-        user_id = config.user_id
-        relay_url = config.relay_url
-        token = config.relay_token
+        # Prefer env vars for All-in-One launcher support
+        user_id = os.getenv("USER_ID") or config.user_id
+        relay_url = os.getenv("RELAY_URL") or config.relay_url
+        token = os.getenv("RELAY_TOKEN") or config.relay_token
         workspace_cwd = os.getenv("MYBOT_WORKSPACE_CWD")
         
-        logger.info(f"Starting Integrated Bridge for user: {user_id}")
+        logger.info(f"Starting Integrated Bridge for user: {user_id} (Relay: {relay_url or 'None'})")
         bridge = UnifiedBridge(user_id, relay_url, token=token, workspace_cwd=workspace_cwd)
         # Set the global bridge_instance so sessions.py can find it
         run_bridge.bridge_instance = bridge

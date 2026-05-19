@@ -37,8 +37,10 @@ class SystemProxyConfig {
       config: configMap,
       baseUrl: configMap?['base_url'] as String? ?? json['base_url'] as String?,
       apiKey: configMap?['api_key'] as String? ?? json['api_key'] as String?,
-      summaryModel: configMap?['summary_model'] as String? ?? json['summary_model'] as String?,
-      embeddingModel: configMap?['embedding_model'] as String? ?? json['embedding_model'] as String?,
+      summaryModel: configMap?['summary_model'] as String? ??
+          json['summary_model'] as String?,
+      embeddingModel: configMap?['embedding_model'] as String? ??
+          json['embedding_model'] as String?,
     );
   }
 
@@ -118,7 +120,8 @@ class ConnectionConfig {
           ? DateTime.parse(json['lastUpdated'] as String)
           : null,
       systemConfig: json['systemConfig'] != null
-          ? SystemProxyConfig.fromJson(json['systemConfig'] as Map<String, dynamic>)
+          ? SystemProxyConfig.fromJson(
+              json['systemConfig'] as Map<String, dynamic>)
           : null,
     );
   }

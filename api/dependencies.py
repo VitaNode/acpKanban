@@ -40,8 +40,11 @@ def validate_card_exists(card_id: str, db: KanbanDB):
 
 from src.config.manager import config
 
-def require_api_token(request: Request):
+from starlette.requests import HTTPConnection
+
+def require_api_token(request: HTTPConnection):
     # Check for X-API-Token header or token query parameter
+    # Works for both Request (HTTP) and WebSocket (WS)
     token = request.headers.get("X-API-Token") or request.query_params.get("token")
     
     if token != config.api_token:

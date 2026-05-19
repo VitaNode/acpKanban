@@ -16,7 +16,11 @@ class ColorEditResult {
   final String? promptTemplate;
   final String? acpProviderId;
 
-  ColorEditResult({required this.name, required this.color, this.promptTemplate, this.acpProviderId});
+  ColorEditResult(
+      {required this.name,
+      required this.color,
+      this.promptTemplate,
+      this.acpProviderId});
 }
 
 class ColumnEditDialog extends StatefulWidget {
@@ -63,7 +67,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
       if (data != null && mounted) {
         final List<dynamic> providersJson = data['providers'] ?? [];
         setState(() {
-          _providers = providersJson.map((p) => ACPProvider.fromJson(p)).toList();
+          _providers =
+              providersJson.map((p) => ACPProvider.fromJson(p)).toList();
           _isLoadingProviders = false;
         });
       }
@@ -88,7 +93,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
 
     return AlertDialog(
       title: const Text(UICopy.editColumn),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: isMobile ? size.width * 0.9 : 450,
@@ -104,7 +110,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 TextField(
                   controller: _nameController,
                   autofocus: true,
-                  decoration: const InputDecoration(labelText: UICopy.columnName),
+                  decoration:
+                      const InputDecoration(labelText: UICopy.columnName),
                 ),
                 const SizedBox(height: AppConstants.space24),
                 if (_isLoadingProviders)
@@ -120,21 +127,26 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text(UICopy.noneManualSelection, overflow: TextOverflow.ellipsis),
+                        child: Text(UICopy.noneManualSelection,
+                            overflow: TextOverflow.ellipsis),
                       ),
                       ..._providers.map((p) => DropdownMenuItem(
                             value: p.id,
                             child: Row(
                               children: [
-                                Icon(IconUtil.getProviderIcon(p.icon), size: 18),
+                                Icon(IconUtil.getProviderIcon(p.icon),
+                                    size: 18),
                                 const SizedBox(width: 8),
-                                Expanded(child: Text(p.name, overflow: TextOverflow.ellipsis)),
+                                Expanded(
+                                    child: Text(p.name,
+                                        overflow: TextOverflow.ellipsis)),
                               ],
                             ),
                           )),
                     ],
                     onChanged: (v) => setState(() => _selectedProviderId = v),
-                  ),                const SizedBox(height: AppConstants.space24),
+                  ),
+                const SizedBox(height: AppConstants.space24),
                 TextField(
                   controller: _promptTemplateController,
                   decoration: const InputDecoration(
@@ -146,7 +158,8 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                 const SizedBox(height: AppConstants.space8),
                 Text(
                   UICopy.customPromptDescription,
-                  style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.primary),
                 ),
               ],
             ),
@@ -168,14 +181,16 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
                   ColorEditResult(
                       name: name,
                       color: _selectedColor,
-                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate,
+                      promptTemplate:
+                          promptTemplate.isEmpty ? null : promptTemplate,
                       acpProviderId: _selectedProviderId));
             }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
           ),
           child: const Text(UICopy.save),
         ),
@@ -202,9 +217,21 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
   bool _isLoadingProviders = true;
 
   static const List<String> _colors = [
-    '#4ECDC4', '#45B7D1', '#FF6B6B', '#96CEB4', '#BB8FCE', 
-    '#F7DC6F', '#98D8C8', '#85C1E9', '#F8B500', '#00CED1', 
-    '#FF69B4', '#32CD32', '#FF4500', '#6B5B95', '#008080',
+    '#4ECDC4',
+    '#45B7D1',
+    '#FF6B6B',
+    '#96CEB4',
+    '#BB8FCE',
+    '#F7DC6F',
+    '#98D8C8',
+    '#85C1E9',
+    '#F8B500',
+    '#00CED1',
+    '#FF69B4',
+    '#32CD32',
+    '#FF4500',
+    '#6B5B95',
+    '#008080',
   ];
 
   @override
@@ -220,7 +247,8 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
       if (data != null && mounted) {
         final List<dynamic> providersJson = data['providers'] ?? [];
         setState(() {
-          _providers = providersJson.map((p) => ACPProvider.fromJson(p)).toList();
+          _providers =
+              providersJson.map((p) => ACPProvider.fromJson(p)).toList();
           _isLoadingProviders = false;
         });
       }
@@ -245,7 +273,8 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
 
     return AlertDialog(
       title: const Text(UICopy.addColumn),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: isMobile ? size.width * 0.9 : 450,
@@ -261,7 +290,8 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                 TextField(
                   controller: _nameController,
                   autofocus: true,
-                  decoration: const InputDecoration(labelText: UICopy.columnName),
+                  decoration:
+                      const InputDecoration(labelText: UICopy.columnName),
                 ),
                 const SizedBox(height: AppConstants.space24),
                 if (_isLoadingProviders)
@@ -276,15 +306,19 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text(UICopy.noneManualSelection, overflow: TextOverflow.ellipsis),
+                        child: Text(UICopy.noneManualSelection,
+                            overflow: TextOverflow.ellipsis),
                       ),
                       ..._providers.map((p) => DropdownMenuItem(
                             value: p.id,
                             child: Row(
                               children: [
-                                Icon(IconUtil.getProviderIcon(p.icon), size: 18),
+                                Icon(IconUtil.getProviderIcon(p.icon),
+                                    size: 18),
                                 const SizedBox(width: 8),
-                                Expanded(child: Text(p.name, overflow: TextOverflow.ellipsis)),
+                                Expanded(
+                                    child: Text(p.name,
+                                        overflow: TextOverflow.ellipsis)),
                               ],
                             ),
                           )),
@@ -320,14 +354,16 @@ class _AddColumnDialogState extends State<_AddColumnDialog> {
                   ColorEditResult(
                       name: name,
                       color: _selectedColor,
-                      promptTemplate: promptTemplate.isEmpty ? null : promptTemplate,
+                      promptTemplate:
+                          promptTemplate.isEmpty ? null : promptTemplate,
                       acpProviderId: _selectedProviderId));
             }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
           ),
           child: const Text(UICopy.create),
         ),
@@ -365,7 +401,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
     _columns = List.from(widget.columns)
       ..sort((a, b) => a.position.compareTo(b.position));
     _loadProviderStatuses();
-    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadProviderStatuses());
+    _statusTimer = Timer.periodic(
+        const Duration(seconds: 5), (_) => _loadProviderStatuses());
   }
 
   @override
@@ -376,7 +413,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
 
   Future<void> _loadProviderStatuses() async {
     try {
-      final data = await _projectService.getProviderInitStatus(widget.projectId);
+      final data =
+          await _projectService.getProviderInitStatus(widget.projectId);
       if (data != null && data['providers'] != null && mounted) {
         final Map<String, dynamic> statuses = {};
         for (var p in data['providers']) {
@@ -391,7 +429,10 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
 
   Future<void> _initializeProvider(String providerId) async {
     try {
-      setState(() => _providerStatuses[providerId] = {...(_providerStatuses[providerId] ?? {}), 'status': 'initializing'});
+      setState(() => _providerStatuses[providerId] = {
+            ...(_providerStatuses[providerId] ?? {}),
+            'status': 'initializing'
+          });
       await _projectService.initializeProvider(providerId);
       _loadProviderStatuses();
     } catch (e) {
@@ -415,7 +456,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
   Future<void> _addColumn() async {
     final result = await showDialog<ColorEditResult>(
       context: context,
-      builder: (context) => _AddColumnDialog(existingColumnCount: _columns.length),
+      builder: (context) =>
+          _AddColumnDialog(existingColumnCount: _columns.length),
     );
     if (result != null) {
       setState(() => _isLoading = true);
@@ -466,12 +508,15 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text(UICopy.deleteColumn),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${UICopy.moveCardsFrom} "${column.name}" ${UICopy.moveCardsTo}', style: Theme.of(context).textTheme.bodyMedium),
+            Text(
+                '${UICopy.moveCardsFrom} "${column.name}" ${UICopy.moveCardsTo}',
+                style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: AppConstants.space16),
             DropdownButtonFormField<String>(
               isExpanded: true,
@@ -483,7 +528,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                   .toList(),
               onChanged: (v) => moveToId = v,
               decoration: const InputDecoration(labelText: UICopy.targetColumn),
-              hint: const Text(UICopy.selectTargetColumn, overflow: TextOverflow.ellipsis),
+              hint: const Text(UICopy.selectTargetColumn,
+                  overflow: TextOverflow.ellipsis),
             ),
           ],
         ),
@@ -493,7 +539,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
               child: const Text(UICopy.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error),
             child: const Text(UICopy.delete),
           ),
         ],
@@ -531,10 +578,14 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         children: [
           Icon(Icons.view_column_rounded, color: colorScheme.primary),
           const SizedBox(width: AppConstants.space12),
-          Expanded(child: Text(UICopy.manageColumns, style: theme.textTheme.headlineMedium, overflow: TextOverflow.ellipsis)),
+          Expanded(
+              child: Text(UICopy.manageColumns,
+                  style: theme.textTheme.headlineMedium,
+                  overflow: TextOverflow.ellipsis)),
         ],
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: isMobile ? size.width * 0.95 : size.width * 0.8,
@@ -548,7 +599,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(UICopy.dragToReorder, style: theme.textTheme.labelLarge),
+                    Text(UICopy.dragToReorder,
+                        style: theme.textTheme.labelLarge),
                     const SizedBox(height: AppConstants.space8),
                     Flexible(
                       child: ReorderableListView.builder(
@@ -558,38 +610,57 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                         itemBuilder: (context, index) {
                           final col = _columns[index];
                           final providerId = col.acpProviderId;
-                          final statusInfo = providerId != null ? _providerStatuses[providerId] : null;
+                          final statusInfo = providerId != null
+                              ? _providerStatuses[providerId]
+                              : null;
                           final status = statusInfo?['status'] ?? 'unknown';
 
                           return Container(
                             key: ValueKey(col.id),
-                            margin: const EdgeInsets.symmetric(vertical: AppConstants.space4),
+                            margin: const EdgeInsets.symmetric(
+                                vertical: AppConstants.space4),
                             decoration: BoxDecoration(
                               color: colorScheme.surfaceContainer,
-                              borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                              borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusSmall),
                             ),
                             child: ListTile(
-                              leading: Icon(Icons.drag_indicator_rounded, 
-                                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+                              leading: Icon(Icons.drag_indicator_rounded,
+                                  color: colorScheme.onSurface.withOpacity(
+                                      AppConstants.mediumEmphasis)),
                               title: Row(
                                 children: [
-                                  Expanded(child: Text(col.name, style: const TextStyle(fontWeight: FontWeight.w600))),
+                                  Expanded(
+                                      child: Text(col.name,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600))),
                                   if (providerId != null) ...[
-                                    _buildStatusBadge(status, theme, colorScheme),
+                                    _buildStatusBadge(
+                                        status, theme, colorScheme),
                                     const SizedBox(width: 8),
-                                    if (status != 'ready' && status != 'initializing')
+                                    if (status != 'ready' &&
+                                        status != 'initializing')
                                       TextButton(
-                                        onPressed: () => _initializeProvider(providerId),
+                                        onPressed: () =>
+                                            _initializeProvider(providerId),
                                         style: TextButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 0),
                                           minimumSize: Size.zero,
-                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                          textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                          textStyle: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold),
                                         ),
                                         child: Text(UICopy.statusInitializing),
                                       )
                                     else if (status == 'initializing')
-                                      const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+                                      const SizedBox(
+                                          width: 12,
+                                          height: 12,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2)),
                                   ],
                                 ],
                               ),
@@ -597,7 +668,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.edit_outlined, size: 20),
+                                    icon: const Icon(Icons.edit_outlined,
+                                        size: 20),
                                     onPressed: () => _editColumn(col),
                                   ),
                                   IconButton(
@@ -628,7 +700,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
     );
   }
 
-  Widget _buildStatusBadge(String status, ThemeData theme, ColorScheme colorScheme) {
+  Widget _buildStatusBadge(
+      String status, ThemeData theme, ColorScheme colorScheme) {
     Color color;
     String label;
     switch (status) {
@@ -660,7 +733,9 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: color.withOpacity(0.3), width: 0.5),
       ),
-      child: Text(label, style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.bold)),
+      child: Text(label,
+          style: TextStyle(
+              fontSize: 9, color: color, fontWeight: FontWeight.bold)),
     );
   }
 }
