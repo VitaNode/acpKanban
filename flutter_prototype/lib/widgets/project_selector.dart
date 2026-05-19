@@ -62,12 +62,19 @@ class ProjectSelector extends StatelessWidget {
           children: [
             Icon(Icons.folder_rounded, size: 16, color: colorScheme.primary),
             const SizedBox(width: AppConstants.space8),
-            Text(
-              currentProject?.name ?? UICopy.selectProject,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: colorScheme.primary,
+            Flexible(
+              child: Tooltip(
+                message: currentProject?.name ?? UICopy.selectProject,
+                child: Text(
+                  currentProject?.name ?? UICopy.selectProject,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: colorScheme.primary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
             const SizedBox(width: AppConstants.space4),
@@ -232,13 +239,29 @@ class _ProjectCreationDialogState extends State<ProjectCreationDialog> {
               children: [
                 TextField(
                   controller: _nameController,
+                  maxLength: 30,
                   decoration: const InputDecoration(
                     labelText: UICopy.projectName,
                     hintText: 'e.g., My App Development',
                     prefixIcon: Icon(Icons.folder_rounded),
+                    counterText: "",
                   ),
                   autofocus: true,
                   textCapitalization: TextCapitalization.words,
+                  buildCounter: (context,
+                          {required currentLength,
+                          required isFocused,
+                          maxLength}) =>
+                      isFocused
+                          ? Text(
+                              '$currentLength/$maxLength',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: currentLength >= (maxLength ?? 30)
+                                    ? theme.colorScheme.error
+                                    : null,
+                              ),
+                            )
+                          : null,
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(

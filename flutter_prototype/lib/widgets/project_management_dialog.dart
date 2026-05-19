@@ -89,13 +89,16 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                             BorderRadius.circular(AppConstants.radiusSmall),
                       ),
                       child: ListTile(
+                        dense: true,
+                        horizontalTitleGap: 8,
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: AppConstants.space12,
+                            horizontal: AppConstants.space8,
                             vertical: AppConstants.space4),
                         leading: Icon(
                           isCurrent
                               ? Icons.folder_open_rounded
                               : Icons.folder_rounded,
+                          size: 20,
                           color: isCurrent
                               ? colorScheme.primary
                               : colorScheme.onSurface
@@ -132,8 +135,10 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              icon: const Icon(Icons.edit_outlined, size: 18),
                               tooltip: UICopy.editProject,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
                               onPressed: () {
                                 showDialog(
                                   context: context,
@@ -159,12 +164,15 @@ class _ProjectManagementDialogState extends State<ProjectManagementDialog> {
                                 );
                               },
                             ),
+                            const SizedBox(width: 8),
                             IconButton(
                               icon: Icon(Icons.delete_outline_rounded,
-                                  size: 20, color: colorScheme.error),
+                                  size: 18, color: colorScheme.error),
                               tooltip: isCurrent
                                   ? UICopy.cannotDeleteActiveMsg
                                   : UICopy.deleteProject,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
                               onPressed: isCurrent
                                   ? null
                                   : () {
@@ -406,12 +414,28 @@ class _ProjectEditDialogState extends State<ProjectEditDialog> {
               children: [
                 TextField(
                   controller: _nameController,
+                  maxLength: 30,
                   decoration: const InputDecoration(
                     labelText: UICopy.projectName,
                     prefixIcon: Icon(Icons.folder_rounded),
+                    counterText: "",
                   ),
                   autofocus: true,
                   textCapitalization: TextCapitalization.words,
+                  buildCounter: (context,
+                          {required currentLength,
+                          required isFocused,
+                          maxLength}) =>
+                      isFocused
+                          ? Text(
+                              '$currentLength/$maxLength',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: currentLength >= (maxLength ?? 30)
+                                    ? theme.colorScheme.error
+                                    : null,
+                              ),
+                            )
+                          : null,
                 ),
                 const SizedBox(height: AppConstants.space16),
                 TextField(
