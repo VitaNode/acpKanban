@@ -9,11 +9,17 @@ from src.transport.bus import bus
 
 class TestAgUiDefectFix(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        # Use an in-memory SQLite database for testing
-        self.db_path = ":memory:"
+        # Use a temporary file for testing to ensure cross-thread visibility
+        self.db_path = "test_kanban.db"
+        if os.path.exists(self.db_path):
+            os.remove(self.db_path)
         self.db = KanbanDB(self.db_path)
         self.db.init_db()
         self.dispatcher = MessageDispatcher(self.db)
+
+    async def asyncTearDown(self):
+        if os.path.exists(self.db_path):
+            os.remove(self.db_path)
 
     async def test_recover_incomplete_messages_fix(self):
         """Verify that recover_incomplete_messages works correctly and uses existing DB methods."""
@@ -205,6 +211,45 @@ class TestAgUiDefectFix(unittest.IsolatedAsyncioTestCase):
         if isinstance(meta, str): meta = json.loads(meta)
         self.assertEqual(meta['status'], "success")
         self.assertEqual(tool_msgs[0]['content'], "file content")
+
+    async def test_reasoning_no_merge_across_tools(self):
+        """Verify that reasoning blocks are NOT merged if a tool call occurs between them."""
+        card_id = "test_card_no_merge"
+        self.dispatcher.set_ui_format(card_id, "ag_ui")
+        
+        # 1. Thought chunk 1
+        await self.dispatcher._forward_notification(card_id, {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_thought_chunk", "content": {"text": "Thinking 1"}}}
+        })
+        # Manual flush for first thought since it doesn't trigger auto-flush
+        await self.dispatcher._trigger_flush(card_id)
+        
+        # 2. Tool call - triggers auto-flush
+        await self.dispatcher._forward_notification(card_id, {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "tool_call", "toolCallId": "c1", "tool": "t1", "status": "pending"}}
+        })
+        
+        # 3. Thought chunk 2
+        await self.dispatcher._forward_notification(card_id, {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_thought_chunk", "content": {"text": "Thinking 2"}}}
+        })
+        # Manual flush for second thought
+        await self.dispatcher._trigger_flush(card_id)
+        
+        # 4. Verify history has 3 distinct messages in order
+        history = self.db.get_session_history(card_id)
+        # Sort by seq_id
+        history.sort(key=lambda x: x.get('seq_id') or 0)
+        
+        self.assertEqual(len(history), 3)
+        self.assertEqual(history[0]['role'], 'assistant')
+        self.assertEqual(history[0]['content'], 'Thinking 1')
+        self.assertEqual(history[1]['role'], 'tool')
+        self.assertEqual(history[2]['role'], 'assistant')
+        self.assertEqual(history[2]['content'], 'Thinking 2')
 
 if __name__ == '__main__':
     unittest.main()

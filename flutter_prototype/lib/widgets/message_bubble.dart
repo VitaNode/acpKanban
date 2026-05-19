@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:markdown/markdown.dart' as md;
 import '../models/card_message.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
@@ -18,21 +17,31 @@ import 'plan_panel.dart';
 
 String _opKindLabel(String? opKind) {
   switch (opKind) {
-    case 'read': return 'Read';
-    case 'search': return 'Search';
-    case 'edit': return 'Edit';
-    case 'execute': return 'Run';
-    default: return 'Tool';
+    case 'read':
+      return 'Read';
+    case 'search':
+      return 'Search';
+    case 'edit':
+      return 'Edit';
+    case 'execute':
+      return 'Run';
+    default:
+      return 'Tool';
   }
 }
 
 IconData _opKindIcon(String? opKind) {
   switch (opKind) {
-    case 'read': return Icons.description_outlined;
-    case 'search': return Icons.search;
-    case 'edit': return Icons.edit_outlined;
-    case 'execute': return Icons.terminal;
-    default: return Icons.build_outlined;
+    case 'read':
+      return Icons.description_outlined;
+    case 'search':
+      return Icons.search;
+    case 'edit':
+      return Icons.edit_outlined;
+    case 'execute':
+      return Icons.terminal;
+    default:
+      return Icons.build_outlined;
   }
 }
 
@@ -40,76 +49,6 @@ String _formatFileTargets(List<dynamic>? targets) {
   if (targets == null || targets.isEmpty) return '';
   if (targets.length == 1) return targets[0].toString();
   return '${targets.length} files  ·  ${targets.first}';
-}
-
-final _headingBuilders = <String, MarkdownElementBuilder>{
-  'h1': _HeadingBuilder(),
-  'h2': _HeadingBuilder(),
-  'h3': _HeadingBuilder(),
-  'h4': _HeadingBuilder(),
-  'h5': _HeadingBuilder(),
-  'h6': _HeadingBuilder(),
-};
-
-class _HeadingBuilder extends MarkdownElementBuilder {
-  _HeadingBuilder();
-  @override
-  Widget? visitElementAfterWithContext(
-    BuildContext context,
-    md.Element element,
-    TextStyle? preferredStyle,
-    TextStyle? parentStyle,
-  ) {
-    final level = int.tryParse(element.tag.substring(1)) ?? 1;
-    final marker = '#' * level;
-    final buffer = StringBuffer();
-
-    void extractText(md.Node node) {
-      if (node is md.Text) {
-        buffer.write(node.text);
-      } else if (node is md.Element && node.children != null) {
-        for (var child in node.children!) {
-          extractText(child);
-        }
-      }
-    }
-
-    if (element.children != null) {
-      for (var child in element.children!) {
-        extractText(child);
-      }
-    }
-
-    final colorScheme = Theme.of(context).colorScheme;
-    final headingText = buffer.toString().trim();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(
-              text: '$marker ',
-              style: TextStyle(
-                color: colorScheme.primary.withOpacity(0.5),
-                fontFamily: 'monospace',
-                fontSize: 14,
-              ),
-            ),
-            TextSpan(
-              text: headingText,
-              style: TextStyle(
-                color: colorScheme.primary,
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                height: 1.6,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class MessageBubble extends StatelessWidget {
@@ -145,16 +84,16 @@ class MessageBubble extends StatelessWidget {
       if (event.eventType == 'interactive_request') {
         return InteractiveRequestBlock(
           event: event,
-          onOptionSelected: (optId) => onOptionSelected?.call(event.requestId!, optId),
+          onOptionSelected: (optId) =>
+              onOptionSelected?.call(event.requestId!, optId),
           isResponded: respondedRequestIds?.contains(event.requestId) ?? false,
         );
       }
     }
 
     // Width: user/system = 85%, assistant/tool = 68% (85% * 0.8)
-    final double contentMaxWidth = (isUser || isSystem)
-        ? screenWidth * 0.85
-        : screenWidth * 0.68;
+    final double contentMaxWidth =
+        (isUser || isSystem) ? screenWidth * 0.85 : screenWidth * 0.68;
 
     if (isTool) {
       return Container(
@@ -183,7 +122,8 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(ThemeData theme, ColorScheme colorScheme, bool isUser, [bool isSystem = false]) {
+  Widget _buildHeader(ThemeData theme, ColorScheme colorScheme, bool isUser,
+      [bool isSystem = false]) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -199,17 +139,19 @@ class MessageBubble extends StatelessWidget {
               size: 12, color: colorScheme.onSurfaceVariant),
           const SizedBox(width: AppConstants.space4),
           Text('SYSTEM CONTEXT',
-              style: theme.textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant)),
+              style: theme.textTheme.labelLarge
+                  ?.copyWith(color: colorScheme.onSurfaceVariant)),
         ],
         if (isUser) ...[
           Text(UICopy.you,
               style: theme.textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis))),
+                  color: colorScheme.onSurface
+                      .withOpacity(AppConstants.mediumEmphasis))),
           const SizedBox(width: AppConstants.space4),
           Icon(Icons.person_rounded,
               size: 12,
-              color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+              color: colorScheme.onSurface
+                  .withOpacity(AppConstants.mediumEmphasis)),
         ],
       ],
     );
@@ -220,7 +162,8 @@ class MessageBubble extends StatelessWidget {
       DateFormatter.formatTimeOnly(message.createdAt),
       style: theme.textTheme.bodySmall?.copyWith(
           fontSize: 10,
-          color: colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
+          color:
+              colorScheme.onSurface.withOpacity(AppConstants.disabledOpacity)),
     );
   }
 
@@ -229,21 +172,19 @@ class MessageBubble extends StatelessWidget {
     final List<Widget> children = [];
     final thought = message.metadata?['thought'] as String?;
     final isReasoningType = message.metadata?['type'] == 'reasoning';
-    
+
     // 1. Thinking Process (default expanded)
     if (isReasoningType) {
       children.add(ThinkingBlock(
         text: message.content,
         isCollapsed: false,
         styleSheet: _getMarkdownStyle(context, false),
-        builders: _headingBuilders,
       ));
     } else if (thought != null && thought.isNotEmpty) {
       children.add(ThinkingBlock(
         text: thought,
         isCollapsed: false,
         styleSheet: _getMarkdownStyle(context, false),
-        builders: _headingBuilders,
       ));
     }
 
@@ -257,7 +198,6 @@ class MessageBubble extends StatelessWidget {
             data: message.content,
             selectable: true,
             styleSheet: _getMarkdownStyle(context, isUser),
-            builders: _headingBuilders,
             onTapLink: (text, href, title) {
               AppLogger.info('Tapped link: $href');
             },
@@ -291,17 +231,22 @@ class MessageBubble extends StatelessWidget {
     }
 
     return Container(
-      padding: isUser 
+      padding: isUser
           ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
           : const EdgeInsets.all(0),
       decoration: BoxDecoration(
         color: isUser
-            ? (isDark ? colorScheme.primaryContainer.withOpacity(0.3) : colorScheme.primary.withOpacity(0.08))
-            : Colors.transparent,
+            ? (isDark
+                ? colorScheme.primaryContainer.withOpacity(0.3)
+                : colorScheme.primary.withOpacity(0.08))
+            : colorScheme.surfaceVariant.withOpacity(0.3),
         borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        border: isUser 
-          ? Border.all(color: isDark ? colorScheme.primary.withOpacity(0.2) : colorScheme.primary.withOpacity(0.1))
-          : null,
+        border: isUser
+            ? Border.all(
+                color: isDark
+                    ? colorScheme.primary.withOpacity(0.2)
+                    : colorScheme.primary.withOpacity(0.1))
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -310,7 +255,8 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildToolLog(BuildContext context, bool isDark, ThemeData theme, ColorScheme colorScheme) {
+  Widget _buildToolLog(BuildContext context, bool isDark, ThemeData theme,
+      ColorScheme colorScheme) {
     final meta = message.metadata ?? {};
     final toolName = meta['name'] ?? 'unknown';
     final toolStatus = meta['status'] ?? 'completed';
@@ -358,8 +304,7 @@ class MessageBubble extends StatelessWidget {
             ? Text(
                 displaySubtitle,
                 style: TextStyle(
-                    fontSize: 10,
-                    color: colorScheme.onSurfaceVariant),
+                    fontSize: 10, color: colorScheme.onSurfaceVariant),
                 overflow: TextOverflow.ellipsis,
               )
             : Text(
@@ -369,37 +314,40 @@ class MessageBubble extends StatelessWidget {
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(
-                AppConstants.space12, 8, AppConstants.space12, AppConstants.space12),
-            color: isDark ? Colors.black.withOpacity(0.15) : Colors.black.withOpacity(0.02),
+            padding: const EdgeInsets.fromLTRB(AppConstants.space12, 8,
+                AppConstants.space12, AppConstants.space12),
+            color: isDark
+                ? Colors.black.withOpacity(0.15)
+                : Colors.black.withOpacity(0.02),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (hasDiff)
-                  _buildDiffPreview(context, diff, isDark),
+                if (hasDiff) _buildDiffPreview(context, diff, isDark),
                 if (hasResult) ...[
                   if (hasDiff) const SizedBox(height: AppConstants.space8),
                   Text(UICopy.result,
                       style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
-                          color: isDark
-                              ? colorScheme.primary
-                              : Colors.blueGrey)),
+                          color:
+                              isDark ? colorScheme.primary : Colors.blueGrey)),
                   const SizedBox(height: AppConstants.space4),
                   _buildCodeBlock(context, message.content),
-                ] else if (!hasDiff && arguments != null && arguments.isNotEmpty) ...[
+                ] else if (!hasDiff &&
+                    arguments != null &&
+                    arguments.isNotEmpty) ...[
                   Text(UICopy.arguments,
                       style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
-                          color: isDark
-                              ? colorScheme.primary
-                              : Colors.blueGrey)),
+                          color:
+                              isDark ? colorScheme.primary : Colors.blueGrey)),
                   const SizedBox(height: AppConstants.space4),
                   _buildCodeBlock(context, arguments),
                 ],
-                if (!hasResult && !hasDiff && (arguments == null || arguments.isEmpty))
+                if (!hasResult &&
+                    !hasDiff &&
+                    (arguments == null || arguments.isEmpty))
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Text(
@@ -418,7 +366,8 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildDiffPreview(BuildContext context, Map<String, dynamic>? diff, bool isDark) {
+  Widget _buildDiffPreview(
+      BuildContext context, Map<String, dynamic>? diff, bool isDark) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     if (diff == null) return const SizedBox.shrink();
@@ -480,7 +429,8 @@ class MessageBubble extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 11, height: 1.4),
+            style: const TextStyle(
+                fontFamily: 'monospace', fontSize: 11, height: 1.4),
           ),
         ),
       ],
@@ -498,8 +448,8 @@ class MessageBubble extends StatelessWidget {
       ),
       child: Text(
         content,
-        style: const TextStyle(
-            fontFamily: 'monospace', fontSize: 11, height: 1.4),
+        style:
+            const TextStyle(fontFamily: 'monospace', fontSize: 11, height: 1.4),
       ),
     );
   }
@@ -526,12 +476,36 @@ class MessageBubble extends StatelessWidget {
         height: baseHeight,
         color: bodyColor,
       ),
-      h1: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
-      h2: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
-      h3: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
-      h4: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
-      h5: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
-      h6: const TextStyle(fontSize: baseSize, fontWeight: FontWeight.w400, height: baseHeight, color: Colors.transparent),
+      h1: TextStyle(
+          fontSize: baseSize,
+          fontWeight: FontWeight.w600,
+          height: baseHeight,
+          color: colorScheme.primary),
+      h2: TextStyle(
+          fontSize: baseSize,
+          fontWeight: FontWeight.w600,
+          height: baseHeight,
+          color: colorScheme.primary),
+      h3: TextStyle(
+          fontSize: baseSize,
+          fontWeight: FontWeight.w600,
+          height: baseHeight,
+          color: colorScheme.primary),
+      h4: TextStyle(
+          fontSize: baseSize,
+          fontWeight: FontWeight.w600,
+          height: baseHeight,
+          color: colorScheme.primary),
+      h5: TextStyle(
+          fontSize: baseSize,
+          fontWeight: FontWeight.w600,
+          height: baseHeight,
+          color: colorScheme.primary),
+      h6: TextStyle(
+          fontSize: baseSize,
+          fontWeight: FontWeight.w600,
+          height: baseHeight,
+          color: colorScheme.primary),
       h1Align: WrapAlignment.start,
       h2Align: WrapAlignment.start,
       h3Align: WrapAlignment.start,
@@ -562,7 +536,8 @@ class MessageBubble extends StatelessWidget {
         height: baseHeight,
       ),
       blockquoteDecoration: BoxDecoration(
-        border: Border(left: BorderSide(color: colorScheme.onSurfaceVariant, width: 2)),
+        border: Border(
+            left: BorderSide(color: colorScheme.onSurfaceVariant, width: 2)),
       ),
       listBullet: TextStyle(
         fontSize: baseSize,
@@ -597,11 +572,10 @@ class MessageBubble extends StatelessWidget {
     try {
       final rawMap = jsonDecode(message.content);
       final plan = AgentPlan.fromJson(rawMap);
-      
+
       return PlanPanel(
         plan: plan,
         styleSheet: _getMarkdownStyle(context, false),
-        builders: _headingBuilders,
       );
     } catch (e) {
       AppLogger.error('Plan rendering error', e);
