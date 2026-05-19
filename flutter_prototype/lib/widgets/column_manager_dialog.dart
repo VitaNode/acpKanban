@@ -624,11 +624,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                                   AppConstants.radiusSmall),
                             ),
                             child: ListTile(
-                              contentPadding: const EdgeInsets.only(
-                                  left: 4, right: 4),
-                              leading: Icon(Icons.drag_indicator_rounded,
-                                  color: colorScheme.onSurface.withOpacity(
-                                      AppConstants.mediumEmphasis)),
+                              contentPadding:
+                                  const EdgeInsets.only(left: 12, right: 4),
                               title: Text(col.name,
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w600)),
@@ -686,10 +683,8 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                                     padding: EdgeInsets.zero,
                                   ),
                                   IconButton(
-                                    icon: Icon(
-                                        Icons.delete_outline_rounded,
-                                        size: 18,
-                                        color: colorScheme.error),
+                                    icon: Icon(Icons.delete_outline_rounded,
+                                        size: 18, color: colorScheme.error),
                                     onPressed: () => _deleteColumn(col),
                                     constraints: const BoxConstraints(
                                         minWidth: 32, minHeight: 32),
