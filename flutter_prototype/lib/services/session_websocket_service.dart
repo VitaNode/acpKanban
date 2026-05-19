@@ -9,6 +9,7 @@ import '../models/kanban_card.dart';
 import '../models/ag_ui_event.dart';
 import '../constants/error_copy.dart';
 import '../utils/app_logger.dart';
+import 'connection_config_manager.dart';
 import 'acp_client.dart';
 import 'smart_connect.dart';
 
@@ -188,6 +189,7 @@ class SessionWebSocketService {
           }).catchError((e) {
             _isConnected = false;
             _reconnectIfNecessary();
+            return <String, dynamic>{};
           });
         } else if (_channel != null) {
           // Heartbeat for Direct mode

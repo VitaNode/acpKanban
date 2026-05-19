@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/connection_config.dart';
 import '../services/connection_config_manager.dart';
@@ -103,7 +104,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
 
       _relayPort = config.relayPort ?? 8766;
       _localPort = config.localPort ?? 8766;
-      _apiPort = config.localPort ?? 8000;
     });
   }
 
@@ -117,7 +117,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _cloudUrlController.dispose();
     _localPortController.dispose();
     _relayPortController.dispose();
-    _apiPortController.dispose();
     _systemBaseUrlController.dispose();
     _systemApiKeyController.dispose();
     _summaryModelController.dispose();
@@ -596,16 +595,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     );
   }
 
-  Widget _buildCloudFields() {
-    return TextField(
-      controller: _cloudUrlController,
-      decoration: const InputDecoration(
-        labelText: UICopy.cloudWsUrl,
-        hintText: 'ws://host:port/direct',
-      ),
-    );
-  }
-
   Widget _buildSystemAgentFields() {
     return Container(
       padding: const EdgeInsets.all(AppConstants.space16),
@@ -677,6 +666,18 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
               _connectionStatus.toUpperCase(),
               style: TextStyle(
                 fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: _getStatusColor(),
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+ontSize: 11,
                 fontWeight: FontWeight.bold,
                 color: _getStatusColor(),
                 letterSpacing: 0.5,
