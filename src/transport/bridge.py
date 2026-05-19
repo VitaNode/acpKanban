@@ -60,14 +60,20 @@ class UnifiedBridge:
         # 2. Start Local WebSocket Server (port 8766) for direct tool access
         from src.config.manager import config
         bind_host = config.bridge_bind_host
-        self._server = await websockets.serve(
-            self._handle_local_client,
-            bind_host,
-            8766,
-            ping_interval=20,
-            ping_timeout=20,
-        )
-        self.logger.info(f"Local tool bridge started on ws://{bind_host}:8766 (PubKey: {self._bridge_public_key_hex[:16]}...)")
+        try:
+            self._server = await websockets.serve(
+                self._handle_local_client,
+                bind_host,
+                8766,
+                ping_interval=20,
+                ping_timeout=20,
+            )
+            self.logger.info(f"Local tool bridge started on ws://{bind_host}:8766 (PubKey: {self._bridge_public_key_hex[:16]}...)")
+        except OSError as e:
+            if e.errno == 48 or "already in use" in str(e).lower():
+                self.logger.warning(f"Port 8766 already in use. Skipping local bridge server (likely running in All-in-One mode with Relay).")
+            else:
+                raise
         
         if run_forever:
             # Keep the server running
