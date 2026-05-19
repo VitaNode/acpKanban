@@ -180,8 +180,9 @@ class _MainScreenState extends State<MainScreen> {
             'summary_model': serverSysConfig['summary_model'],
             'embedding_model': serverSysConfig['embedding_model'],
           });
-          
-          final newConfig = savedConfig.copyWith(systemConfig: updatedSysConfig);
+
+          final newConfig =
+              savedConfig.copyWith(systemConfig: updatedSysConfig);
           await configManager.saveConfig(newConfig);
           AppLogger.info('System config hydrated from server');
         }
@@ -656,6 +657,29 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Future<void> _showAddColumnDialog() async {
+    if (_currentProject == null) return;
+    try {
+      final result = await showDialog<ColorEditResult>(
+        context: context,
+        builder: (context) =>
+            AddColumnDialog(existingColumnCount: _columns.length),
+      );
+      if (result != null) {
+        await _projectService.createColumn(
+          _currentProject!.id,
+          result.name,
+          color: result.color,
+          promptTemplate: result.promptTemplate,
+          acpProviderId: result.acpProviderId,
+        );
+        _loadProjectData(_currentProject!.id);
+      }
+    } catch (_) {
+      _showColumnManager();
+    }
+  }
+
   void _showCreateProjectDialog() {
     showDialog(
       context: context,
@@ -1087,7 +1111,11 @@ class _MainScreenState extends State<MainScreen> {
         return AppStateView.empty(
           icon: Icons.view_column_outlined,
           message: UICopy.noColumnsFound,
-          onRetry: () => _loadProjectData(_currentProject!.id),
+          action: FilledButton.icon(
+            onPressed: _showAddColumnDialog,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text(UICopy.addColumn),
+          ),
         );
 
       case AppFunnelState.columnsNoCards:
@@ -1112,7 +1140,11 @@ class _MainScreenState extends State<MainScreen> {
           return AppStateView.empty(
             icon: Icons.view_column_outlined,
             message: UICopy.noColumnsFound,
-            onRetry: () => _loadProjectData(_currentProject!.id),
+            action: FilledButton.icon(
+              onPressed: _showAddColumnDialog,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text(UICopy.addColumn),
+            ),
           );
         }
 

@@ -199,15 +199,15 @@ class _ColumnEditDialogState extends State<ColumnEditDialog> {
   }
 }
 
-class _AddColumnDialog extends StatefulWidget {
+class AddColumnDialog extends StatefulWidget {
   final int existingColumnCount;
-  const _AddColumnDialog({required this.existingColumnCount});
+  const AddColumnDialog({required this.existingColumnCount});
 
   @override
-  State<_AddColumnDialog> createState() => _AddColumnDialogState();
+  State<AddColumnDialog> createState() => AddColumnDialogState();
 }
 
-class _AddColumnDialogState extends State<_AddColumnDialog> {
+class AddColumnDialogState extends State<AddColumnDialog> {
   final _projectService = ProjectService();
   final _nameController = TextEditingController();
   final _promptTemplateController = TextEditingController();
@@ -457,7 +457,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
     final result = await showDialog<ColorEditResult>(
       context: context,
       builder: (context) =>
-          _AddColumnDialog(existingColumnCount: _columns.length),
+          AddColumnDialog(existingColumnCount: _columns.length),
     );
     if (result != null) {
       setState(() => _isLoading = true);
