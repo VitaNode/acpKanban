@@ -625,7 +625,10 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                             ),
                             child: ListTile(
                               contentPadding:
-                                  const EdgeInsets.only(left: 12, right: 4),
+                                  const EdgeInsets.only(left: 4, right: 4),
+                              leading: Icon(Icons.drag_indicator_rounded,
+                                  color: colorScheme.onSurface.withOpacity(
+                                      AppConstants.mediumEmphasis)),
                               title: Text(col.name,
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w600)),
