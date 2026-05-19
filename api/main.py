@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional
 from contextlib import asynccontextmanager
 import sys
 import os
