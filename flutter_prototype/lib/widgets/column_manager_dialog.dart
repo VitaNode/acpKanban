@@ -5,7 +5,6 @@ import '../services/project_service.dart';
 import '../constants/app_constants.dart';
 import '../utils/icon_util.dart';
 import '../models/acp_provider.dart';
-import '../theme/app_theme.dart';
 import '../constants/ui_copy.dart';
 import '../utils/app_logger.dart';
 import 'app_feedback.dart';
@@ -625,57 +624,76 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                                   AppConstants.radiusSmall),
                             ),
                             child: ListTile(
+                              contentPadding: const EdgeInsets.only(
+                                  left: 4, right: 4),
                               leading: Icon(Icons.drag_indicator_rounded,
                                   color: colorScheme.onSurface.withOpacity(
                                       AppConstants.mediumEmphasis)),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                      child: Text(col.name,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600))),
-                                  if (providerId != null) ...[
-                                    _buildStatusBadge(
-                                        status, theme, colorScheme),
-                                    const SizedBox(width: 8),
-                                    if (status != 'ready' &&
-                                        status != 'initializing')
-                                      TextButton(
-                                        onPressed: () =>
-                                            _initializeProvider(providerId),
-                                        style: TextButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 8, vertical: 0),
-                                          minimumSize: Size.zero,
-                                          tapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
-                                          textStyle: const TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold),
-                                        ),
-                                        child: Text(UICopy.statusInitializing),
-                                      )
-                                    else if (status == 'initializing')
-                                      const SizedBox(
-                                          width: 12,
-                                          height: 12,
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2)),
-                                  ],
-                                ],
-                              ),
+                              title: Text(col.name,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600)),
+                              subtitle: providerId != null
+                                  ? Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Row(
+                                        children: [
+                                          _buildStatusBadge(
+                                              status, theme, colorScheme),
+                                          const SizedBox(width: 8),
+                                          if (status != 'ready' &&
+                                              status != 'initializing')
+                                            TextButton(
+                                              onPressed: () =>
+                                                  _initializeProvider(
+                                                      providerId),
+                                              style: TextButton.styleFrom(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 0),
+                                                minimumSize: Size.zero,
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                textStyle: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight:
+                                                        FontWeight.bold),
+                                              ),
+                                              child: Text(
+                                                  UICopy.statusInitializing),
+                                            )
+                                          else if (status == 'initializing')
+                                            const SizedBox(
+                                                width: 12,
+                                                height: 12,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth: 2)),
+                                        ],
+                                      ),
+                                    )
+                                  : null,
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
                                     icon: const Icon(Icons.edit_outlined,
-                                        size: 20),
+                                        size: 18),
                                     onPressed: () => _editColumn(col),
+                                    constraints: const BoxConstraints(
+                                        minWidth: 32, minHeight: 32),
+                                    padding: EdgeInsets.zero,
                                   ),
                                   IconButton(
-                                    icon: Icon(Icons.delete_outline_rounded,
-                                        size: 20, color: colorScheme.error),
+                                    icon: Icon(
+                                        Icons.delete_outline_rounded,
+                                        size: 18,
+                                        color: colorScheme.error),
                                     onPressed: () => _deleteColumn(col),
+                                    constraints: const BoxConstraints(
+                                        minWidth: 32, minHeight: 32),
+                                    padding: EdgeInsets.zero,
                                   ),
                                 ],
                               ),
