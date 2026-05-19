@@ -126,10 +126,9 @@ class UnifiedBridge:
                                 self._send_response(websocket, n, secret)
                             
                             result = await self.handle_rpc(inner_data, encrypted_output)
-                            
+
                             # If handle_rpc returned a result (for request-response), send it back
-                            if result and request_id is not None:
-                                # Check if it's an error
+                            if result is not None and request_id is not None:
                                 if isinstance(result, dict) and "error" in result:
                                     response = {
                                         "jsonrpc": "2.0",
@@ -491,7 +490,7 @@ class UnifiedBridge:
 
             # 7. Other methods dispatch
             result = await self.dispatcher.dispatch(data, on_ui_request)
-            if result and request_id is not None:
+            if result is not None and request_id is not None:
                 if isinstance(result, dict) and "error" in result:
                     await safe_send({"jsonrpc": "2.0", "id": request_id, "error": result["error"]})
                 else:
