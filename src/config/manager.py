@@ -113,6 +113,8 @@ class ConfigManager:
             self._config["system"]["db_path"] = os.getenv("KANBAN_DB_PATH")
         if os.getenv("WORKSPACE_ROOT"):
             self._config["system"]["workspace_root"] = os.getenv("WORKSPACE_ROOT")
+        if os.getenv("API_TOKEN"):
+            self._config["system"]["api_token"] = os.getenv("API_TOKEN")
             
         # Relay
         if os.getenv("RELAY_URL"):
