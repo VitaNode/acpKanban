@@ -47,7 +47,8 @@ class KanbanApp extends StatelessWidget {
         return GestureDetector(
           onTap: () {
             FocusScopeNode currentFocus = FocusScope.of(context);
-            if (!currentFocus.hasPrimaryFocus && currentFocus.focusedChild != null) {
+            if (!currentFocus.hasPrimaryFocus &&
+                currentFocus.focusedChild != null) {
               FocusManager.instance.primaryFocus?.unfocus();
             }
           },
@@ -113,14 +114,37 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  void _refreshFunnelState() {
+    if (!mounted) return;
+    setState(() {
+      if (_acpClient.activeMode == ConnectionPath.none) {
+        _funnelState = AppFunnelState.needsConnection;
+      } else if (_projects.isEmpty) {
+        _funnelState = AppFunnelState.connectedNoProjects;
+      } else if (_currentProject == null) {
+        _funnelState = AppFunnelState.connectedNoProjects;
+      } else if (_columns.isEmpty) {
+        _funnelState = AppFunnelState.projectSelectedNoColumns;
+      } else if (_cards.isEmpty) {
+        _funnelState = AppFunnelState.columnsNoCards;
+      } else {
+        _funnelState = AppFunnelState.ready;
+      }
+    });
+  }
+
   Future<void> _initApp() async {
     try {
+      _acpClient.disconnect();
+
       final configManager = await ConnectionConfigManager.getInstance();
       final savedConfig = await configManager.loadConfig();
       _userId = savedConfig.userId;
 
-      if (_userId == null || _userId!.isEmpty || 
-          savedConfig.relayToken == null || savedConfig.relayToken!.isEmpty) {
+      if (_userId == null ||
+          _userId!.isEmpty ||
+          savedConfig.relayToken == null ||
+          savedConfig.relayToken!.isEmpty) {
         AppLogger.info('Missing credentials, redirecting to settings');
         if (mounted) {
           setState(() {
@@ -137,11 +161,12 @@ class _MainScreenState extends State<MainScreen> {
         _userId!,
       );
       await _acpClient.smartConnect(acpConfig);
-      
+
       if (_acpClient.activeUrl != null) {
-        _projectService.updateBaseUrl(_acpClient.activeUrl!, apiToken: savedConfig.apiToken);
+        _projectService.updateBaseUrl(_acpClient.activeUrl!,
+            apiToken: savedConfig.apiToken);
       }
-      
+
       await _acpClient.initialize(acpConfig.systemConfig);
 
       await Future.wait([
@@ -149,21 +174,7 @@ class _MainScreenState extends State<MainScreen> {
         _loadProviders(),
       ]);
 
-      if (mounted) {
-        setState(() {
-          if (_projects.isEmpty) {
-            _funnelState = AppFunnelState.connectedNoProjects;
-          } else if (_currentProject == null) {
-            _funnelState = AppFunnelState.connectedNoProjects;
-          } else if (_columns.isEmpty) {
-            _funnelState = AppFunnelState.projectSelectedNoColumns;
-          } else if (_cards.isEmpty) {
-            _funnelState = AppFunnelState.columnsNoCards;
-          } else {
-            _funnelState = AppFunnelState.ready;
-          }
-        });
-      }
+      _refreshFunnelState();
     } catch (e) {
       AppLogger.error('Init Error', e);
       if (mounted) {
@@ -220,7 +231,8 @@ class _MainScreenState extends State<MainScreen> {
         final isMobile = size.width < 600;
         return AlertDialog(
           title: Text('${UICopy.addCardTo} ${column.name}'),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppConstants.radiusMedium)),
           content: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: isMobile ? size.width * 0.95 : size.width * 0.8,
@@ -275,8 +287,11 @@ class _MainScreenState extends State<MainScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(AppConstants.radiusSmall)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
                 child: const Text(UICopy.addCard)),
           ],
@@ -307,11 +322,11 @@ class _MainScreenState extends State<MainScreen> {
         final bTime = DateTime.tryParse(b.updatedAt) ?? DateTime(0);
         return bTime.compareTo(aTime);
       });
-      
+
       if (mounted) {
         final configManager = await ConnectionConfigManager.getInstance();
         final lastProjectId = configManager.getLastProjectId();
-        
+
         setState(() {
           _projects = projects;
           if (_currentProject == null && projects.isNotEmpty) {
@@ -351,7 +366,8 @@ class _MainScreenState extends State<MainScreen> {
       columns.sort((a, b) => a.position.compareTo(b.position));
       final List<KanbanCard> allCards = [];
       for (var col in columns) {
-        final cards = await _projectService.getCardsByColumn(col.id, includeCompleted: true);
+        final cards = await _projectService.getCardsByColumn(col.id,
+            includeCompleted: true);
         allCards.addAll(cards);
       }
       if (mounted) {
@@ -437,14 +453,14 @@ class _MainScreenState extends State<MainScreen> {
           _timelineEvents = switchData.timeline;
         });
         _updateAgentStatuses();
-        
+
         final configManager = await ConnectionConfigManager.getInstance();
         await configManager.setLastProjectId(project.id);
-        
+
         await _loadProjectData(project.id);
       } else {
         await _loadProjectData(project.id);
-        
+
         final configManager = await ConnectionConfigManager.getInstance();
         await configManager.setLastProjectId(project.id);
       }
@@ -458,12 +474,15 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _onCardMoved(KanbanCard card, String targetColumnId, {int? targetPosition}) async {
+  Future<void> _onCardMoved(KanbanCard card, String targetColumnId,
+      {int? targetPosition}) async {
     final oldColumnId = card.columnId;
     final oldPosition = card.position;
-    
+
     int newPosition;
-    final targetCards = _cards.where((c) => c.columnId == targetColumnId).toList()
+    final targetCards = _cards
+        .where((c) => c.columnId == targetColumnId)
+        .toList()
       ..sort((a, b) => a.position.compareTo(b.position));
 
     if (targetPosition != null) {
@@ -478,19 +497,21 @@ class _MainScreenState extends State<MainScreen> {
 
     setState(() {
       _cards.removeWhere((c) => c.id == card.id);
-      
+
       for (var i = 0; i < _cards.length; i++) {
-        if (_cards[i].columnId == oldColumnId && _cards[i].position > oldPosition) {
+        if (_cards[i].columnId == oldColumnId &&
+            _cards[i].position > oldPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position - 1);
         }
       }
-      
+
       for (var i = 0; i < _cards.length; i++) {
-        if (_cards[i].columnId == targetColumnId && _cards[i].position >= newPosition) {
+        if (_cards[i].columnId == targetColumnId &&
+            _cards[i].position >= newPosition) {
           _cards[i] = _cards[i].copyWith(position: _cards[i].position + 1);
         }
       }
-      
+
       _cards.add(card.copyWith(
         columnId: targetColumnId,
         position: newPosition,
@@ -498,7 +519,8 @@ class _MainScreenState extends State<MainScreen> {
       _cards.sort((a, b) => a.position.compareTo(b.position));
     });
 
-    final success = await _projectService.moveCard(card.id, targetColumnId, newPosition);
+    final success =
+        await _projectService.moveCard(card.id, targetColumnId, newPosition);
     if (!success && mounted) {
       await _loadProjectData(_currentProject!.id);
       AppFeedback.showError(context, UICopy.failedToMoveCard);
@@ -522,7 +544,8 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _createProject(String name, String? workspacePath, {String? description}) async {
+  Future<void> _createProject(String name, String? workspacePath,
+      {String? description}) async {
     final project = await _projectService.createProject(
       name,
       workspacePath: workspacePath,
@@ -537,10 +560,10 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  Future<void> _handleProjectUpdate(
-      Project project, String name, String? path, {String? description}) async {
-    final isDuplicate = _projects.any(
-        (p) => p.name.toLowerCase() == name.toLowerCase() && p.id != project.id);
+  Future<void> _handleProjectUpdate(Project project, String name, String? path,
+      {String? description}) async {
+    final isDuplicate = _projects.any((p) =>
+        p.name.toLowerCase() == name.toLowerCase() && p.id != project.id);
 
     if (isDuplicate) {
       AppFeedback.showError(context, UICopy.projectNameUnique);
@@ -578,7 +601,8 @@ class _MainScreenState extends State<MainScreen> {
       builder: (context) => ProjectManagementDialog(
         projects: _projects,
         currentProject: _currentProject,
-        onUpdate: (project, name, path, {description}) => _handleProjectUpdate(project, name, path, description: description),
+        onUpdate: (project, name, path, {description}) =>
+            _handleProjectUpdate(project, name, path, description: description),
         onDelete: (project) async {
           final success = await _projectService.deleteProject(project.id);
           if (success && mounted) {
@@ -592,7 +616,8 @@ class _MainScreenState extends State<MainScreen> {
                 _timelineEvents = [];
               }
             });
-            AppFeedback.showSuccess(context, '${UICopy.projectDescription} "${project.name}" ${UICopy.cardDeleted}');
+            AppFeedback.showSuccess(context,
+                '${UICopy.projectDescription} "${project.name}" ${UICopy.cardDeleted}');
           }
         },
       ),
@@ -639,21 +664,31 @@ class _MainScreenState extends State<MainScreen> {
 
   int _viewToIndex(String view) {
     switch (view) {
-      case 'board': return 0;
-      case 'roadmap': return 1;
-      case 'timeline': return 2;
-      case 'connection': return 3;
-      default: return 0;
+      case 'board':
+        return 0;
+      case 'roadmap':
+        return 1;
+      case 'timeline':
+        return 2;
+      case 'connection':
+        return 3;
+      default:
+        return 0;
     }
   }
 
   String _indexToView(int index) {
     switch (index) {
-      case 0: return 'board';
-      case 1: return 'roadmap';
-      case 2: return 'timeline';
-      case 3: return 'connection';
-      default: return 'board';
+      case 0:
+        return 'board';
+      case 1:
+        return 'roadmap';
+      case 2:
+        return 'timeline';
+      case 3:
+        return 'connection';
+      default:
+        return 'board';
     }
   }
 
@@ -742,7 +777,8 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: showBottomNav ? _buildBottomNavigationBar(theme, colorScheme) : null,
+      bottomNavigationBar:
+          showBottomNav ? _buildBottomNavigationBar(theme, colorScheme) : null,
     );
   }
 
@@ -757,9 +793,11 @@ class _MainScreenState extends State<MainScreen> {
         });
       },
       selectedItemColor: colorScheme.primary,
-      unselectedItemColor: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
+      unselectedItemColor:
+          colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
       showUnselectedLabels: true,
-      selectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+      selectedLabelStyle:
+          const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
       unselectedLabelStyle: const TextStyle(fontSize: 12),
       items: [
         const BottomNavigationBarItem(
@@ -805,22 +843,14 @@ class _MainScreenState extends State<MainScreen> {
         currentMode: _getCurrentConnectionMode(),
         userId: _userId ?? 'test_user',
         onConnectionChanged: (newMode, url) async {
-          final configManager = await ConnectionConfigManager.getInstance();
-          final savedConfig = await configManager.loadConfig();
-          if (url != null) {
-            _projectService.updateBaseUrl(url, apiToken: savedConfig.apiToken);
-          }
-          if (mounted) {
-            setState(() {
-              _userId = savedConfig.userId;
-            });
-            _loadProjects();
-          }
+          await _initApp();
         },
       );
     }
 
-    if (_currentView == 'card_detail' && _selectedCard != null && _currentProject != null) {
+    if (_currentView == 'card_detail' &&
+        _selectedCard != null &&
+        _currentProject != null) {
       return CardDetailView(
         card: _selectedCard!,
         projectId: _currentProject!.id,
@@ -837,7 +867,9 @@ class _MainScreenState extends State<MainScreen> {
         Align(
           alignment: Alignment.centerLeft,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16, vertical: AppConstants.space8),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.space16,
+                vertical: AppConstants.space8),
             child: ProjectSelector(
               currentProject: _currentProject,
               projects: _projects,
@@ -876,7 +908,9 @@ class _MainScreenState extends State<MainScreen> {
     return NavigationRail(
       extended: _isSidebarExpanded,
       backgroundColor: theme.scaffoldBackgroundColor,
-      unselectedIconTheme: IconThemeData(color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
+      unselectedIconTheme: IconThemeData(
+          color:
+              colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis)),
       selectedIconTheme: IconThemeData(color: colorScheme.primary),
       unselectedLabelTextStyle: theme.textTheme.bodySmall?.copyWith(
         color: colorScheme.onSurface.withOpacity(AppConstants.mediumEmphasis),
@@ -889,19 +923,25 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           const SizedBox(height: 8),
           IconButton(
-            icon: Icon(_isSidebarExpanded ? Icons.menu_open_rounded : Icons.menu_rounded),
-            onPressed: () => setState(() => _isSidebarExpanded = !_isSidebarExpanded),
-            tooltip: _isSidebarExpanded ? UICopy.collapseSidebar : UICopy.expandSidebar,
+            icon: Icon(_isSidebarExpanded
+                ? Icons.menu_open_rounded
+                : Icons.menu_rounded),
+            onPressed: () =>
+                setState(() => _isSidebarExpanded = !_isSidebarExpanded),
+            tooltip: _isSidebarExpanded
+                ? UICopy.collapseSidebar
+                : UICopy.expandSidebar,
           ),
           if (_isSidebarExpanded) ...[
             const SizedBox(height: 16),
-            Icon(Icons.psychology_rounded, size: 32, color: colorScheme.primary),
+            Icon(Icons.psychology_rounded,
+                size: 32, color: colorScheme.primary),
             const SizedBox(height: 8),
-            Text(UICopy.appTitle, 
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              )),
+            Text(UICopy.appTitle,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                )),
             const SizedBox(height: 24),
           ],
         ],
@@ -957,7 +997,8 @@ class _MainScreenState extends State<MainScreen> {
             if (_isSidebarExpanded)
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(UICopy.appVersion, style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
+                child: Text(UICopy.appVersion,
+                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 10)),
               ),
             const SizedBox(height: 8),
           ],
@@ -1010,7 +1051,7 @@ class _MainScreenState extends State<MainScreen> {
             label: const Text(UICopy.openSettings),
           ),
         );
-      
+
       case AppFunnelState.connectedNoProjects:
         return AppStateView.empty(
           icon: Icons.folder_off_rounded,
@@ -1054,7 +1095,7 @@ class _MainScreenState extends State<MainScreen> {
             onRetry: () => _loadProjectData(_currentProject!.id),
           );
         }
-        
+
         return RefreshIndicator(
           onRefresh: () async {
             await _loadProjectData(_currentProject!.id);
@@ -1062,7 +1103,8 @@ class _MainScreenState extends State<MainScreen> {
           child: ReorderableListView.builder(
             key: PageStorageKey('board_list_${_currentProject?.id}'),
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppConstants.space8),
+            padding:
+                const EdgeInsets.symmetric(horizontal: AppConstants.space8),
             itemCount: _columns.length,
             onReorder: _onColumnReordered,
             itemBuilder: (context, index) {
@@ -1102,10 +1144,13 @@ class _MainScreenState extends State<MainScreen> {
                       title: const Text(UICopy.deleteCard),
                       content: const Text(UICopy.confirmDeleteCard),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text(UICopy.cancel)),
                         TextButton(
-                          onPressed: () => Navigator.pop(context, true), 
-                          child: Text(UICopy.delete, style: TextStyle(color: colorScheme.error)),
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text(UICopy.cancel)),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: Text(UICopy.delete,
+                              style: TextStyle(color: colorScheme.error)),
                         ),
                       ],
                     ),

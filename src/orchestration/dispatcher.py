@@ -87,6 +87,9 @@ class MessageDispatcher:
     def _setup_handlers(self):
         self._handlers = {
             "initialize": self._handle_initialize,
+            "projects/list": self._handle_list_projects,
+            "projects/get": self._handle_get_project,
+            "projects/switch": self._handle_switch_project,
             "provider/init-status": self._handle_provider_init_status,
             "provider/initialize": self._handle_provider_initialize,
             "kanban/progress/get": self._handle_get_progress,
@@ -96,10 +99,29 @@ class MessageDispatcher:
             "kanban/feature/create": self._handle_create_feature,
             "kanban/feature/update": self._handle_update_feature,
             "kanban/feature/delete": self._handle_delete_feature,
+            "cards/create": self._handle_create_card,
+            "cards/update": self._handle_update_card,
+            "cards/move": self._handle_card_move,
+            # Legacy/Alternate names for compatibility
             "kanban/card/create": self._handle_create_card,
             "kanban/card/update": self._handle_update_card,
-            "cards/move": self._handle_card_move,
         }
+
+    async def _handle_list_projects(self, params, rid):
+        projects = await asyncio.to_thread(self.db.projects.get_all)
+        return projects
+
+    async def _handle_get_project(self, params, rid):
+        pid = params.get("project_id")
+        if not pid: return {"error": "Missing project_id"}
+        project = await asyncio.to_thread(self.db.projects.get_by_id, pid)
+        return project
+
+    async def _handle_switch_project(self, params, rid):
+        pid = params.get("project_id")
+        if not pid: return {"error": "Missing project_id"}
+        # Simply notify that we switched; DB update logic is usually in SessionEngine or API
+        return {"status": "ok", "project_id": pid}
 
     async def _handle_initialize(self, params, rid):
         return {

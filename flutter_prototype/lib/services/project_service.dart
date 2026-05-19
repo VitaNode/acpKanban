@@ -34,7 +34,8 @@ class ProjectService {
     if (_baseUrl.contains(':8766')) {
       _baseUrl = _baseUrl.replaceFirst(':8766', ':8000');
     }
-    AppLogger.info('Base URL updated to: $_baseUrl (Token present: ${_apiToken != null})');
+    AppLogger.info(
+        'Base URL updated to: $_baseUrl (Token present: ${_apiToken != null})');
   }
 
   Future<List<Project>> getProjects() async {
@@ -49,10 +50,13 @@ class ProjectService {
           }
         } else if (response.containsKey('error')) {
           final err = response['error'];
-          AppLogger.error('ACP projects/list error: ${ErrorCopy.mapError(err['error_code'], err['message'])}');
+          AppLogger.error(
+              'ACP projects/list error: ${ErrorCopy.mapError(err['error_code'], err['message'])}');
+          // Fall through to REST if ACP specifically fails to handle it
         }
       } catch (e) {
         AppLogger.error('ACP projects/list failed', e);
+        // Fall through to REST on generic exceptions
       }
     }
 
@@ -72,7 +76,8 @@ class ProjectService {
   Future<Project?> getProject(String projectId) async {
     if (_useProxy && _acpClient.isReady) {
       try {
-        final response = await _acpClient.sendRequest('projects/get', {'project_id': projectId});
+        final response = await _acpClient
+            .sendRequest('projects/get', {'project_id': projectId});
         if (response.containsKey('result')) {
           return Project.fromJson(response['result']);
         }
@@ -92,7 +97,8 @@ class ProjectService {
     return null;
   }
 
-  Future<Project?> createProject(String name, {String? workspacePath, String? description}) async {
+  Future<Project?> createProject(String name,
+      {String? workspacePath, String? description}) async {
     try {
       final body = <String, dynamic>{'name': name};
       if (workspacePath != null && workspacePath.trim().isNotEmpty) {
@@ -105,7 +111,8 @@ class ProjectService {
       if (response.statusCode == 201) {
         return Project.fromJson(jsonDecode(response.body));
       }
-      AppLogger.error('Failed to create project: ${response.statusCode} - ${response.body}');
+      AppLogger.error(
+          'Failed to create project: ${response.statusCode} - ${response.body}');
     } catch (e) {
       AppLogger.error('createProject error', e);
     }
@@ -152,8 +159,11 @@ class ProjectService {
         AppLogger.warning('Proxy getColumns failed, trying RPC fallback', e);
         try {
           await _acpClient.waitForReady;
-          final response = await _acpClient.sendRequest('projects/get', {'project_id': projectId});
-          if (response.containsKey('result') && response['result'] != null && response['result']['columns'] != null) {
+          final response = await _acpClient
+              .sendRequest('projects/get', {'project_id': projectId});
+          if (response.containsKey('result') &&
+              response['result'] != null &&
+              response['result']['columns'] != null) {
             final List<dynamic> cols = response['result']['columns'];
             return cols.map((c) => KanbanColumn.fromJson(c)).toList();
           }
@@ -217,18 +227,21 @@ class ProjectService {
       try {
         final response = await _post('/api/projects/$projectId/switch', {});
         if (response.statusCode == 200) {
-          return ProjectSwitchData.fromJsonWithColumnId(jsonDecode(response.body));
+          return ProjectSwitchData.fromJsonWithColumnId(
+              jsonDecode(response.body));
         }
       } catch (e) {
-        AppLogger.warning('Proxy switchToProject failed, trying RPC fallback', e);
+        AppLogger.warning(
+            'Proxy switchToProject failed, trying RPC fallback', e);
         try {
-          final response = await _acpClient.sendRequest('projects/switch', {'project_id': projectId});
+          final response = await _acpClient
+              .sendRequest('projects/switch', {'project_id': projectId});
           if (response.containsKey('result')) {
             final p = await getProject(projectId);
             if (p != null) {
               return ProjectSwitchData(
                 project: p,
-                columns: [], 
+                columns: [],
                 timeline: [],
                 message: "Switched via Relay RPC",
               );
@@ -244,7 +257,8 @@ class ProjectService {
     try {
       final response = await _post('/api/projects/$projectId/switch', {});
       if (response.statusCode == 200) {
-        return ProjectSwitchData.fromJsonWithColumnId(jsonDecode(response.body));
+        return ProjectSwitchData.fromJsonWithColumnId(
+            jsonDecode(response.body));
       }
     } catch (e) {
       AppLogger.error('switchToProject error', e);
@@ -272,7 +286,10 @@ class ProjectService {
   }
 
   Future<bool> updateColumn(String columnId,
-      {String? name, String? color, String? promptTemplate, String? acpProviderId}) async {
+      {String? name,
+      String? color,
+      String? promptTemplate,
+      String? acpProviderId}) async {
     try {
       final body = <String, dynamic>{};
       if (name != null) body['name'] = name;
@@ -304,7 +321,8 @@ class ProjectService {
       {bool includeCompleted = false}) async {
     if (_useProxy) {
       try {
-        final response = await _get('/api/columns/$columnId/cards?include_completed=$includeCompleted');
+        final response = await _get(
+            '/api/columns/$columnId/cards?include_completed=$includeCompleted');
         if (response.statusCode == 200) {
           final List<dynamic> data = jsonDecode(response.body)['cards'] ?? [];
           return data.map((c) {
@@ -314,10 +332,12 @@ class ProjectService {
           }).toList();
         }
       } catch (e) {
-        AppLogger.warning('Proxy getCardsByColumn failed, trying RPC fallback', e);
+        AppLogger.warning(
+            'Proxy getCardsByColumn failed, trying RPC fallback', e);
         try {
           await _acpClient.waitForReady;
-          final response = await _acpClient.sendRequest('cards/list', {'column_id': columnId});
+          final response = await _acpClient
+              .sendRequest('cards/list', {'column_id': columnId});
           if (response.containsKey('result') && response['result'] is List) {
             final List<dynamic> resultData = response['result'];
             return resultData.map((c) {
@@ -434,7 +454,8 @@ class ProjectService {
     }
   }
 
-  Future<List<KanbanCard>> getRelatedCards(String cardId, {int limit = 5}) async {
+  Future<List<KanbanCard>> getRelatedCards(String cardId,
+      {int limit = 5}) async {
     try {
       final response = await _get('/api/cards/$cardId/related?limit=$limit');
       if (response.statusCode == 200) {
@@ -461,7 +482,8 @@ class ProjectService {
 
   Future<bool> updateCardSummary(String cardId, String summary) async {
     try {
-      final response = await _put('/api/cards/$cardId/summary', {'summary': summary});
+      final response =
+          await _put('/api/cards/$cardId/summary', {'summary': summary});
       return response.statusCode == 200;
     } catch (e) {
       AppLogger.error('updateCardSummary error', e);
@@ -475,7 +497,8 @@ class ProjectService {
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
-      throw Exception(ErrorCopy.mapError(null, 'Failed to generate summary: ${response.statusCode}'));
+      throw Exception(ErrorCopy.mapError(
+          null, 'Failed to generate summary: ${response.statusCode}'));
     } catch (e) {
       AppLogger.error('generateCardSummary error', e);
       rethrow;
@@ -496,7 +519,8 @@ class ProjectService {
 
   Future<Map<String, dynamic>?> getProviderInitStatus(String projectId) async {
     try {
-      final response = await _get('/api/providers/init-status?project_id=$projectId');
+      final response =
+          await _get('/api/providers/init-status?project_id=$projectId');
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
@@ -592,9 +616,11 @@ class ProjectService {
       if (description != null) body['description'] = description;
       if (featureId != null) body['feature_id'] = featureId;
 
-      AppLogger.debug('[ProjectService] updateCard request: cardId=$cardId, body=$body');
+      AppLogger.debug(
+          '[ProjectService] updateCard request: cardId=$cardId, body=$body');
       final response = await _put('/api/cards/$cardId', body);
-      AppLogger.debug('[ProjectService] updateCard response: ${response.statusCode}');
+      AppLogger.debug(
+          '[ProjectService] updateCard response: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         return KanbanCard.fromJson(jsonDecode(response.body));
@@ -794,7 +820,8 @@ class ProjectService {
     }
   }
 
-  Future<_HttpResponse> _proxyRequest(String method, String path, {Map<String, dynamic>? body}) async {
+  Future<_HttpResponse> _proxyRequest(String method, String path,
+      {Map<String, dynamic>? body}) async {
     try {
       await _acpClient.waitForReady;
       final response = await _acpClient.sendRequest('http/proxy', {
@@ -802,7 +829,7 @@ class ProjectService {
         'path': path,
         'body': body,
       });
-      
+
       if (response.containsKey('result')) {
         final result = response['result'];
         return _HttpResponse(
