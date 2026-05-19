@@ -28,8 +28,8 @@ def run_bridge_and_relay():
     
     async def _run():
         # 1. 启动 Relay Server (监听 8766 端口)
-        # 它提供 /relay/app/{user_id} 给 iPhone 连，提供 /relay/mac/{user_id} 给 Bridge 连
-        relay = RelayServer(host="0.0.0.0", port=8766)
+        # 传入 config.relay_token 以确保鉴权通过
+        relay = RelayServer(host="0.0.0.0", port=8766, token=config.relay_token)
         relay_task = asyncio.create_task(relay.start())
         logger.info("[*] Local Relay Server started on 0.0.0.0:8766")
 
@@ -37,7 +37,6 @@ def run_bridge_and_relay():
         await asyncio.sleep(1)
 
         # 2. 启动 Bridge 并连到这个本地 Relay
-        # 注意：这里连的是 localhost 的 relay
         bridge = UnifiedBridge(
             user_id=config.user_id,
             relay_url="ws://127.0.0.1:8766",

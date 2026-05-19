@@ -124,7 +124,7 @@ async def root():
 
 @app.get("/api/system/config")
 async def get_system_config(token_valid: bool = Depends(require_api_token)):
-    """Expose system configuration via REST (useful when Bridge/WebSocket is not connected).\"""
+    """Expose system configuration via REST (useful when Bridge/WebSocket is not connected)."""
     db = get_db()
     config_str = db.get_setting("system_config", "{}")
     try:
