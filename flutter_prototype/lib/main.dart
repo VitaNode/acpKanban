@@ -169,6 +169,26 @@ class _MainScreenState extends State<MainScreen> {
 
       await _acpClient.initialize(acpConfig.systemConfig);
 
+      // Phase 5.5: Hydrate system config from server after successful connection
+      try {
+        final serverSysConfig = await _projectService.getSystemConfig();
+        if (serverSysConfig != null && serverSysConfig.containsKey('api_key')) {
+          final updatedSysConfig = SystemProxyConfig.fromJson({
+            'provider_id': 'openai',
+            'api_key': serverSysConfig['api_key'],
+            'base_url': serverSysConfig['base_url'],
+            'summary_model': serverSysConfig['summary_model'],
+            'embedding_model': serverSysConfig['embedding_model'],
+          });
+          
+          final newConfig = savedConfig.copyWith(systemConfig: updatedSysConfig);
+          await configManager.saveConfig(newConfig);
+          AppLogger.info('System config hydrated from server');
+        }
+      } catch (e) {
+        AppLogger.warning('Failed to hydrate system config from server', e);
+      }
+
       await Future.wait([
         _loadProjects(),
         _loadProviders(),

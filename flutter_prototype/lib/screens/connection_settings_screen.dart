@@ -202,8 +202,12 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           widget.acpClient.activeUrl,
         );
 
-        AppFeedback.showSuccess(context, UICopy.connectedSuccessfully);
-      }
+        // Phase 5.5: Push system config to server to keep it in sync
+        if (config.systemConfig != null) {
+          _projectService.updateSystemConfig(config.systemConfig!);
+        }
+
+        AppFeedback.showSuccess(context, UICopy.connectedSuccessfully);      }
     } catch (e) {
       if (mounted) {
         setState(() {

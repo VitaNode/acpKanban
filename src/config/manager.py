@@ -197,6 +197,15 @@ class ConfigManager:
     def default_provider(self) -> str:
         return self._config["providers"]["default"]
 
+    def update_system_agent(self, api_key: str = None, base_url: str = None, 
+                           summary_model: str = None, embedding_model: str = None):
+        """Update system_agent settings and persist to file."""
+        if api_key is not None: self._config["system_agent"]["api_key"] = api_key
+        if base_url is not None: self._config["system_agent"]["base_url"] = base_url
+        if summary_model is not None: self._config["system_agent"]["summary_model"] = summary_model
+        if embedding_model is not None: self._config["system_agent"]["embedding_model"] = embedding_model
+        self._save_to_file()
+
     @property
     def db_path(self) -> str:
         return self._config["system"]["db_path"]

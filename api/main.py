@@ -123,6 +123,29 @@ async def root():
     }
 
 
+class SystemConfigRequest(BaseModel):
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    summary_model: Optional[str] = None
+    embedding_model: Optional[str] = None
+
+
+@app.post("/api/system/config")
+async def update_system_config(
+    request: SystemConfigRequest, 
+    token_valid: bool = Depends(require_api_token)
+):
+    """Update server-side system configuration."""
+    from src.config.manager import config
+    config.update_system_agent(
+        api_key=request.api_key,
+        base_url=request.base_url,
+        summary_model=request.summary_model,
+        embedding_model=request.embedding_model
+    )
+    return {"status": "ok"}
+
+
 @app.get("/api/system/config")
 async def get_system_config(token_valid: bool = Depends(require_api_token)):
     """Expose system configuration via REST (useful when Bridge/WebSocket is not connected)."""

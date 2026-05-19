@@ -729,7 +729,17 @@ class ProjectService {
     return false;
   }
 
-  Future<dynamic> _get(String path) async {
+  Future<bool> updateSystemConfig(SystemProxyConfig config) async {
+    try {
+      final response = await _post('/api/system/config', config.toJson());
+      return response.statusCode == 200;
+    } catch (e) {
+      AppLogger.error('updateSystemConfig error', e);
+      return false;
+    }
+  }
+
+  Future<_HttpResponse> _get(String path) async {
     if (_useProxy) return _proxyRequest('GET', path);
     final client = HttpClient();
     try {
