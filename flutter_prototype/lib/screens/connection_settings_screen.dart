@@ -34,6 +34,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
   late TextEditingController _localIpController;
   late TextEditingController _relayHostController;
   late TextEditingController _relayTokenController;
+  late TextEditingController _apiTokenController;
   late TextEditingController _cloudUrlController;
   late TextEditingController _userIdController;
   late TextEditingController _localPortController;
@@ -60,6 +61,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _localIpController = TextEditingController();
     _relayHostController = TextEditingController();
     _relayTokenController = TextEditingController();
+    _apiTokenController = TextEditingController();
     _userIdController = TextEditingController(text: widget.userId);
     _cloudUrlController = TextEditingController();
     _localPortController = TextEditingController(text: '8766');
@@ -85,6 +87,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       _localIpController.text = config.localIp ?? '';
       _relayHostController.text = config.relayHost ?? '';
       _relayTokenController.text = config.relayToken ?? '';
+      _apiTokenController.text = config.apiToken ?? '';
       _userIdController.text = (config.userId == null || config.userId!.isEmpty) ? widget.userId : config.userId!;
       _cloudUrlController.text = config.cloudUrl ?? '';
       _localPortController.text = (config.localPort ?? 8766).toString();
@@ -110,6 +113,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
     _relayHostController.dispose();
     _userIdController.dispose();
     _relayTokenController.dispose();
+    _apiTokenController.dispose();
     _cloudUrlController.dispose();
     _localPortController.dispose();
     _relayPortController.dispose();
@@ -165,6 +169,9 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       relayToken: _relayTokenController.text.isEmpty
           ? null
           : _relayTokenController.text,
+      apiToken: _apiTokenController.text.isEmpty
+          ? null
+          : _apiTokenController.text,
       cloudUrl:
           _cloudUrlController.text.isEmpty ? null : _cloudUrlController.text,
       userId: _userIdController.text.isEmpty ? null : _userIdController.text,
@@ -249,6 +256,13 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           _buildGuidanceCard(),
           const SizedBox(height: AppConstants.space32),
           Text(
+            UICopy.unifiedCredentials,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: AppConstants.space12),
+          _buildUnifiedCredentialsFields(),
+          const SizedBox(height: AppConstants.space32),
+          Text(
             UICopy.connectionMode,
             style: Theme.of(context).textTheme.labelLarge,
           ),
@@ -287,6 +301,48 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
             ),
           ),
           const SizedBox(height: AppConstants.space32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnifiedCredentialsFields() {
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.space16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: Theme.of(context).dividerTheme.color!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _userIdController,
+            decoration: const InputDecoration(
+              labelText: UICopy.userIdMatch,
+              prefixIcon: Icon(Icons.person_outline_rounded, size: 18),
+              hintText: 'user_123456',
+            ),
+          ),
+          const SizedBox(height: AppConstants.space12),
+          TextField(
+            controller: _relayTokenController,
+            decoration: const InputDecoration(
+              labelText: UICopy.accessToken,
+              prefixIcon: Icon(Icons.vpn_key_rounded, size: 18),
+            ),
+            obscureText: true,
+          ),
+          const SizedBox(height: AppConstants.space12),
+          TextField(
+            controller: _apiTokenController,
+            decoration: const InputDecoration(
+              labelText: UICopy.apiToken,
+              prefixIcon: Icon(Icons.security_rounded, size: 18),
+            ),
+            obscureText: true,
+          ),
         ],
       ),
     );
@@ -340,12 +396,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           mode: ConnectionMode.relay,
           icon: Icons.cloud_sync_rounded,
           label: UICopy.relay,
-        ),
-        const SizedBox(width: AppConstants.space8),
-        _buildModeButton(
-          mode: ConnectionMode.cloud,
-          icon: Icons.public_rounded,
-          label: UICopy.cloud,
         ),
       ],
     );
@@ -427,7 +477,7 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           switch (_selectedMode) {
             ConnectionMode.local => _buildLocalFields(),
             ConnectionMode.relay => _buildRelayFields(),
-            ConnectionMode.cloud => _buildCloudFields(),
+            _ => _buildRelayFields(),
           },
         ],
       ),
@@ -436,49 +486,58 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
 
   Widget _buildLocalFields() {
     final customColors = Theme.of(context).extension<CustomColors>()!;
+    final isMac = !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+    
+    if (isMac) {
+      _localIpController.text = 'localhost';
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _isScanning ? null : _scanMdns,
-                icon: _isScanning
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.search_rounded, size: 18),
-                label: Text(_isScanning ? UICopy.scanning : UICopy.scanLocalNetwork),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+        if (!isMac) ...[
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isScanning ? null : _scanMdns,
+                  icon: _isScanning
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.search_rounded, size: 18),
+                  label: Text(_isScanning ? UICopy.scanning : UICopy.scanLocalNetwork),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.radiusSmall)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_scannedIp != null) ...[
+            const SizedBox(height: AppConstants.space8),
+            Center(
+              child: Text(
+                _scannedIp!.startsWith('Scan') ? _scannedIp! : '${UICopy.found}: $_scannedIp',
+                style: TextStyle(
+                  color: _scannedIp!.startsWith('Scan') ? Theme.of(context).colorScheme.error : customColors.success,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
           ],
-        ),
-        if (_scannedIp != null) ...[
-          const SizedBox(height: AppConstants.space8),
-          Center(
-            child: Text(
-              _scannedIp!.startsWith('Scan') ? _scannedIp! : '${UICopy.found}: $_scannedIp',
-              style: TextStyle(
-                color: _scannedIp!.startsWith('Scan') ? Theme.of(context).colorScheme.error : customColors.success,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          const SizedBox(height: AppConstants.space16),
         ],
-        const SizedBox(height: AppConstants.space16),
         TextField(
           controller: _localIpController,
-          decoration: const InputDecoration(
-            labelText: UICopy.ipAddress,
-            hintText: '192.168.x.x',
+          enabled: !isMac,
+          decoration: InputDecoration(
+            labelText: isMac ? UICopy.localHostOnly : UICopy.ipAddress,
+            hintText: UICopy.enterLanIp,
           ),
         ),
         const SizedBox(height: AppConstants.space12),
@@ -517,20 +576,10 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextField(
-          controller: _userIdController,
-          decoration: const InputDecoration(
-            labelText: UICopy.userIdMatch,
-            prefixIcon: Icon(Icons.person_outline_rounded, size: 18),
-            hintText: 'user_123456',
-          ),
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: AppConstants.space12),
-        TextField(
           controller: _relayHostController,
           decoration: const InputDecoration(
             labelText: UICopy.relayHost,
-            hintText: 'e.g. relay.example.com',
+            hintText: UICopy.enterCloudUrl,
           ),
         ),
         const SizedBox(height: AppConstants.space12),
@@ -542,15 +591,6 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           keyboardType: TextInputType.number,
           onChanged: (v) =>
               setState(() => _relayPort = int.tryParse(v) ?? 8766),
-        ),
-        const SizedBox(height: AppConstants.space12),
-        TextField(
-          controller: _relayTokenController,
-          decoration: const InputDecoration(
-            labelText: UICopy.accessToken,
-            prefixIcon: Icon(Icons.key_rounded, size: 18),
-          ),
-          obscureText: true,
         ),
       ],
     );

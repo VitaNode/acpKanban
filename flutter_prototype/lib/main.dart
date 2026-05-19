@@ -139,7 +139,7 @@ class _MainScreenState extends State<MainScreen> {
       await _acpClient.smartConnect(acpConfig);
       
       if (_acpClient.activeUrl != null) {
-        _projectService.updateBaseUrl(_acpClient.activeUrl!);
+        _projectService.updateBaseUrl(_acpClient.activeUrl!, apiToken: savedConfig.apiToken);
       }
       
       await _acpClient.initialize(acpConfig.systemConfig);
@@ -807,6 +807,9 @@ class _MainScreenState extends State<MainScreen> {
         onConnectionChanged: (newMode, url) async {
           final configManager = await ConnectionConfigManager.getInstance();
           final savedConfig = await configManager.loadConfig();
+          if (url != null) {
+            _projectService.updateBaseUrl(url, apiToken: savedConfig.apiToken);
+          }
           if (mounted) {
             setState(() {
               _userId = savedConfig.userId;

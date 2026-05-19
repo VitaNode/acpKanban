@@ -9,6 +9,7 @@ import '../models/connection_config.dart';
 class ConnectionConfigManager {
   static const String _configKey = 'connection_config';
   static const String _tokenKey = 'connection_relay_token';
+  static const String _apiTokenKey = 'connection_api_token';
   static const String _userIdKey = 'connection_user_id';
 
   static ConnectionConfigManager? _instance;
@@ -52,13 +53,18 @@ class ConnectionConfigManager {
 
     try {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-      // Load token from secure storage
-      final token = await _secureStorage.read(key: _tokenKey);
+      // Load tokens from secure storage
+      final relayToken = await _secureStorage.read(key: _tokenKey);
+      final apiToken = await _secureStorage.read(key: _apiTokenKey);
+      
       final config = ConnectionConfig.fromJson(json);
       // Ensure userId exists
       final finalConfig =
           config.userId != null ? config : config.copyWith(userId: userId);
-      return finalConfig.copyWith(relayToken: token);
+      return finalConfig.copyWith(
+        relayToken: relayToken,
+        apiToken: apiToken,
+      );
     } catch (e) {
       return ConnectionConfig.defaults(userId: userId);
     }
@@ -74,9 +80,12 @@ class ConnectionConfigManager {
       final jsonStr = jsonEncode(configToSave.toJson());
       await _prefs?.setString(_configKey, jsonStr);
 
-      // Save sensitive token to secure storage
+      // Save sensitive tokens to secure storage
       if (config.relayToken != null) {
         await _secureStorage.write(key: _tokenKey, value: config.relayToken);
+      }
+      if (config.apiToken != null) {
+        await _secureStorage.write(key: _apiTokenKey, value: config.apiToken);
       }
 
       return true;
@@ -90,10 +99,25 @@ class ConnectionConfigManager {
     return await _secureStorage.read(key: _tokenKey);
   }
 
+  /// Load API Token
+  Future<String?> loadApiToken() async {
+    return await _secureStorage.read(key: _apiTokenKey);
+  }
+
   /// Save Relay Token
   Future<bool> saveRelayToken(String token) async {
     try {
       await _secureStorage.write(key: _tokenKey, value: token);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Save API Token
+  Future<bool> saveApiToken(String token) async {
+    try {
+      await _secureStorage.write(key: _apiTokenKey, value: token);
       return true;
     } catch (e) {
       return false;
@@ -105,6 +129,7 @@ class ConnectionConfigManager {
     try {
       await _prefs?.remove(_configKey);
       await _secureStorage.delete(key: _tokenKey);
+      await _secureStorage.delete(key: _apiTokenKey);
       return true;
     } catch (e) {
       return false;

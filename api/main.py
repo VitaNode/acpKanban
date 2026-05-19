@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -17,6 +17,7 @@ from api.dependencies import (
     http_exception_handler,
     general_exception_handler,
     HTTPError,
+    require_api_token,
 )
 from src.config.manager import config
 
@@ -99,10 +100,11 @@ app.add_middleware(
 app.add_exception_handler(HTTPError, http_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
-app.include_router(cards_router)
-app.include_router(projects_router)
-app.include_router(sessions_router)
-app.include_router(providers_router)
+# Apply global API token protection to all functional routes
+app.include_router(cards_router, dependencies=[Depends(require_api_token)])
+app.include_router(projects_router, dependencies=[Depends(require_api_token)])
+app.include_router(sessions_router, dependencies=[Depends(require_api_token)])
+app.include_router(providers_router, dependencies=[Depends(require_api_token)])
 
 
 @app.get("/")
@@ -121,8 +123,8 @@ async def root():
 
 
 @app.get("/api/system/config")
-async def get_system_config():
-    """Expose system configuration via REST (useful when Bridge/WebSocket is not connected)."""
+async def get_system_config(token_valid: bool = Depends(require_api_token)):
+    """Expose system configuration via REST (useful when Bridge/WebSocket is not connected).\"""
     db = get_db()
     config_str = db.get_setting("system_config", "{}")
     try:
@@ -189,4 +191,5 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use host from config (defaults to 127.0.0.1 for security)
+    uvicorn.run(app, host=config.api_bind_host, port=8000)

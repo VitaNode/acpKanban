@@ -121,7 +121,7 @@ if [ "$OVERWRITE_START" = "yes" ]; then
 #!/bin/bash
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
 echo "[*] Starting MyBot API Server..."
-exec ./.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000
+exec ./.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000
 RUNTIME_EOF
     chmod +x start.sh
     ok "start.sh created"
@@ -133,7 +133,7 @@ cat > start_dev.sh <<'RUNTIME_EOF'
 #!/bin/bash
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
 echo "[*] Starting MyBot API Server (dev mode)..."
-exec ./.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+exec ./.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 RUNTIME_EOF
 chmod +x start_dev.sh
 ok "start_dev.sh created"

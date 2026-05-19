@@ -62,6 +62,7 @@ class ConnectionConfig {
   final String? relayHost;
   final int? relayPort;
   final String? relayToken;
+  final String? apiToken;
   final String? userId;
   final String? cloudUrl;
   final bool useMdns;
@@ -75,6 +76,7 @@ class ConnectionConfig {
     this.relayHost,
     this.relayPort = 8766,
     this.relayToken,
+    this.apiToken,
     this.userId,
     this.cloudUrl,
     this.useMdns = true,
@@ -108,6 +110,7 @@ class ConnectionConfig {
       relayHost: json['relayHost'] as String?,
       relayPort: json['relayPort'] as int?,
       relayToken: json['relayToken'] as String?,
+      apiToken: json['apiToken'] as String?,
       userId: json['userId'] as String?,
       cloudUrl: json['cloudUrl'] as String?,
       useMdns: json['useMdns'] as bool? ?? true,
@@ -129,6 +132,7 @@ class ConnectionConfig {
       'relayHost': relayHost,
       'relayPort': relayPort,
       'relayToken': relayToken,
+      'apiToken': apiToken,
       'userId': userId,
       'cloudUrl': cloudUrl,
       'useMdns': useMdns,
@@ -145,6 +149,7 @@ class ConnectionConfig {
     String? relayHost,
     int? relayPort,
     String? relayToken,
+    String? apiToken,
     String? userId,
     String? cloudUrl,
     bool? useMdns,
@@ -158,6 +163,7 @@ class ConnectionConfig {
       relayHost: relayHost ?? this.relayHost,
       relayPort: relayPort ?? this.relayPort,
       relayToken: relayToken ?? this.relayToken,
+      apiToken: apiToken ?? this.apiToken,
       userId: userId ?? this.userId,
       cloudUrl: cloudUrl ?? this.cloudUrl,
       useMdns: useMdns ?? this.useMdns,

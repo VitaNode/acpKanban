@@ -4,7 +4,10 @@
     "workspace_root": "",
     "log_level": "INFO",
     "max_sessions": 30,
-    "session_idle_timeout_minutes": 30
+    "session_idle_timeout_minutes": 30,
+    "api_token": "YOUR_SECURE_TOKEN_HERE",
+    "api_bind_host": "127.0.0.1",
+    "bridge_bind_host": "127.0.0.1"
   },
   "relay": {
     "url": "",

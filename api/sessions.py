@@ -24,6 +24,16 @@ class SessionMessageRequest(BaseModel):
 
 @router.websocket("/ws/session/{card_id}")
 async def session_websocket(websocket: WebSocket, card_id: str):
+    # Phase 3.2: Security - Check API Token before accept
+    from src.config.manager import config
+    token = websocket.query_params.get("token") or websocket.headers.get("X-API-Token")
+    if token != config.api_token:
+        logger.warning(f"Unauthorized WebSocket attempt for card {card_id}")
+        # Note: In some versions of FastAPI/Starlette, you can't close with custom code BEFORE accept
+        # but we try to prevent unauthorized accept.
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
     await websocket.accept()
     db = get_db()
     

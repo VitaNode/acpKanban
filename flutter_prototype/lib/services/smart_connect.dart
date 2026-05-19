@@ -31,24 +31,40 @@ class SmartConnect {
     String? userId,
     String? cloudUrl,
   }) async {
-    if (mode == ConnectionMode.local && kIsWeb) {
-      throw Exception('Local connection mode is not supported on Web, please select Relay or Cloud mode.');
-    }
+    // Both Local and Relay modes in the new UI use the Relay protocol 
+    // to tunnel through the Bridge for security (since API is on 127.0.0.1).
+    
+    String? targetHost;
+    ConnectionPath path;
 
     switch (mode) {
       case ConnectionMode.local:
-        return _connectLocal(
-            localIp: localIp, useMdns: useMdns, token: relayToken);
+        targetHost = localIp ?? 'localhost';
+        path = ConnectionPath.local;
+        break;
       case ConnectionMode.relay:
-        if (relayHost == null || userId == null) {
-          throw Exception('Relay mode requires relayHost and userId');
-        }
-        final relayUrl = 'ws://$relayHost:$relayPort/relay/app/$userId';
-        return _connectStrict(relayUrl, ConnectionPath.relay, relayToken);
+        targetHost = relayHost;
+        path = ConnectionPath.relay;
+        break;
       case ConnectionMode.cloud:
-        final targetUrl = cloudUrl ?? 'ws://$relayHost:$relayPort/direct';
+        // Cloud mode remains for direct SaaS connection if needed
+        final targetUrl = cloudUrl ?? 'ws://${relayHost ?? "localhost"}:$relayPort/direct';
         return _connectStrict(targetUrl, ConnectionPath.cloud, relayToken);
     }
+
+    if (userId != null && targetHost != null) {
+      // Use Relay/Bridge Tunnel protocol
+      final relayUrl = 'ws://$targetHost:$relayPort/relay/app/$userId';
+      print('[SmartConnect] Attempting Bridge Tunnel ($mode): $relayUrl');
+      return _connectStrict(relayUrl, path, relayToken);
+    }
+
+    // Fallback/Legacy logic if userId is missing
+    if (mode == ConnectionMode.local) {
+      return _connectLocal(localIp: localIp, useMdns: useMdns, token: relayToken);
+    }
+
+    throw Exception('Connection failed. Missing userId or target host.');
   }
 
   static Future<SmartConnectResult> _connectLocal({

@@ -38,6 +38,15 @@ def validate_card_exists(card_id: str, db: KanbanDB):
     return card
 
 
+from src.config.manager import config
+
+def require_api_token(request: Request):
+    # Check for X-API-Token header or token query parameter
+    token = request.headers.get("X-API-Token") or request.query_params.get("token")
+    
+    if token != config.api_token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 def parse_metadata(metadata_str: Optional[str]) -> Optional[dict]:
     if not metadata_str:
         return None

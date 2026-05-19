@@ -47,7 +47,10 @@ class ConfigManager:
                 "workspace_root": str(Path.home()),
                 "log_level": "INFO",
                 "max_sessions": 30,
-                "session_idle_timeout_minutes": 30
+                "session_idle_timeout_minutes": 30,
+                "api_token": "",
+                "api_bind_host": "127.0.0.1",
+                "bridge_bind_host": "127.0.0.1"
             },
             "relay": {
                 "url": "",
@@ -120,10 +123,11 @@ class ConfigManager:
             self._config["relay"]["user_id"] = os.getenv("USER_ID")
 
     def _ensure_credentials(self):
-        """Ensure USER_ID and RELAY_TOKEN exist, generating them if necessary."""
+        """Ensure USER_ID, RELAY_TOKEN, and SYSTEM.API_TOKEN exist, generating them if necessary."""
         # 1. First check if they are already in the config (loaded from file or env)
         user_id = self._config["relay"].get("user_id")
         token = self._config["relay"].get("token")
+        api_token = self._config["system"].get("api_token")
 
         # 2. If missing, generate strong random ones
         if not user_id:
@@ -134,6 +138,10 @@ class ConfigManager:
         if not token:
             self._config["relay"]["token"] = secrets.token_urlsafe(32)
             logger.info("Generated new strong RELAY_TOKEN")
+
+        if not api_token:
+            self._config["system"]["api_token"] = secrets.token_urlsafe(32)
+            logger.info("Generated new strong SYSTEM.API_TOKEN")
 
     def _save_to_file(self):
         """Persist current configuration to config.json."""
@@ -180,6 +188,18 @@ class ConfigManager:
     @property
     def relay_token(self) -> str:
         return self._config["relay"]["token"]
+
+    @property
+    def api_token(self) -> str:
+        return self._config["system"]["api_token"]
+
+    @property
+    def api_bind_host(self) -> str:
+        return self._config["system"].get("api_bind_host", "127.0.0.1")
+
+    @property
+    def bridge_bind_host(self) -> str:
+        return self._config["system"].get("bridge_bind_host", "127.0.0.1")
 
 # Global instance
 config = ConfigManager()

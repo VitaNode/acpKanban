@@ -58,14 +58,16 @@ class UnifiedBridge:
             asyncio.create_task(self._run_relay_loop())
 
         # 2. Start Local WebSocket Server (port 8766) for direct tool access
+        from src.config.manager import config
+        bind_host = config.bridge_bind_host
         self._server = await websockets.serve(
             self._handle_local_client,
-            "0.0.0.0",
+            bind_host,
             8766,
             ping_interval=20,
             ping_timeout=20,
         )
-        self.logger.info(f"Local tool bridge started on ws://0.0.0.0:8766 (PubKey: {self._bridge_public_key_hex[:16]}...)")
+        self.logger.info(f"Local tool bridge started on ws://{bind_host}:8766 (PubKey: {self._bridge_public_key_hex[:16]}...)")
         
         if run_forever:
             # Keep the server running
@@ -408,6 +410,11 @@ class UnifiedBridge:
                 http_method = params.get("method", "GET").upper()
                 body = params.get("body")
                 headers = params.get("headers", {})
+                
+                # Phase 3.2 Security: Automatically inject the API Token for local API access
+                from src.config.manager import config
+                headers["X-API-Token"] = config.api_token
+                
                 self.logger.debug(f"Proxying {http_method} {path}")
                 try:
                     response = await self._proxy_client.request(method=http_method, url=path, json=body, headers=headers)
@@ -429,7 +436,9 @@ class UnifiedBridge:
                     await safe_send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "Missing card_id"}})
                     return
                 if action == "connect":
-                    ws_url = f"ws://127.0.0.1:8000/api/ws/session/{card_id}"
+                    from src.config.manager import config
+                    # Phase 3.2 Security: Inject token into WebSocket connection URL
+                    ws_url = f"ws://127.0.0.1:8000/api/ws/session/{card_id}?token={config.api_token}"
                     try:
                         if card_id in self._card_sessions: await self._card_sessions[card_id].close()
                         ws = await websockets.connect(ws_url)

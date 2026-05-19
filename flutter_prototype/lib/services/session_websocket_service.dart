@@ -136,8 +136,11 @@ class SessionWebSocketService {
     }
 
     try {
+      final config = await ConnectionConfigManager.getInstance().then((m) => m.loadConfig());
+      final host = config.localIp ?? 'localhost';
+      final token = config.apiToken;
       final uri = Uri.parse(
-          '${_baseUrl.replaceFirst('http', 'ws')}/api/ws/session/$cardId');
+          'ws://$host:8000/api/ws/session/$cardId${token != null ? "?token=$token" : ""}');
       _channel = WebSocketChannel.connect(uri);
       await _channel!.ready;
       _isConnected = true;

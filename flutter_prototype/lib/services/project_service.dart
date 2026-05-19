@@ -15,11 +15,13 @@ class ProjectService {
   ProjectService._internal();
 
   String _baseUrl = 'http://localhost:8000';
+  String? _apiToken;
   final ACPClient _acpClient = ACPClient();
 
   bool get _useProxy => _acpClient.activeMode != ConnectionPath.none;
 
-  void updateBaseUrl(String newUrl) {
+  void updateBaseUrl(String newUrl, {String? apiToken}) {
+    _apiToken = apiToken;
     if (newUrl.contains('/relay/')) {
       return;
     }
@@ -32,7 +34,7 @@ class ProjectService {
     if (_baseUrl.contains(':8766')) {
       _baseUrl = _baseUrl.replaceFirst(':8766', ':8000');
     }
-    AppLogger.info('Base URL updated to: $_baseUrl');
+    AppLogger.info('Base URL updated to: $_baseUrl (Token present: ${_apiToken != null})');
   }
 
   Future<List<Project>> getProjects() async {
@@ -707,6 +709,9 @@ class ProjectService {
     try {
       final uri = Uri.parse('$_baseUrl$path');
       final request = await client.getUrl(uri);
+      if (_apiToken != null) {
+        request.headers.add('X-API-Token', _apiToken!);
+      }
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return _HttpResponse(response.statusCode, body);
@@ -722,6 +727,9 @@ class ProjectService {
       final uri = Uri.parse('$_baseUrl$path');
       final request = await client.postUrl(uri);
       request.headers.contentType = ContentType.json;
+      if (_apiToken != null) {
+        request.headers.add('X-API-Token', _apiToken!);
+      }
       request.write(jsonEncode(body));
       final response = await request.close();
       final respBody = await response.transform(utf8.decoder).join();
@@ -738,6 +746,9 @@ class ProjectService {
       final uri = Uri.parse('$_baseUrl$path');
       final request = await client.putUrl(uri);
       request.headers.contentType = ContentType.json;
+      if (_apiToken != null) {
+        request.headers.add('X-API-Token', _apiToken!);
+      }
       request.write(jsonEncode(body));
       final response = await request.close();
       final respBody = await response.transform(utf8.decoder).join();
@@ -754,6 +765,9 @@ class ProjectService {
       final uri = Uri.parse('$_baseUrl$path');
       final request = await client.patchUrl(uri);
       request.headers.contentType = ContentType.json;
+      if (_apiToken != null) {
+        request.headers.add('X-API-Token', _apiToken!);
+      }
       request.write(jsonEncode(body));
       final response = await request.close();
       final respBody = await response.transform(utf8.decoder).join();
@@ -769,6 +783,9 @@ class ProjectService {
     try {
       final uri = Uri.parse('$_baseUrl$path');
       final request = await client.deleteUrl(uri);
+      if (_apiToken != null) {
+        request.headers.add('X-API-Token', _apiToken!);
+      }
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       return _HttpResponse(response.statusCode, body);
