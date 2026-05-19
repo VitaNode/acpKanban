@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
 import '../services/project_service.dart';
@@ -677,6 +678,9 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  if (defaultTargetPlatform ==
+                                      TargetPlatform.macOS)
+                                    const SizedBox(width: 32),
                                   IconButton(
                                     icon: const Icon(Icons.edit_outlined,
                                         size: 18),
