@@ -37,14 +37,19 @@ class EmbeddingService:
         self._initialized = True
 
     def _get_client(self):
-        api_key = os.getenv("KANBAN_API_KEY")
-        base_url = os.getenv("KANBAN_BASE_URL")
+        from src.config.manager import config
+        
+        api_key = config.system_agent_api_key
+        base_url = config.system_agent_base_url
 
-        if not api_key or not base_url:
+        # Fallback to DB if config is empty (mostly for legacy support or if ConfigManager failed)
+        if not api_key:
             try:
                 from src.persistence.database import KanbanDB
                 db = KanbanDB()
                 raw_config = db.get_setting("system_config")
+                # ... rest of fallback logic can be simplified or kept if needed
+                # For now, let's prioritize ConfigManager which is more robust
                 if raw_config:
                     system_config = raw_config
                     if isinstance(raw_config, str):
@@ -56,24 +61,17 @@ class EmbeddingService:
                     if isinstance(system_config, dict):
                         api_key = api_key or system_config.get("api_key") or system_config.get("apiKey")
                         base_url = base_url or system_config.get("base_url") or system_config.get("baseUrl")
-                        
-                        if not os.getenv("SUMMARY_MODEL"):
-                            summary_model = system_config.get("summary_model") or system_config.get("summaryModel") or "gpt-4o-mini"
-                            os.environ["SUMMARY_MODEL"] = summary_model
-                        if not os.getenv("EMBEDDING_MODEL"):
-                            embedding_model = system_config.get("embedding_model") or system_config.get("embeddingModel") or "text-embedding-3-small"
-                            os.environ["EMBEDDING_MODEL"] = embedding_model
             except Exception as e:
                 logger.error(f"Database settings fallback failed: {e}")
 
         base_url = base_url or "https://api.openai.com/v1"
 
-        if not api_key or api_key == "your_new_key_here":
+        if not api_key:
             return None
 
         if self.client is None or api_key != self._last_api_key or base_url != self._last_base_url:
             masked_key = api_key[:8] + "..." if api_key else "None"
-            logger.info(f"Initializing OpenAI client with base_url: {base_url}, api_key: {masked_key}")
+            logger.info(f"Initializing OpenAI client for System Agent with base_url: {base_url}, api_key: {masked_key}")
             self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
             self._last_api_key = api_key
             self._last_base_url = base_url
@@ -86,7 +84,9 @@ class EmbeddingService:
     def get_embedding(self, text: str) -> Optional[List[float]]:
         client = self._get_client()
         if not client: return None
-        model = os.getenv("EMBEDDING_MODEL", self.default_model)
+        
+        from src.config.manager import config
+        model = config.embedding_model or self.default_model
         try:
             response = client.embeddings.create(model=model, input=text, dimensions=self.dimensions)
             return response.data[0].embedding
@@ -94,27 +94,31 @@ class EmbeddingService:
             logger.error(f"Embedding error with model {model}: {e}")
             return None
 
-    def completion(self, messages: List[Dict[str, str]], model: str = "gpt-4o-mini", temperature: float = 0.7) -> Optional[str]:
+    def completion(self, messages: List[Dict[str, str]], model: str = None, temperature: float = 0.7) -> Optional[str]:
         client = self._get_client()
         if not client: return None
+        
+        from src.config.manager import config
+        target_model = model or config.summary_model or "gpt-4o-mini"
+        
         try:
             response = client.chat.completions.create(
-                model=model,
+                model=target_model,
                 messages=messages,
                 temperature=temperature
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"LLM Completion error with model {model}: {e}")
+            logger.error(f"LLM Completion error with model {target_model}: {e}")
             return None
 
-    def generate_summary(self, title: str, messages: List[Dict[str, Any]], model: str = "gpt-4o-mini") -> Optional[str]:
+    def generate_summary(self, title: str, messages: List[Dict[str, Any]], model: str = None) -> Optional[str]:
         """Summarizes a session history into a structured technical handoff."""
+        # ... logic kept same, model passed to completion()
         history_text = ""
-        for msg in messages[-30:]: # Increased to 30 for better context
+        for msg in messages[-30:]:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            # Truncate content but keep more than 200 chars if possible
             history_text += f"{role}: {content[:500]}\n"
 
         prompt = f"""Summarize the technical progress for the task: '{title}'.

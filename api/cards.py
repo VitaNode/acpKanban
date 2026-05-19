@@ -29,25 +29,9 @@ from api.dependencies import (
     HTTPError,
 )
 from api.tasks import generate_card_summary_task
+from src.config.manager import config
 
 router = APIRouter(prefix="/api", tags=["cards"])
-
-
-def _load_config():
-    config_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "config.json"
-    )
-    config_path = os.path.normpath(config_path)
-    try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        providers_config = config.get("providers", {})
-        return {
-            "providers": providers_config.get("list", []),
-            "default_provider": providers_config.get("default", "gemini"),
-        }
-    except Exception:
-        return {"default_provider": "gemini", "providers": []}
 
 
 @router.post("/cards", response_model=CardResponse, status_code=201)
@@ -67,7 +51,9 @@ async def create_card(request: CardCreateRequest):
             provider_id = target_column.get("acp_provider_id")
 
         if provider_id:
-            providers = {p["id"]: p for p in _load_config().get("providers", [])}
+            # Use ConfigManager to get providers
+            providers_list = config.get("providers.list", [])
+            providers = {p["id"]: p for p in providers_list}
             if provider_id not in providers:
                 raise HTTPError(400, f"Unknown provider: {provider_id}")
 

@@ -3,33 +3,18 @@ import os
 from fastapi import APIRouter, Query, Path
 from api.models import ProviderListResponse
 from api.dependencies import HTTPError
+from src.config.manager import config
 
 router = APIRouter(prefix="/api", tags=["providers"])
 
 
-def _load_config():
-    config_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "config.json"
-    )
-    config_path = os.path.normpath(config_path)
-    try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        providers_config = config.get("providers", {})
-        return {
-            "providers": providers_config.get("list", []),
-            "default_provider": providers_config.get("default", "gemini"),
-        }
-    except Exception as e:
-        raise HTTPError(500, f"Failed to load provider config: {e}")
-
-
 @router.get("/providers", response_model=ProviderListResponse)
 async def get_providers():
-    config = _load_config()
+    providers_list = config.get("providers.list", [])
+    default_provider = config.get("providers.default", "gemini")
     return {
-        "providers": config.get("providers", []),
-        "default_provider": config.get("default_provider", "gemini"),
+        "providers": providers_list,
+        "default_provider": default_provider,
     }
 
 

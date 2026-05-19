@@ -25,9 +25,10 @@
       }
     ]
   },
-  "cloud": {
+  "system_agent": {
     "api_key": "",
     "base_url": "https://api.openai.com/v1",
-    "model_id": "gpt-4o-mini"
+    "summary_model": "gpt-4o-mini",
+    "embedding_model": "text-embedding-3-small"
   }
 }

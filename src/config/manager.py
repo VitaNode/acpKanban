@@ -61,10 +61,11 @@ class ConfigManager:
                 "default": "gemini",
                 "list": []
             },
-            "cloud": {
+            "system_agent": {
                 "api_key": os.getenv("KANBAN_API_KEY", ""),
                 "base_url": os.getenv("KANBAN_BASE_URL", "https://api.openai.com/v1"),
-                "model_id": os.getenv("KANBAN_MODEL_ID", "gpt-4o-mini"),
+                "summary_model": os.getenv("SUMMARY_MODEL", "gpt-4o-mini"),
+                "embedding_model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
             }
         }
 
@@ -95,8 +96,19 @@ class ConfigManager:
                 with open(self.config_path, "r") as f:
                     file_config = json.load(f)
                 
+                # Migrate 'cloud' to 'system_agent' if found
+                if "cloud" in file_config and "system_agent" not in file_config:
+                    logger.info("Migrating 'cloud' config to 'system_agent'")
+                    cloud = file_config["cloud"]
+                    file_config["system_agent"] = {
+                        "api_key": cloud.get("api_key", ""),
+                        "base_url": cloud.get("base_url", "https://api.openai.com/v1"),
+                        "summary_model": cloud.get("model_id", "gpt-4o-mini"),
+                        "embedding_model": "text-embedding-3-small"
+                    }
+                
                 # Deep merge for top-level keys
-                for key in ["system", "relay", "providers", "cloud"]:
+                for key in ["system", "relay", "providers", "system_agent"]:
                     if key in file_config and isinstance(file_config[key], dict):
                         self._config[key].update(file_config[key])
                     elif key in file_config:
@@ -123,6 +135,16 @@ class ConfigManager:
             self._config["relay"]["token"] = os.getenv("RELAY_TOKEN")
         if os.getenv("USER_ID"):
             self._config["relay"]["user_id"] = os.getenv("USER_ID")
+
+        # System Agent
+        if os.getenv("KANBAN_API_KEY"):
+            self._config["system_agent"]["api_key"] = os.getenv("KANBAN_API_KEY")
+        if os.getenv("KANBAN_BASE_URL"):
+            self._config["system_agent"]["base_url"] = os.getenv("KANBAN_BASE_URL")
+        if os.getenv("SUMMARY_MODEL"):
+            self._config["system_agent"]["summary_model"] = os.getenv("SUMMARY_MODEL")
+        if os.getenv("EMBEDDING_MODEL"):
+            self._config["system_agent"]["embedding_model"] = os.getenv("EMBEDDING_MODEL")
 
     def _ensure_credentials(self):
         """Ensure USER_ID, RELAY_TOKEN, and SYSTEM.API_TOKEN exist, generating them if necessary."""
@@ -202,6 +224,22 @@ class ConfigManager:
     @property
     def bridge_bind_host(self) -> str:
         return self._config["system"].get("bridge_bind_host", "127.0.0.1")
+
+    @property
+    def system_agent_api_key(self) -> str:
+        return self._config["system_agent"]["api_key"]
+
+    @property
+    def system_agent_base_url(self) -> str:
+        return self._config["system_agent"]["base_url"]
+
+    @property
+    def summary_model(self) -> str:
+        return self._config["system_agent"]["summary_model"]
+
+    @property
+    def embedding_model(self) -> str:
+        return self._config["system_agent"]["embedding_model"]
 
 # Global instance
 config = ConfigManager()

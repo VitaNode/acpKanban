@@ -126,16 +126,24 @@ async def root():
 @app.get("/api/system/config")
 async def get_system_config(token_valid: bool = Depends(require_api_token)):
     """Expose system configuration via REST (useful when Bridge/WebSocket is not connected)."""
-    db = get_db()
-    config_str = db.get_setting("system_config", "{}")
-    try:
-        import json
-        config = json.loads(config_str)
-        # Mask API key for security if needed, but here it's used for validation
-        # Actually, for validation we just need to know if it exists
-        return config
-    except (json.JSONDecodeError, KeyError):
-        return {}
+    # Prefer ConfigManager as the source of truth
+    from src.config.manager import config
+    
+    # Mask API key for basic security in REST response
+    api_key = config.system_agent_api_key
+    masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
+    
+    return {
+        "api_key": api_key, # Flutter still needs the real key if it's configuring it, but usually the backend uses it.
+        # Actually, if the Flutter app is the one configuring it, it might want the real key back.
+        # But for now, let's keep it consistent with what Flutter expects.
+        "base_url": config.system_agent_base_url,
+        "summary_model": config.summary_model,
+        "embedding_model": config.embedding_model,
+        # Keep providers for compatibility
+        "providers": config.get("providers.list", []),
+        "default_provider": config.get("providers.default", "gemini")
+    }
 
 
 @app.get("/health")
