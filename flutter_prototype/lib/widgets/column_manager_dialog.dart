@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import '../models/kanban_column.dart';
 import '../services/project_service.dart';
@@ -604,6 +603,7 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                     const SizedBox(height: AppConstants.space8),
                     Flexible(
                       child: ReorderableListView.builder(
+                        buildDefaultDragHandles: false,
                         shrinkWrap: true,
                         itemCount: _columns.length,
                         onReorder: _onReorder,
@@ -613,91 +613,102 @@ class _ColumnManagerDialogState extends State<ColumnManagerDialog> {
                           final statusInfo = providerId != null
                               ? _providerStatuses[providerId]
                               : null;
-                          final status = statusInfo?['status'] ?? 'unknown';
+                          final status =
+                              statusInfo?['status'] ?? 'unknown';
 
-                          return Container(
+                          return ReorderableDelayedDragStartListener(
+                            index: index,
                             key: ValueKey(col.id),
-                            margin: const EdgeInsets.symmetric(
-                                vertical: AppConstants.space4),
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainer,
-                              borderRadius: BorderRadius.circular(
-                                  AppConstants.radiusSmall),
-                            ),
-                            child: ListTile(
-                              contentPadding:
-                                  const EdgeInsets.only(left: 4, right: 4),
-                              leading: Icon(Icons.drag_indicator_rounded,
-                                  color: colorScheme.onSurface.withOpacity(
-                                      AppConstants.mediumEmphasis)),
-                              title: Text(col.name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              subtitle: providerId != null
-                                  ? Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Row(
-                                        children: [
-                                          _buildStatusBadge(
-                                              status, theme, colorScheme),
-                                          const SizedBox(width: 8),
-                                          if (status != 'ready' &&
-                                              status != 'initializing')
-                                            TextButton(
-                                              onPressed: () =>
-                                                  _initializeProvider(
-                                                      providerId),
-                                              style: TextButton.styleFrom(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 0),
-                                                minimumSize: Size.zero,
-                                                tapTargetSize:
-                                                    MaterialTapTargetSize
-                                                        .shrinkWrap,
-                                                textStyle: const TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight:
-                                                        FontWeight.bold),
-                                              ),
-                                              child: Text(
-                                                  UICopy.statusInitializing),
-                                            )
-                                          else if (status == 'initializing')
-                                            const SizedBox(
-                                                width: 12,
-                                                height: 12,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                        strokeWidth: 2)),
-                                        ],
-                                      ),
-                                    )
-                                  : null,
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (defaultTargetPlatform ==
-                                      TargetPlatform.macOS)
-                                    const SizedBox(width: 32),
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined,
-                                        size: 18),
-                                    onPressed: () => _editColumn(col),
-                                    constraints: const BoxConstraints(
-                                        minWidth: 32, minHeight: 32),
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                  IconButton(
-                                    icon: Icon(Icons.delete_outline_rounded,
-                                        size: 18, color: colorScheme.error),
-                                    onPressed: () => _deleteColumn(col),
-                                    constraints: const BoxConstraints(
-                                        minWidth: 32, minHeight: 32),
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                ],
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(
+                                  vertical: AppConstants.space4),
+                              decoration: BoxDecoration(
+                                color: colorScheme.surfaceContainer,
+                                borderRadius: BorderRadius.circular(
+                                    AppConstants.radiusSmall),
+                              ),
+                              child: ListTile(
+                                contentPadding:
+                                    const EdgeInsets.only(left: 4, right: 4),
+                                leading: Icon(Icons.drag_indicator_rounded,
+                                    color: colorScheme.onSurface.withOpacity(
+                                        AppConstants.mediumEmphasis)),
+                                title: Text(col.name,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600)),
+                                subtitle: providerId != null
+                                    ? Padding(
+                                        padding:
+                                            const EdgeInsets.only(top: 4),
+                                        child: Row(
+                                          children: [
+                                            _buildStatusBadge(
+                                                status, theme, colorScheme),
+                                            const SizedBox(width: 8),
+                                            if (status != 'ready' &&
+                                                status != 'initializing')
+                                              TextButton(
+                                                onPressed: () =>
+                                                    _initializeProvider(
+                                                        providerId),
+                                                style: TextButton.styleFrom(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 0),
+                                                  minimumSize: Size.zero,
+                                                  tapTargetSize:
+                                                      MaterialTapTargetSize
+                                                          .shrinkWrap,
+                                                  textStyle:
+                                                      const TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight
+                                                                  .bold),
+                                                ),
+                                                child: Text(
+                                                    UICopy
+                                                        .statusInitializing),
+                                              )
+                                            else if (status ==
+                                                'initializing')
+                                              const SizedBox(
+                                                  width: 12,
+                                                  height: 12,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                          strokeWidth: 2)),
+                                          ],
+                                        ),
+                                      )
+                                    : null,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                          Icons.edit_outlined,
+                                          size: 18),
+                                      onPressed: () =>
+                                          _editColumn(col),
+                                      constraints: const BoxConstraints(
+                                          minWidth: 32, minHeight: 32),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                          color: colorScheme.error),
+                                      onPressed: () =>
+                                          _deleteColumn(col),
+                                      constraints: const BoxConstraints(
+                                          minWidth: 32, minHeight: 32),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           );
