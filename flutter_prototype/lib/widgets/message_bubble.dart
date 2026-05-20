@@ -9,7 +9,6 @@ import '../utils/icon_util.dart';
 import '../constants/ui_copy.dart';
 import '../utils/app_logger.dart';
 import '../widgets/ag_ui/thinking_block.dart';
-import '../widgets/ag_ui/tool_pill.dart';
 import '../widgets/ag_ui/interactive_request_block.dart';
 import '../widgets/message_shell.dart';
 import '../theme/markdown_theme.dart';

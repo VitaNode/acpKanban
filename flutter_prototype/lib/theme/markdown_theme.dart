@@ -57,15 +57,19 @@ class MarkdownTheme {
       h3Padding: const EdgeInsets.only(top: 8, bottom: 4),
       
       code: TextStyle(
-        backgroundColor: isDark ? Colors.black38 : Colors.grey[200],
+        backgroundColor: isDark
+            ? Colors.white.withOpacity(0.08)
+            : Colors.black.withOpacity(0.05),
         fontFamily: 'monospace',
         fontSize: baseSize - 1,
         color: colorScheme.primary,
       ),
       codeblockDecoration: BoxDecoration(
-        color: isDark ? Colors.black45 : Colors.grey[100],
+        color: isDark
+            ? Colors.white.withOpacity(0.04)
+            : Colors.black.withOpacity(0.03),
         borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
-        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.3)),
+        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.2)),
       ),
       codeblockPadding: const EdgeInsets.all(AppConstants.space12),
       
@@ -76,9 +80,9 @@ class MarkdownTheme {
         fontStyle: FontStyle.italic,
       ),
       blockquoteDecoration: BoxDecoration(
-        color: colorScheme.surfaceVariant.withOpacity(0.2),
+        color: colorScheme.primary.withOpacity(0.05),
         border: Border(
-            left: BorderSide(color: colorScheme.primary.withOpacity(0.5), width: 3)),
+            left: BorderSide(color: colorScheme.primary.withOpacity(0.4), width: 3)),
       ),
       blockquotePadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       

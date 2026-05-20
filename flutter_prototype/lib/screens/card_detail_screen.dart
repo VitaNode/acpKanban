@@ -804,18 +804,27 @@ class _CardDetailViewState extends State<CardDetailView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final content = SelectionArea(
-      child: Column(
-        children: [
-          _buildViewHeader(theme, colorScheme),
-          Expanded(
-            child: Stack(
-              children: [
-                ListView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(
-                      vertical: AppConstants.space16),
-                  children: [
+    
+    // Create a specialized selection theme for the detail view 
+    // to ensure visibility over code blocks and quotes.
+    final selectionTheme = TextSelectionTheme.of(context).copyWith(
+      selectionColor: colorScheme.primary.withOpacity(0.5),
+    );
+
+    final content = TextSelectionTheme(
+      data: selectionTheme,
+      child: SelectionArea(
+        child: Column(
+          children: [
+            _buildViewHeader(theme, colorScheme),
+            Expanded(
+              child: Stack(
+                children: [
+                  ListView(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: AppConstants.space16),
+                    children: [
                     _buildHeader(),
                     if (_currentPlan != null)
                       Padding(
@@ -858,7 +867,8 @@ class _CardDetailViewState extends State<CardDetailView> {
           _buildInputArea(),
         ],
       ),
-    );
+    ),
+  );
 
     if (_isMobilePlatform) {
       return GestureDetector(
