@@ -2,19 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../models/ag_ui_event.dart';
 import '../../constants/app_constants.dart';
+import '../../theme/markdown_theme.dart';
+import '../message_shell.dart';
 
 class InteractiveRequestBlock extends StatelessWidget {
   final AgUiEvent event;
   final Function(String optionId) onOptionSelected;
   final bool isResponded;
-  final MarkdownStyleSheet? styleSheet;
 
   const InteractiveRequestBlock({
     super.key,
     required this.event,
     required this.onOptionSelected,
     this.isResponded = false,
-    this.styleSheet,
   });
 
   @override
@@ -22,120 +22,78 @@ class InteractiveRequestBlock extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
-      ),
+    return MessageShell(
+      headerLeading: Icon(_getIconForMethod(event.method),
+          size: 16, color: colorScheme.primary),
+      title: event.title ?? 'Action Required',
+      headerTrailing: isResponded
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'RESPONDED',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+              ),
+            )
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Icon(_getIconForMethod(event.method),
-                    size: 18, color: colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    event.title ?? 'Action Required',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (isResponded)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      'RESPONDED',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-
           // Body
           if ((event.text != null && event.text!.isNotEmpty) ||
               (event.title != null && event.title!.isNotEmpty))
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: MarkdownBody(
-                data: (event.text != null && event.text!.isNotEmpty)
-                    ? event.text!
-                    : event.title!,
-                selectable: false,
-                styleSheet: styleSheet ??
-                    MarkdownStyleSheet.fromTheme(theme).copyWith(
-                      p: theme.textTheme.bodyMedium
-                          ?.copyWith(height: 1.5, fontSize: 13),
-                      code: TextStyle(
-                        backgroundColor: colorScheme.surfaceContainer,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                      codeblockDecoration: BoxDecoration(
-                        color: colorScheme.surfaceContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-              ),
+            MarkdownBody(
+              data: (event.text != null && event.text!.isNotEmpty)
+                  ? event.text!
+                  : event.title!,
+              selectable: false, // Managed by high-level SelectionArea
+              styleSheet: MarkdownTheme.getStyle(context),
             ),
 
           // Buttons
-          if (!isResponded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: (event.options ?? []).map((opt) {
-                  final optionId = opt['id']?.toString() ?? '';
-                  final label = opt['label']?.toString() ?? 'Option';
-                  final isPrimary = opt['primary'] == true;
+          if (!isResponded) ...[
+            const SizedBox(height: AppConstants.space12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: (event.options ?? []).map((opt) {
+                final optionId = opt['id']?.toString() ?? '';
+                final label = opt['label']?.toString() ?? 'Option';
+                final isPrimary = opt['primary'] == true;
 
-                  if (isPrimary) {
-                    return FilledButton.tonal(
-                      onPressed: () => onOptionSelected(optionId),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 0),
-                        minimumSize: const Size(0, 32),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: Text(label),
-                    );
-                  } else {
-                    return OutlinedButton(
-                      onPressed: () => onOptionSelected(optionId),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 0),
-                        minimumSize: const Size(0, 32),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: Text(label),
-                    );
-                  }
-                }).toList(),
-              ),
+                if (isPrimary) {
+                  return FilledButton.tonal(
+                    onPressed: () => onOptionSelected(optionId),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 0),
+                      minimumSize: const Size(0, 32),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: Text(label),
+                  );
+                } else {
+                  return OutlinedButton(
+                    onPressed: () => onOptionSelected(optionId),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 0),
+                      minimumSize: const Size(0, 32),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: Text(label),
+                  );
+                }
+              }).toList(),
             ),
+          ],
         ],
       ),
     );

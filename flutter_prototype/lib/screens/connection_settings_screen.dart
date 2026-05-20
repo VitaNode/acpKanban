@@ -179,7 +179,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           'summary_model': _summaryModelController.text,
           'embedding_model': _embeddingModelController.text,
         },
-      ),    );
+      ),
+    );
 
     await configManager.saveConfig(config);
 
@@ -213,7 +214,8 @@ class _ConnectionSettingsViewState extends State<ConnectionSettingsView> {
           _projectService.updateSystemConfig(config.systemConfig!);
         }
 
-        AppFeedback.showSuccess(context, UICopy.connectedSuccessfully);      }
+        AppFeedback.showSuccess(context, UICopy.connectedSuccessfully);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {

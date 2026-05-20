@@ -223,6 +223,11 @@ class AppTheme {
       // Interaction state overlay handling
       hoverColor: colorScheme.primary.withOpacity(0.08),
       splashColor: colorScheme.primary.withOpacity(0.12),
+      textSelectionTheme: TextSelectionThemeData(
+        selectionColor: colorScheme.primary.withOpacity(0.3),
+        selectionHandleColor: colorScheme.primary,
+        cursorColor: colorScheme.primary,
+      ),
     );
   }
 }
