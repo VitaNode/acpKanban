@@ -871,12 +871,23 @@ class _CardDetailViewState extends State<CardDetailView> {
   );
 
     if (_isMobilePlatform) {
-      return GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: _onEdgeSwipeStart,
-        onHorizontalDragUpdate: _onEdgeSwipeUpdate,
-        onHorizontalDragEnd: _onEdgeSwipeEnd,
-        child: content,
+      return Stack(
+        children: [
+          content,
+          // Edge detector area for back swipe gesture
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 40,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: _onEdgeSwipeStart,
+              onHorizontalDragUpdate: _onEdgeSwipeUpdate,
+              onHorizontalDragEnd: _onEdgeSwipeEnd,
+            ),
+          ),
+        ],
       );
     }
 
@@ -1386,7 +1397,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   void _onEdgeSwipeStart(DragStartDetails details) {
-    _edgeSwipeTracking = details.globalPosition.dx <= 24;
+    _edgeSwipeTracking = true;
     _edgeSwipeDx = 0;
     _edgeSwipeDy = 0;
   }
