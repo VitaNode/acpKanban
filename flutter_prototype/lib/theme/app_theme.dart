@@ -224,7 +224,7 @@ class AppTheme {
       hoverColor: colorScheme.primary.withOpacity(0.08),
       splashColor: colorScheme.primary.withOpacity(0.12),
       textSelectionTheme: TextSelectionThemeData(
-        selectionColor: colorScheme.primary.withOpacity(0.3),
+        selectionColor: colorScheme.primary.withOpacity(0.4),
         selectionHandleColor: colorScheme.primary,
         cursorColor: colorScheme.primary,
       ),

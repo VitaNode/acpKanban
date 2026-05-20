@@ -5,6 +5,7 @@ class MessageShell extends StatelessWidget {
   final Widget child;
   final Widget? headerLeading;
   final String? title;
+  final String? subtitle;
   final Widget? headerTrailing;
   final bool isUser;
   final bool isExpandable;
@@ -18,6 +19,7 @@ class MessageShell extends StatelessWidget {
     required this.child,
     this.headerLeading,
     this.title,
+    this.subtitle,
     this.headerTrailing,
     this.isUser = false,
     this.isExpandable = false,
@@ -78,18 +80,37 @@ class MessageShell extends StatelessWidget {
                       headerLeading!,
                       const SizedBox(width: 8),
                     ],
-                    if (title != null)
+                    if (title != null || subtitle != null)
                       Expanded(
-                        child: Text(
-                          title!,
-                          softWrap: true,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: isUser
-                                ? colorScheme.onPrimaryContainer
-                                : colorScheme.onSurfaceVariant,
-                            letterSpacing: 0.5,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (title != null)
+                              Text(
+                                title!,
+                                softWrap: true,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: isUser
+                                      ? colorScheme.onPrimaryContainer
+                                      : colorScheme.onSurfaceVariant,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            if (subtitle != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  subtitle!,
+                                  softWrap: true,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontSize: 10,
+                                    color: colorScheme.onSurfaceVariant
+                                        .withOpacity(0.5),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     if (headerTrailing != null) headerTrailing!,

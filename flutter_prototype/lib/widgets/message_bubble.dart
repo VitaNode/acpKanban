@@ -392,29 +392,38 @@ class _ToolLogShellState extends State<_ToolLogShell> {
       isExpandable: true,
       isExpanded: _isExpanded,
       onToggleExpand: () => setState(() => _isExpanded = !_isExpanded),
-      headerPadding: const EdgeInsets.symmetric(horizontal: AppConstants.space12, vertical: 4),
-      headerLeading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ToolPill(name: widget.toolName, status: widget.status),
-          const SizedBox(width: 8),
-          Icon(_opKindIcon(widget.opKind),
-              size: 14, color: colorScheme.onSurfaceVariant),
-        ],
-      ),
+      headerPadding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.space12, vertical: 8),
+      headerLeading: Icon(_opKindIcon(widget.opKind),
+          size: 16, color: colorScheme.primary),
       title: widget.title,
-      headerTrailing: widget.subtitle != null && widget.subtitle!.isNotEmpty
-          ? Flexible(
-              child: Text(widget.subtitle!,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 10,
-                      color: colorScheme.onSurfaceVariant.withOpacity(0.5))),
-            )
-          : null,
+      subtitle: widget.subtitle,
+      headerTrailing: _buildCompactStatus(widget.status, colorScheme),
       padding: const EdgeInsets.fromLTRB(
           AppConstants.space12, 0, AppConstants.space12, AppConstants.space12),
       child: widget.child,
     );
+  }
+
+  Widget _buildCompactStatus(String status, ColorScheme colorScheme) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+      case 'success':
+        return const Icon(Icons.check_circle_outline_rounded,
+            size: 14, color: Colors.green);
+      case 'failed':
+      case 'error':
+        return Icon(Icons.error_outline_rounded,
+            size: 14, color: colorScheme.error);
+      case 'running':
+      case 'executing':
+        return const SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2));
+      default:
+        return Icon(Icons.help_outline_rounded,
+            size: 14, color: colorScheme.onSurfaceVariant.withOpacity(0.5));
+    }
   }
 }
