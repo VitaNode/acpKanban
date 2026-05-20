@@ -27,12 +27,16 @@ class CardDetailView extends StatefulWidget {
   final KanbanCard card;
   final String projectId;
   final VoidCallback? onBack;
+  final Function(double dx)? onDragUpdate;
+  final Function(double velocity)? onDragEnd;
 
   const CardDetailView({
     super.key,
     required this.card,
     required this.projectId,
     this.onBack,
+    this.onDragUpdate,
+    this.onDragEnd,
   });
 
   @override
@@ -1406,19 +1410,30 @@ class _CardDetailViewState extends State<CardDetailView> {
     if (!_edgeSwipeTracking) return;
     _edgeSwipeDx += details.delta.dx;
     _edgeSwipeDy += details.delta.dy.abs();
+    
+    // Forward to parent for transition animation
+    widget.onDragUpdate?.call(_edgeSwipeDx);
   }
 
   void _onEdgeSwipeEnd(DragEndDetails details) {
     if (!_edgeSwipeTracking) return;
+    
+    final velocity = details.primaryVelocity ?? 0;
+    widget.onDragEnd?.call(velocity);
+
     final shouldGoBack =
-        _edgeSwipeDx > 80 && _edgeSwipeDx > (_edgeSwipeDy * 1.5);
+        _edgeSwipeDx > 80 && _edgeSwipeDx > (_edgeSwipeDy * 1.5) || velocity > 500;
+    
     if (shouldGoBack) {
       if (widget.onBack != null) {
         widget.onBack!.call();
       } else if (Navigator.canPop(context)) {
         Navigator.pop(context);
       }
+    } else {
+      // If not going back, parent should reset position (handled via onDragEnd callback)
     }
+    
     _edgeSwipeTracking = false;
     _edgeSwipeDx = 0;
     _edgeSwipeDy = 0;

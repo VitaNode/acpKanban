@@ -97,6 +97,7 @@ class _MainScreenState extends State<MainScreen> {
   String _currentView = 'board';
   bool _isSidebarExpanded = false;
   KanbanCard? _selectedCard;
+  double _detailTransitionDx = 0;
 
   @override
   void initState() {
@@ -885,26 +886,12 @@ class _MainScreenState extends State<MainScreen> {
       );
     }
 
-    if (_currentView == 'card_detail' &&
-        _selectedCard != null &&
-        _currentProject != null) {
-      return CardDetailView(
-        card: _selectedCard!,
-        projectId: _currentProject!.id,
-        onBack: () => setState(() {
-          _currentView = 'board';
-          _selectedCard = null;
-          KanbanRefreshService().markNeedsRefresh(RefreshSource.manual);
-        }),
-      );
-    }
-
-    return Column(
+    // Default board-related content
+    final boardContent = Column(
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: AppConstants.space16,
-              vertical: AppConstants.space8),
+              horizontal: AppConstants.space16, vertical: AppConstants.space8),
           child: Row(
             children: [
               Flexible(
@@ -950,6 +937,68 @@ class _MainScreenState extends State<MainScreen> {
         ),
       ],
     );
+
+    // If in card detail, overlay it on top of the board content for transition support
+    if (_selectedCard != null && _currentProject != null) {
+      final isMobile = MediaQuery.of(context).size.width < 600;
+      
+      return Stack(
+        children: [
+          // Background content (Board/Roadmap/Timeline)
+          // We slightly dim it when the detail is over it
+          Opacity(
+            opacity: isMobile ? 0.8 : 1.0,
+            child: boardContent,
+          ),
+          
+          // Foreground: Card Detail with Slide Transition
+          Transform.translate(
+            offset: Offset(_detailTransitionDx, 0),
+            child: Container(
+              decoration: BoxDecoration(
+                boxShadow: [
+                  if (_detailTransitionDx > 0)
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 10,
+                      offset: const Offset(-5, 0),
+                    ),
+                ],
+              ),
+              child: CardDetailView(
+                card: _selectedCard!,
+                projectId: _currentProject!.id,
+                onBack: () => _closeCardDetail(),
+                onDragUpdate: (dx) {
+                  if (dx >= 0) {
+                    setState(() => _detailTransitionDx = dx);
+                  }
+                },
+                onDragEnd: (velocity) {
+                  if (_detailTransitionDx > MediaQuery.of(context).size.width * 0.3 || velocity > 500) {
+                    // Handled by CardDetailView's onBack which calls _closeCardDetail
+                  } else {
+                    // Reset position with animation
+                    setState(() => _detailTransitionDx = 0);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return boardContent;
+  }
+
+  void _closeCardDetail() {
+    setState(() {
+      _currentView = 'board';
+      _selectedCard = null;
+      _detailTransitionDx = 0;
+      KanbanRefreshService().markNeedsRefresh(RefreshSource.manual);
+    });
   }
 
   Widget _buildSidebar(ThemeData theme, ColorScheme colorScheme) {
