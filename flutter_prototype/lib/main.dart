@@ -956,6 +956,7 @@ class _MainScreenState extends State<MainScreen> {
             offset: Offset(_detailTransitionDx, 0),
             child: Container(
               decoration: BoxDecoration(
+                color: theme.scaffoldBackgroundColor, // Ensure opaque background
                 boxShadow: [
                   if (_detailTransitionDx > 0)
                     BoxShadow(
