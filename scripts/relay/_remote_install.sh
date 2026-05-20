@@ -36,7 +36,7 @@ chmod 755 "$INSTALL_DIR"
 # 安装脚本所在目录即为源文件目录
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "[*] Copying files from $SRC_DIR to $INSTALL_DIR ..."
-cp -r "$SRC_DIR/src" "$INSTALL_DIR/src"
+cp "$SRC_DIR/relay_server.py" "$INSTALL_DIR/relay_server.py"
 cp "$SRC_DIR/.env" "$INSTALL_DIR/.env"
 cp "$SRC_DIR/relay_requirements.txt" "$INSTALL_DIR/relay_requirements.txt"
 cp "$SRC_DIR/start_relay.sh" "$INSTALL_DIR/start_relay.sh"
@@ -92,7 +92,7 @@ elif [ "$USE_SYSTEMD" = "no" ]; then
         sleep 1
     fi
     cd "$INSTALL_DIR"
-    nohup "$VENV_DIR/bin/python3" -m src.transport.relay_server >> "$INSTALL_DIR/relay.log" 2>&1 &
+    nohup "$VENV_DIR/bin/python3" relay_server.py >> "$INSTALL_DIR/relay.log" 2>&1 &
     RELAY_PID=$!
     echo "$RELAY_PID" > "$INSTALL_DIR/relay.pid"
     sleep 2

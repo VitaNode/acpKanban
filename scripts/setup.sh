@@ -116,15 +116,25 @@ if [ -f "start.sh" ]; then
 fi
 
 if [ "$OVERWRITE_START" = "yes" ]; then
-    info "Generating start.sh (production)..."
+    info "Generating start.sh (All-in-One: API + Local Relay + Bridge)..."
     cat > start.sh <<'RUNTIME_EOF'
+#!/bin/bash
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
+echo "[*] Starting MyBot All-in-One Service..."
+exec ./.venv/bin/python3 run_all.py
+RUNTIME_EOF
+    chmod +x start.sh
+    ok "start.sh created"
+
+    info "Generating start_api.sh (API Server Only)..."
+    cat > start_api.sh <<'RUNTIME_EOF'
 #!/bin/bash
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
 echo "[*] Starting MyBot API Server..."
 exec ./.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000
 RUNTIME_EOF
-    chmod +x start.sh
-    ok "start.sh created"
+    chmod +x start_api.sh
+    ok "start_api.sh created"
 fi
 
 # 开发模式脚本（始终生成，不会覆盖重要文件）
@@ -137,6 +147,7 @@ exec ./.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 RUNTIME_EOF
 chmod +x start_dev.sh
 ok "start_dev.sh created"
+
 
 # ──────────────────────────────────────────────
 #  7. Post-Install Verification
@@ -168,22 +179,27 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║  Setup Completed Successfully!       ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
 echo -e ""
-echo -e "  Production:  ${BLUE}./start.sh${NC}"
+echo -e "  Standard:    ${BLUE}./start.sh${NC} (API + Bridge + Local Relay)"
+echo -e "  API Only:    ${BLUE}./start_api.sh${NC}"
 echo -e "  Dev mode:    ${BLUE}./start_dev.sh${NC}"
 echo -e ""
 echo -e "  Server runs at:  ${BLUE}http://localhost:8000${NC}"
 echo -e "  API docs:        ${BLUE}http://localhost:8000/docs${NC}"
 echo -e ""
 echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "  Your credentials (saved in config.json):"
+echo -e "  Connection Credentials (config.json):"
 ./.venv/bin/python3 -c "
 from src.config.manager import config
 print(f'    USER_ID:     {config.user_id}')
 print(f'    RELAY_TOKEN: {config.relay_token}')
+print(f'    API_TOKEN:   {config.api_token}')
 "
 echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e ""
-echo -e "  Enter these credentials into the mobile app's Connection Settings."
-echo -e "  If using Tailscale, use your Tailscale IP as the server address."
+echo -e "  ${YELLOW}Next Steps:${NC}"
+echo -e "  1. Run ${BLUE}./start.sh${NC}"
+echo -e "  2. Enter the credentials above into the Mobile App's settings."
+echo -e "  3. Use your Mac's LAN IP as the server address."
 echo -e ""
-echo -e "  ${YELLOW}Tip:${NC} For relay setup, run: ${BLUE}./scripts/install_relay.sh${NC}"
+echo -e "  ${YELLOW}Tip:${NC} For cloud relay deployment, use: ${BLUE}./scripts/install_relay.sh${NC}"
+echo -e ""

@@ -173,16 +173,8 @@ build_package() {
 
     info "Building relay package..."
 
-    # 创建目录结构
-    mkdir -p "$tmp_dir/src/transport"
-
-    # 复制 relay 服务端代码
-    cp "$PROJECT_DIR/src/transport/relay_server.py" "$tmp_dir/src/transport/relay_server.py"
-    cp "$PROJECT_DIR/src/logger.py"               "$tmp_dir/src/logger.py"
-
-    # 创建包标记文件（空也行，但 Relay 需要导入路径）
-    cp "$PROJECT_DIR/src/__init__.py"              "$tmp_dir/src/__init__.py" 2>/dev/null || touch "$tmp_dir/src/__init__.py"
-    touch "$tmp_dir/src/transport/__init__.py"
+    # 复制 relay 服务端代码 (使用 standalone 版本)
+    cp "$RELAY_DIR/relay_server.py"         "$tmp_dir/relay_server.py"
 
     # 生成 .env
     cat > "$tmp_dir/.env" <<EOF
@@ -292,7 +284,7 @@ main() {
     echo ""
     echo "  Update your Bridge config.json:"
     echo '    "relay": {'
-    echo "      \"url\":   \"ws://$SERVER_IP:$RELAY_PORT/relay\","
+    echo "      \"url\":   \"ws://$SERVER_IP:$RELAY_PORT\","
     echo '      "token": "'"$RELAY_TOKEN"'",'
     echo '      "user_id": "user_xxxxxx"'
     echo '    }'
