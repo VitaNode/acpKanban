@@ -15,7 +15,6 @@ import 'widgets/project_selector.dart';
 import 'widgets/project_management_dialog.dart';
 import 'widgets/kanban_column_widget.dart';
 import 'widgets/column_manager_dialog.dart';
-import 'widgets/timeline_view.dart';
 import 'widgets/status_summary_widget.dart';
 import 'widgets/project_roadmap_view.dart';
 import 'widgets/roadmap_manager_dialog.dart';
@@ -713,10 +712,8 @@ class _MainScreenState extends State<MainScreen> {
         return 0;
       case 'roadmap':
         return 1;
-      case 'timeline':
-        return 2;
       case 'connection':
-        return 3;
+        return 2;
       default:
         return 0;
     }
@@ -729,8 +726,6 @@ class _MainScreenState extends State<MainScreen> {
       case 1:
         return 'roadmap';
       case 2:
-        return 'timeline';
-      case 3:
         return 'connection';
       default:
         return 'board';
@@ -846,10 +841,6 @@ class _MainScreenState extends State<MainScreen> {
           icon: Icon(Icons.alt_route_rounded),
           label: UICopy.roadmap,
         ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.history_rounded),
-          label: UICopy.timeline,
-        ),
         BottomNavigationBarItem(
           icon: Stack(
             children: [
@@ -919,21 +910,11 @@ class _MainScreenState extends State<MainScreen> {
         Expanded(
           child: _currentView == 'board'
               ? _buildBoardView()
-              : _currentView == 'roadmap'
-                  ? ProjectRoadmapView(
-                      projectId: _currentProject!.id,
-                      onCardTap: _openCardById,
-                      onManageTap: _showRoadmapManager,
-                    )
-                  : TimelineView(
-                      events: _timelineEvents,
-                      isLoading: _isLoadingTimeline,
-                      onRefresh: () {
-                        if (_currentProject != null) {
-                          _loadTimeline(_currentProject!.id);
-                        }
-                      },
-                    ),
+              : ProjectRoadmapView(
+                  projectId: _currentProject!.id,
+                  onCardTap: _openCardById,
+                  onManageTap: _showRoadmapManager,
+                ),
         ),
       ],
     );
@@ -942,13 +923,47 @@ class _MainScreenState extends State<MainScreen> {
     if (_selectedCard != null && _currentProject != null) {
       final isMobile = MediaQuery.of(context).size.width < 600;
       
+      // Force board view for the background during transition
+      final backgroundContent = Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.space16, vertical: AppConstants.space8),
+            child: Row(
+              children: [
+                Flexible(
+                  child: ProjectSelector(
+                    currentProject: _currentProject,
+                    projects: _projects,
+                    onProjectSelected: _switchProject,
+                    onCreateProject: _showCreateProjectDialog,
+                    onManageProjects: _showProjectManager,
+                    isLoading: _isLoadingProjects,
+                  ),
+                ),
+                if (_currentProject != null) ...[
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: _showColumnManager,
+                    icon: const Icon(Icons.view_column_rounded, size: 18),
+                    label: const Text(UICopy.manageColumns),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          StatusSummaryWidget(statuses: _agentStatuses),
+          Expanded(child: _buildBoardView()),
+        ],
+      );
+
       return Stack(
         children: [
-          // Background content (Board/Roadmap/Timeline)
+          // Background content (Always Board for better UX)
           // We slightly dim it when the detail is over it
           Opacity(
             opacity: isMobile ? 0.8 : 1.0,
-            child: boardContent,
+            child: backgroundContent,
           ),
           
           // Foreground: Card Detail with Slide Transition
@@ -1054,11 +1069,6 @@ class _MainScreenState extends State<MainScreen> {
           icon: Icon(Icons.alt_route_rounded),
           selectedIcon: Icon(Icons.alt_route_rounded),
           label: Text(UICopy.roadmap),
-        ),
-        const NavigationRailDestination(
-          icon: Icon(Icons.history_rounded),
-          selectedIcon: Icon(Icons.history_rounded),
-          label: Text(UICopy.timeline),
         ),
         NavigationRailDestination(
           icon: Stack(
