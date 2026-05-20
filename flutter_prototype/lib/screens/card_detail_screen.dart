@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/kanban_card.dart';
 import '../models/project.dart';
-import '../models/kanban_column.dart';
 import '../models/card_message.dart';
 import '../models/agent_plan.dart';
 import '../models/ag_ui_event.dart';
@@ -15,7 +15,6 @@ import '../services/acp_client.dart';
 import '../widgets/roadmap_manager_dialog.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/plan_panel.dart';
-import '../widgets/config_options_bar.dart';
 import '../utils/date_formatter.dart';
 import '../constants/app_constants.dart';
 import '../constants/ui_copy.dart';
@@ -68,21 +67,19 @@ class _CardDetailViewState extends State<CardDetailView> {
   String? _projectName;
   String? _columnName;
   late TextEditingController _contextController;
-  bool _isShowingContext = false;
   bool _isEditingContext = false;
 
-  List<ProjectMilestone> _milestones = [];
   ProjectMilestone? _selectedMilestone;
   ProjectFeature? _selectedFeature;
 
   String? _targetProviderId;
   final Map<String, String> _providerNameMap = {};
-  bool _isInitializing = false;
   bool _isStartingSession = false;
   String? _statusMessage;
   bool _isAgentConnected = false;
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
+  bool _isEditingTitle = false;
   OverlayEntry? _commandOverlay;
   final Set<String> _respondedRequestIds = {};
 
@@ -94,11 +91,13 @@ class _CardDetailViewState extends State<CardDetailView> {
   StreamSubscription? _requestSub;
   StreamSubscription? _errorSub;
   StreamSubscription? _initializingSub;
-  StreamSubscription? _contextSub;
   Timer? _debounceTimer;
 
   Timer? _renderThrottleTimer;
   List<CardMessage> _pendingMessages = [];
+  bool _edgeSwipeTracking = false;
+  double _edgeSwipeDx = 0;
+  double _edgeSwipeDy = 0;
 
   @override
   void initState() {
@@ -168,7 +167,6 @@ class _CardDetailViewState extends State<CardDetailView> {
 
       if (mounted) {
         setState(() {
-          _milestones = milestones;
           _selectedMilestone = foundMilestone;
           _selectedFeature = foundFeature;
         });
@@ -306,14 +304,13 @@ class _CardDetailViewState extends State<CardDetailView> {
     });
 
     _initializingSub = _wsService.isInitializing.listen((loading) {
-      if (mounted) setState(() => _isInitializing = loading);
+      if (mounted) setState(() {});
     });
 
-    _contextSub = _wsService.contextData.listen((context) {
+    _wsService.contextData.listen((context) {
       if (mounted) {
         setState(() {
           _contextController.text = context;
-          _isShowingContext = true;
           _isEditingContext = true;
         });
       }
@@ -775,7 +772,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     _wsService.sendMessage('user', fullPrompt);
     setState(() {
       _contextController.clear();
-      _isShowingContext = false;
       _isAgentProcessing = true;
     });
   }
@@ -808,11 +804,10 @@ class _CardDetailViewState extends State<CardDetailView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return SelectionArea(
+    final content = SelectionArea(
       child: Column(
         children: [
           _buildViewHeader(theme, colorScheme),
-          if (_isAgentConnected) ConfigOptionsBar(options: _configOptions),
           Expanded(
             child: Stack(
               children: [
@@ -829,6 +824,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                         child: PlanPanel(plan: _currentPlan!),
                       ),
                     _buildSummarySection(),
+                    _buildMetadataRow(),
                     const Padding(
                       padding: EdgeInsets.symmetric(
                           horizontal: AppConstants.space16,
@@ -863,11 +859,55 @@ class _CardDetailViewState extends State<CardDetailView> {
         ],
       ),
     );
+
+    if (_isMobilePlatform) {
+      return GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: _onEdgeSwipeStart,
+        onHorizontalDragUpdate: _onEdgeSwipeUpdate,
+        onHorizontalDragEnd: _onEdgeSwipeEnd,
+        child: content,
+      );
+    }
+
+    return content;
+  }
+
+  Widget _buildContentPanel({
+    required String title,
+    required Widget child,
+    Widget? action,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppConstants.space12),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        border: Border.all(color: theme.dividerTheme.color!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+              if (action != null) action,
+            ],
+          ),
+          const SizedBox(height: AppConstants.space8),
+          child,
+        ],
+      ),
+    );
   }
 
   Widget _buildViewHeader(ThemeData theme, ColorScheme colorScheme) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
         border: Border(
@@ -879,91 +919,252 @@ class _CardDetailViewState extends State<CardDetailView> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: widget.onBack ?? () => Navigator.pop(context),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Row(
-                    children: [
-                      if (_projectName != null) ...[
-                        Text(
-                          _projectName!,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text('>',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: colorScheme.onSurfaceVariant
-                                      .withOpacity(0.5))),
-                        ),
-                      ],
-                      if (_columnName != null &&
-                          _columnName!.isNotEmpty &&
-                          _columnName!.toLowerCase() != 'detail')
-                        Text(
-                          _columnName!,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (_isSavingCard)
-                  const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2)),
-                const SizedBox(width: 8),
-                _buildActionMenu(colorScheme),
-              ],
-            ),
+            // Row 1: Back + Breadcrumb + Title + Actions
             Padding(
-              padding: const EdgeInsets.only(left: 12, top: 4),
+              padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: widget.onBack ?? () => Navigator.pop(context),
+                  ),
                   Expanded(
-                    child: TextField(
-                      controller: _titleController,
-                      maxLines: null,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurface,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      decoration: const InputDecoration.collapsed(
-                        hintText: UICopy.cardTitleHint,
-                      ),
-                      textInputAction: TextInputAction.newline,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: _buildBreadcrumbTitle(theme, colorScheme),
                     ),
                   ),
-                  if (_card.shortId.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6, left: 8),
-                      child: Text(
-                        _card.shortId.toUpperCase(),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant.withOpacity(0.5),
-                          fontFamily: 'monospace',
-                          fontSize: 10,
-                        ),
+                  if (_isSavingCard)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12, right: 8),
+                      child: SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
+                  _buildActionMenu(colorScheme),
                 ],
               ),
             ),
+            // Row 2: Agent Mode + Models
+            if (_isAgentConnected && _configOptions.isNotEmpty)
+              _buildAgentModelBar(theme, colorScheme),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBreadcrumbTitle(ThemeData theme, ColorScheme colorScheme) {
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        if (_projectName != null) ...[
+          Text(
+            _projectName!,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          _buildSeparator(colorScheme),
+        ],
+        if (_columnName != null && _columnName!.isNotEmpty) ...[
+          Text(
+            _columnName!,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          _buildSeparator(colorScheme),
+        ],
+        _buildEditableTitle(theme, colorScheme),
+      ],
+    );
+  }
+
+  Widget _buildSeparator(ColorScheme colorScheme) {
+    return Text('>',
+        style: TextStyle(
+            fontSize: 10,
+            color: colorScheme.onSurfaceVariant.withOpacity(0.4)));
+  }
+
+  Widget _buildEditableTitle(ThemeData theme, ColorScheme colorScheme) {
+    if (_isEditingTitle) {
+      return IntrinsicWidth(
+        child: TextField(
+          controller: _titleController,
+          autofocus: true,
+          maxLines: null,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: colorScheme.onSurface,
+            fontWeight: FontWeight.bold,
+          ),
+          decoration: const InputDecoration.collapsed(
+            hintText: UICopy.cardTitleHint,
+          ),
+          onSubmitted: (_) => setState(() => _isEditingTitle = false),
+          onTapOutside: (_) => setState(() => _isEditingTitle = false),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => setState(() => _isEditingTitle = true),
+      child: Text(
+        _card.title,
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: colorScheme.onSurface,
+          fontWeight: FontWeight.bold,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAgentModelBar(ThemeData theme, ColorScheme colorScheme) {
+    final modeOption =
+        _configOptions.where((o) => o.category == 'mode').firstOrNull;
+    final modelOption =
+        _configOptions.where((o) => o.category == 'model').firstOrNull;
+
+    if (modeOption == null && modelOption == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Row(
+        children: [
+          if (modeOption != null)
+            _buildSelectField(
+              label: modeOption.currentValue,
+              icon: Icons.security_rounded,
+              onTap: () => _showConfigOptionPicker(modeOption),
+            ),
+          if (modeOption != null && modelOption != null)
+            const SizedBox(width: 8),
+          if (modelOption != null)
+            Expanded(
+              child: _buildSelectField(
+                label: modelOption.currentValue,
+                icon: Icons.smart_toy_rounded,
+                onTap: () => _showConfigOptionPicker(modelOption),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectField({
+    required String label,
+    IconData? icon,
+    VoidCallback? onTap,
+    bool isFullWidth = false,
+  }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final widget = InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+          border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+        ),
+        child: Row(
+          mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14, color: colorScheme.primary),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                  color: colorScheme.onSurface
+                      .withOpacity(AppConstants.highEmphasis),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                size: 14,
+                color: colorScheme.onSurface
+                    .withOpacity(AppConstants.mediumEmphasis)),
+          ],
+        ),
+      ),
+    );
+
+    return isFullWidth ? SizedBox(width: double.infinity, child: widget) : widget;
+  }
+
+  void _showConfigOptionPicker(ConfigOption option) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusMedium)),
+      ),
+      builder: (context) {
+        final theme = Theme.of(context);
+        final colorScheme = theme.colorScheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Text(option.name, style: theme.textTheme.headlineMedium),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: option.options.length,
+                  itemBuilder: (context, index) {
+                    final val = option.options[index];
+                    final isSelected = val.value == option.currentValue;
+                    return ListTile(
+                      title: Text(val.name,
+                          style: TextStyle(
+                            fontWeight:
+                                isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected
+                                ? colorScheme.primary
+                                : colorScheme.onSurface,
+                          )),
+                      trailing: isSelected
+                          ? Icon(Icons.check_rounded, color: colorScheme.primary)
+                          : null,
+                      onTap: () {
+                        _wsService.setConfigOption(option.id, val.value);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1078,242 +1279,190 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   Widget _buildHeader() {
-    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppConstants.space16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainer,
-              borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-              border: Border.all(
-                  color: colorScheme.outlineVariant.withOpacity(0.5)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<ProjectMilestone>(
-                      value: _selectedMilestone,
-                      isDense: true,
-                      hint: const Text(UICopy.milestone,
-                          style: TextStyle(fontSize: 12)),
-                      style: Theme.of(context).textTheme.bodySmall,
-                      items: [
-                        const DropdownMenuItem<ProjectMilestone>(
-                          value: null,
-                          child: Text(UICopy.uncategorized,
-                              style: TextStyle(fontSize: 12)),
-                        ),
-                        ..._milestones.map((m) => DropdownMenuItem(
-                              value: m,
-                              child: Text(m.title,
-                                  style: const TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis),
-                            )),
-                      ],
-                      onChanged: (m) {
-                        setState(() {
-                          _selectedMilestone = m;
-                          _selectedFeature = null;
-                        });
-                        if (m == null) _onFeatureSelected(null);
-                      },
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child:
-                      Icon(Icons.chevron_right, size: 14, color: Colors.grey),
-                ),
-                Expanded(
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<ProjectFeature>(
-                      value: _selectedFeature,
-                      isDense: true,
-                      hint: const Text(UICopy.feature,
-                          style: TextStyle(fontSize: 12)),
-                      style: Theme.of(context).textTheme.bodySmall,
-                      disabledHint: const Text(UICopy.selectMilestone,
-                          style: TextStyle(fontSize: 12)),
-                      items: _selectedMilestone == null
-                          ? []
-                          : [
-                              const DropdownMenuItem<ProjectFeature>(
-                                value: null,
-                                child: Text(UICopy.none,
-                                    style: TextStyle(fontSize: 12)),
-                              ),
-                              ..._selectedMilestone!.features
-                                  .map((f) => DropdownMenuItem(
-                                        value: f,
-                                        child: Text(f.title,
-                                            style:
-                                                const TextStyle(fontSize: 12),
-                                            overflow: TextOverflow.ellipsis),
-                                      )),
-                            ],
-                      onChanged: _selectedMilestone == null
-                          ? null
-                          : (f) => _onFeatureSelected(f),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_selectedMilestone != null && _selectedFeature != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: InkWell(
-                onTap: _showRoadmapPicker,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: colorScheme.secondaryContainer.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                        color: colorScheme.secondary.withOpacity(0.1)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.flag_rounded,
-                          size: 12, color: colorScheme.secondary),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${_selectedMilestone!.title} > ${_selectedFeature!.title}',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: colorScheme.onSecondaryContainer,
-                            fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          _buildDescriptionSection(),
           const SizedBox(height: AppConstants.space16),
-          TextField(
-            controller: _descriptionController,
-            maxLines: null,
-            style: Theme.of(context).textTheme.bodyMedium,
-            decoration: InputDecoration(
-              hintText: UICopy.addDescriptionHint,
-              contentPadding: const EdgeInsets.all(AppConstants.space12),
-              filled: true,
-              fillColor: colorScheme.surfaceContainer.withOpacity(0.3),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                borderSide: BorderSide(
-                    color: Theme.of(context).dividerColor.withOpacity(0.05)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                borderSide: BorderSide(
-                    color: Theme.of(context).dividerColor.withOpacity(0.05)),
-              ),
+          _buildRoadmapSection(),
+          const SizedBox(height: AppConstants.space8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDescriptionSection() {
+    final theme = Theme.of(context);
+    return _buildContentPanel(
+      title: UICopy.description,
+      child: TextField(
+        controller: _descriptionController,
+        maxLines: null,
+        style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
+        decoration: const InputDecoration.collapsed(
+          hintText: UICopy.addDescriptionHint,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoadmapSection() {
+    return _buildContentPanel(
+      title: UICopy.roadmap,
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildSelectField(
+              label: _selectedMilestone?.title ?? UICopy.milestone,
+              icon: Icons.flag_outlined,
+              onTap: _showRoadmapPicker,
+              isFullWidth: true,
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Icon(Icons.access_time,
-                  size: 12,
-                  color: colorScheme.onSurfaceVariant.withOpacity(0.6)),
-              const SizedBox(width: 4),
-              Text(
-                '${UICopy.created} ${DateFormatter.formatShortDate(_card.createdAt)}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant.withOpacity(0.6),
-                      fontSize: 10,
-                    ),
+          if (_selectedMilestone != null) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildSelectField(
+                label: _selectedFeature?.title ?? UICopy.feature,
+                onTap: _showRoadmapPicker,
+                isFullWidth: true,
               ),
-            ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetadataRow() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.space16, vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          if (_card.shortId.isNotEmpty)
+            Text(
+              _card.shortId.toUpperCase(),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant.withOpacity(0.5),
+                    fontFamily: 'monospace',
+                    fontSize: 10,
+                  ),
+            ),
+          if (_card.shortId.isNotEmpty) const SizedBox(width: 12),
+          Icon(Icons.access_time,
+              size: 12, color: colorScheme.onSurfaceVariant.withOpacity(0.4)),
+          const SizedBox(width: 4),
+          Text(
+            '${UICopy.created} ${DateFormatter.formatShortDate(_card.createdAt)}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant.withOpacity(0.5),
+                  fontSize: 10,
+                ),
           ),
         ],
       ),
     );
   }
 
+  bool get _isMobilePlatform {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android;
+  }
+
+  void _onEdgeSwipeStart(DragStartDetails details) {
+    _edgeSwipeTracking = details.globalPosition.dx <= 24;
+    _edgeSwipeDx = 0;
+    _edgeSwipeDy = 0;
+  }
+
+  void _onEdgeSwipeUpdate(DragUpdateDetails details) {
+    if (!_edgeSwipeTracking) return;
+    _edgeSwipeDx += details.delta.dx;
+    _edgeSwipeDy += details.delta.dy.abs();
+  }
+
+  void _onEdgeSwipeEnd(DragEndDetails details) {
+    if (!_edgeSwipeTracking) return;
+    final shouldGoBack =
+        _edgeSwipeDx > 80 && _edgeSwipeDx > (_edgeSwipeDy * 1.5);
+    if (shouldGoBack) {
+      if (widget.onBack != null) {
+        widget.onBack!.call();
+      } else if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+    }
+    _edgeSwipeTracking = false;
+    _edgeSwipeDx = 0;
+    _edgeSwipeDy = 0;
+  }
+
   Widget _buildSummarySection() {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     return Padding(
-        padding: const EdgeInsets.all(AppConstants.space16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text(UICopy.progressSummary,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-            Row(children: [
-              if (_isSavingSummary)
-                const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-              else ...[
-                if (!_isEditingSummary)
-                  IconButton(
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                    onPressed: _generateSummary,
-                    tooltip: UICopy.autoGenerateSummary,
-                  ),
+      padding: const EdgeInsets.all(AppConstants.space16),
+      child: _buildContentPanel(
+        title: UICopy.progressSummary,
+        action: Row(
+          children: [
+            if (_isSavingSummary)
+              const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+            else ...[
+              if (!_isEditingSummary)
                 IconButton(
-                  icon: Icon(
-                      _isEditingSummary
-                          ? Icons.check_rounded
-                          : Icons.edit_outlined,
-                      size: 18),
-                  onPressed: () {
-                    if (_isEditingSummary) {
-                      _saveSummary();
-                    } else {
-                      setState(() => _isEditingSummary = true);
-                    }
-                  },
+                  icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+                  onPressed: _generateSummary,
+                  visualDensity: VisualDensity.compact,
                 ),
-              ],
-            ]),
-          ]),
-          const SizedBox(height: AppConstants.space4),
-          if (_isEditingSummary)
-            TextField(
-              controller: _summaryController,
-              maxLines: null,
-              style: const TextStyle(fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: UICopy.addSummaryHint,
+              IconButton(
+                icon: Icon(
+                    _isEditingSummary
+                        ? Icons.check_rounded
+                        : Icons.edit_outlined,
+                    size: 16),
+                onPressed: () {
+                  if (_isEditingSummary) {
+                    _saveSummary();
+                  } else {
+                    setState(() => _isEditingSummary = true);
+                  }
+                },
+                visualDensity: VisualDensity.compact,
               ),
-            )
-          else
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppConstants.space12),
-              decoration: BoxDecoration(
-                  color: Theme.of(context).cardTheme.color,
-                  borderRadius:
-                      BorderRadius.circular(AppConstants.radiusMedium),
-                  border:
-                      Border.all(color: Theme.of(context).dividerTheme.color!)),
-              child: Text(
+            ],
+          ],
+        ),
+        child: _isEditingSummary
+            ? TextField(
+                controller: _summaryController,
+                maxLines: null,
+                style: theme.textTheme.bodySmall?.copyWith(height: 1.4),
+                decoration: const InputDecoration.collapsed(
+                  hintText: UICopy.addSummaryHint,
+                ),
+              )
+            : Text(
                 (_summary == null || _summary!.isEmpty)
                     ? UICopy.noSummaryYet
                     : _summary!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      height: 1.4,
-                      fontStyle: (_summary == null || _summary!.isEmpty)
-                          ? FontStyle.italic
-                          : null,
-                    ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  height: 1.4,
+                  fontStyle: (_summary == null || _summary!.isEmpty)
+                      ? FontStyle.italic
+                      : null,
+                ),
               ),
-            ),
-        ]));
+      ),
+    );
   }
 
   Widget _buildProcessingIndicator() {
@@ -1666,24 +1815,6 @@ class _CardDetailViewState extends State<CardDetailView> {
     }
   }
 
-  Future<void> _onFeatureSelected(ProjectFeature? feature) async {
-    try {
-      await _projectService.updateCard(
-        _card.id,
-        featureId: feature?.id,
-      );
-      if (mounted) {
-        setState(() {
-          _selectedFeature = feature;
-          _card = _card.copyWith(featureId: feature?.id);
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        AppFeedback.showError(context, ErrorCopy.mapError(null, e.toString()));
-      }
-    }
-  }
 
   Future<void> _onDelete() async {
     final confirmed = await showDialog<bool>(

@@ -68,6 +68,7 @@ class UICopy {
   static const String created = 'Created';
   static const String cards = 'Cards';
   static const String workspace = 'Workspace';
+  static const String description = 'Description';
 
   // Card Management
   static const String addCard = 'Add Card';
