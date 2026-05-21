@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="acpKanban API",
     description="Backend for Agent-integrated Kanban system",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan,
 )
 
@@ -100,7 +100,7 @@ async def add_request_id(request: Request, call_next):
 async def root():
     return {
         "service": "Kanban API",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "endpoints": {
             "projects": "/api/projects",
             "cards": "/api/cards",

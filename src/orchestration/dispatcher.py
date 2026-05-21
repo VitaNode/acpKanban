@@ -133,7 +133,7 @@ class MessageDispatcher:
             "agentInfo": {
                 "name": "Kanban-Bridge",
                 "title": "acpKanban Bridge",
-                "version": "0.1.0"
+                "version": "0.1.1"
             }
         }
 
@@ -208,7 +208,7 @@ class MessageDispatcher:
                     await with_timeout(
                         adapter.initialize({
                             "capabilities": {},
-                            "clientInfo": {"name": "Kanban-Init-Check", "version": "0.1.0"}
+                            "clientInfo": {"name": "Kanban-Init-Check", "version": "0.1.1"}
                         }),
                         timeout=30.0,
                         name=f"Provider {provider_id} Init"
