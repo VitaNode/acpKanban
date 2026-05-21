@@ -121,11 +121,29 @@ jobs:
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" $RUNNER_TEMP/pp.xml)
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
-          echo "Using Provisioning Profile UUID: $UUID"
+          # Detect Export Method and Identity
+          if grep -q "<key>ProvisionedDevices</key>" $RUNNER_TEMP/pp.xml; then
+            if grep -q "<key>ProvisionsAllDevices</key>" $RUNNER_TEMP/pp.xml; then
+              EXPORT_METHOD="enterprise"
+              IDENTITY="iPhone Distribution"
+            else
+              EXPORT_METHOD="ad-hoc"
+              IDENTITY="iPhone Distribution"
+            fi
+          elif grep -q "<key>get-task-allow</key>[[:space:]]*<true/>" $RUNNER_TEMP/pp.xml; then
+            EXPORT_METHOD="development"
+            IDENTITY="iPhone Developer"
+          else
+            EXPORT_METHOD="app-store"
+            IDENTITY="iPhone Distribution"
+          fi
+          
+          echo "Detected Export Method: $EXPORT_METHOD"
+          echo "Detected Identity: $IDENTITY"
 
           # Inject UUID and force Manual signing in pbxproj
           PBXPROJ="flutter_prototype/ios/Runner.xcodeproj/project.pbxproj"
-          sed -i '' "s/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/DEVELOPMENT_TEAM = 76CXQ49Q8Z; PROVISIONING_PROFILE_SPECIFIER = \"$UUID\";/g" "$PBXPROJ"
+          sed -i '' "s/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/DEVELOPMENT_TEAM = 76CXQ49Q8Z; PROVISIONING_PROFILE_SPECIFIER = \"$UUID\"; CODE_SIGN_IDENTITY = \"$IDENTITY\";/g" "$PBXPROJ"
           
           # Create ExportOptions.plist
           cat <<EOF > flutter_prototype/ExportOptions.plist
@@ -134,7 +152,7 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>$EXPORT_METHOD</string>
             <key>teamID</key>
             <string>76CXQ49Q8Z</string>
             <key>signingStyle</key>
