@@ -126,13 +126,13 @@ jobs:
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
           # Detect Export Method and Identity (Prioritize Development check)
-          if grep -q "<key>get-task-allow</key>[[:space:]]*<true/>" $RUNNER_TEMP/pp.xml; then
+          if /usr/libexec/PlistBuddy -c "Print Entitlements:get-task-allow" $RUNNER_TEMP/pp.xml 2>/dev/null | grep -q "true"; then
             EXPORT_METHOD="development"
             IDENTITY="iPhone Developer"
-          elif grep -q "<key>ProvisionsAllDevices</key>" $RUNNER_TEMP/pp.xml; then
+          elif /usr/libexec/PlistBuddy -c "Print ProvisionsAllDevices" $RUNNER_TEMP/pp.xml >/dev/null 2>&1; then
             EXPORT_METHOD="enterprise"
             IDENTITY="iPhone Distribution"
-          elif grep -q "<key>ProvisionedDevices</key>" $RUNNER_TEMP/pp.xml; then
+          elif /usr/libexec/PlistBuddy -c "Print ProvisionedDevices" $RUNNER_TEMP/pp.xml >/dev/null 2>&1; then
             EXPORT_METHOD="ad-hoc"
             IDENTITY="iPhone Distribution"
           else
