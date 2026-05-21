@@ -113,11 +113,34 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+
+          # Extract UUID from the provisioning profile
+          UUID=$(grep -aA1 "UUID" $PP_PATH | grep -o "[-A-Z0-9]\{36\}")
+          echo "UUID=$UUID" >> $GITHUB_ENV
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
       - name: Build IPA
         run: |
           cd flutter_prototype
-          flutter build ipa --release --export-method app-store
+          cat <<EOF > ExportOptions.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>76CXQ49Q8Z</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.qnghm.kanbanAI202603</key>
+              <string>${{ env.UUID }}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+          flutter build ipa --release \
+            --export-options-plist=ExportOptions.plist \
+            --build-number 1
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
