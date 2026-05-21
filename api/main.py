@@ -189,4 +189,4 @@ async def health_check():
         health["status"] = "degraded"
     
     return health
-health
+
