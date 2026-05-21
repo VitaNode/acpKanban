@@ -45,7 +45,7 @@ class KanbanMCPServer:
                 return self.send_response(request_id, result={
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "Kanban-Tools", "version": "1.0.0"}
+                    "serverInfo": {"name": "Kanban-Tools", "version": "0.1.0"}
                 })
             
             elif method == "tools/list":

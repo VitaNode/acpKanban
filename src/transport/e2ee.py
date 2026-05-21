@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-KEY_STORAGE_PATH = Path.home() / ".mybot" / "e2ee_keys.json"
+KEY_STORAGE_PATH = Path.home() / ".acpkanban" / "e2ee_keys.json"
 
 def _derive_key(raw_secret: bytes) -> bytes:
     """Helper to derive a 32-byte key from shared secret using HKDF."""

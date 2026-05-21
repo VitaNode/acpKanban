@@ -169,7 +169,7 @@ gather_info() {
 # ──────────────────────────────────────────────
 build_package() {
     local tmp_dir
-    tmp_dir=$(mktemp -d /tmp/mybot-relay-XXXXXX)
+    tmp_dir=$(mktemp -d /tmp/acpkanban-relay-XXXXXX)
 
     info "Building relay package..."
 
@@ -187,12 +187,12 @@ EOF
 
     # 复制辅助脚本和配置
     cp "$RELAY_DIR/relay_requirements.txt" "$tmp_dir/relay_requirements.txt"
-    cp "$RELAY_DIR/mybot-relay.service"    "$tmp_dir/mybot-relay.service"
+    cp "$RELAY_DIR/acpkanban-relay.service"    "$tmp_dir/acpkanban-relay.service"
     cp "$RELAY_DIR/start_relay.sh"         "$tmp_dir/start_relay.sh"
     cp "$RELAY_DIR/_remote_install.sh"     "$tmp_dir/_remote_install.sh"
 
     # 打包
-    local tarball="/tmp/mybot-relay-package.tar.gz"
+    local tarball="/tmp/acpkanban-relay-package.tar.gz"
     tar czf "$tarball" -C "$tmp_dir" .
 
     rm -rf "$tmp_dir"
@@ -213,20 +213,20 @@ do_install() {
 
     # 上传 package
     if [ -n "$SSH_PASS" ]; then
-        sshpass -p "$SSH_PASS" scp $SSH_OPTS "$tarball" "$SSH_TARGET:/tmp/mybot-relay-package.tar.gz"
+        sshpass -p "$SSH_PASS" scp $SSH_OPTS "$tarball" "$SSH_TARGET:/tmp/acpkanban-relay-package.tar.gz"
     else
-        scp $SSH_OPTS "$tarball" "$SSH_TARGET:/tmp/mybot-relay-package.tar.gz"
+        scp $SSH_OPTS "$tarball" "$SSH_TARGET:/tmp/acpkanban-relay-package.tar.gz"
     fi
     ok "Upload complete"
 
     info "Step 2/4: Extracting package on remote server..."
     local REMOTE_CMD="
 set -e
-INSTALL_DIR='/opt/mybot-relay'
+INSTALL_DIR='/opt/acpkanban-relay'
 mkdir -p \"\$INSTALL_DIR\"
 cd \"\$INSTALL_DIR\"
-tar xzf /tmp/mybot-relay-package.tar.gz
-rm -f /tmp/mybot-relay-package.tar.gz
+tar xzf /tmp/acpkanban-relay-package.tar.gz
+rm -f /tmp/acpkanban-relay-package.tar.gz
 chmod +x \$INSTALL_DIR/_remote_install.sh
 "
     if [ -n "$SSH_PASS" ]; then
@@ -237,7 +237,7 @@ chmod +x \$INSTALL_DIR/_remote_install.sh
     ok "Package extracted"
 
     info "Step 3/4: Installing dependencies and starting relay..."
-    local INSTALL_CMD="cd /opt/mybot-relay && bash _remote_install.sh $USE_SYSTEMD"
+    local INSTALL_CMD="cd /opt/acpkanban-relay && bash _remote_install.sh $USE_SYSTEMD"
     if [ -n "$SSH_PASS" ]; then
         sshpass -p "$SSH_PASS" ssh $SSH_OPTS "$SSH_TARGET" "$INSTALL_CMD"
     else
@@ -250,7 +250,7 @@ chmod +x \$INSTALL_DIR/_remote_install.sh
 #  6. 清理
 # ──────────────────────────────────────────────
 cleanup() {
-    local tarball="/tmp/mybot-relay-package.tar.gz"
+    local tarball="/tmp/acpkanban-relay-package.tar.gz"
     rm -f "$tarball"
 }
 

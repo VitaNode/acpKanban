@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# MyBot (Agent Kanban) Setup Script
+# acpKanban Setup Script
 # Targets: macOS (Darwin) and Linux
 # Usage:   bash scripts/setup.sh
 #
@@ -21,7 +21,7 @@ warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 err()   { echo -e "${RED}[✗]${NC} $1"; }
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   MyBot (Agent Kanban) Setup v1.1     ${NC}"
+echo -e "${BLUE}   acpKanban Setup v1.1     ${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # ──────────────────────────────────────────────
@@ -120,7 +120,7 @@ if [ "$OVERWRITE_START" = "yes" ]; then
     cat > start.sh <<'RUNTIME_EOF'
 #!/bin/bash
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
-echo "[*] Starting MyBot All-in-One Service..."
+echo "[*] Starting acpKanban All-in-One Service..."
 exec ./.venv/bin/python3 run_all.py
 RUNTIME_EOF
     chmod +x start.sh
@@ -130,7 +130,7 @@ RUNTIME_EOF
     cat > start_api.sh <<'RUNTIME_EOF'
 #!/bin/bash
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
-echo "[*] Starting MyBot API Server..."
+echo "[*] Starting acpKanban API Server..."
 exec ./.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000
 RUNTIME_EOF
     chmod +x start_api.sh
@@ -142,7 +142,7 @@ info "Generating start_dev.sh (development, with --reload)..."
 cat > start_dev.sh <<'RUNTIME_EOF'
 #!/bin/bash
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}."
-echo "[*] Starting MyBot API Server (dev mode)..."
+echo "[*] Starting acpKanban API Server (dev mode)..."
 exec ./.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 RUNTIME_EOF
 chmod +x start_dev.sh

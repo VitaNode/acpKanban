@@ -1,4 +1,8 @@
-# Agent Kanban (MyBot)
+# acpKanban
+
+<p align="center">
+  <img src="docs/acpKanban.png" width="128" alt="acpKanban Logo">
+</p>
 
 > **策划即执行，执行即记录** —— AI 原生任务管理系统
 
@@ -13,7 +17,7 @@
 
 ## 📖 简介
 
-**Agent Kanban (MyBot)** 是一个将 AI Agent 直接集成到工作流的看板任务管理系统。它解决了长周期（2-3 个月）项目开发中的两大痛点：
+**acpKanban** 是一个将 AI Agent 直接集成到工作流的看板任务管理系统。它解决了长周期（2-3 个月）项目开发中的两大痛点：
 
 - **手动记录成本高** — 传统方式下，开发者需要手动记录工作内容、保存对话历史
 - **上下文连续性断裂** — 切换任务时丢失之前的决策背景和实现细节
@@ -450,11 +454,11 @@ Flutter 项目已预置 5 个平台目录（`ios/`、`android/`、`macos/`、`wi
 ```bash
 flutter build macos --release
 brew install create-dmg
-create-dmg --volname "MyBot" \
+create-dmg --volname "acpKanban" \
   --app-drop-link 180 110 \
   --window-pos 200 120 \
   --window-size 600 400 \
-  MyBot.dmg build/macos/Build/Products/Release/kanban_app.app
+  acpKanban.dmg build/macos/Build/Products/Release/acp_kanban.app
 ```
 
 #### Windows 构建说明

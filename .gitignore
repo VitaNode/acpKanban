@@ -2,7 +2,6 @@
 .venv/
 __pycache__/
 *.pyc
-docs/
 .DS_Store
 *.log
 .vscode/
@@ -13,5 +12,12 @@ docs/
 .agents/
 .gemini/
 .qwen/
+.antigravitycli/
+.vscode/
+docs/
 conductor/
 config.json
+GEMINI.md
+QWEN.md
+AGENTS.md
+project_context.md

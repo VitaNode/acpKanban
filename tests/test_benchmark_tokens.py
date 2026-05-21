@@ -11,7 +11,7 @@ from src.logic.context import ContextBuilder
 
 def benchmark():
     # Setup dummy context
-    project_name = "MyBot Project"
+    project_name = "acpKanban Project"
     workspace_path = os.getcwd()
     
     # 1. OLD MODE: Full Code Injection (Simulation)

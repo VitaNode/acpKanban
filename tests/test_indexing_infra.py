@@ -31,7 +31,7 @@ def test_db_migration():
 
 def test_file_hasher(tmp_path):
     test_file = tmp_path / "test.txt"
-    content = b"Hello MyBot Indexing!"
+    content = b"Hello acpKanban Indexing!"
     test_file.write_bytes(content)
     
     hash1 = compute_file_hash(str(test_file))

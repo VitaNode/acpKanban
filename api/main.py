@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
         user_id = os.getenv("USER_ID") or config.user_id
         relay_url = os.getenv("RELAY_URL") or config.relay_url
         token = os.getenv("RELAY_TOKEN") or config.relay_token
-        workspace_cwd = os.getenv("MYBOT_WORKSPACE_CWD")
+        workspace_cwd = os.getenv("ACPKANBAN_WORKSPACE_CWD")
         
         logger.info(f"Starting Integrated Bridge for user: {user_id} (Relay: {relay_url or 'None'})")
         bridge = UnifiedBridge(user_id, relay_url, token=token, workspace_cwd=workspace_cwd)
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="acpKanban API",
     description="Backend for Agent-integrated Kanban system",
-    version="1.0.0",
+    version="0.1.0",
     lifespan=lifespan,
 )
 
@@ -100,7 +100,7 @@ async def add_request_id(request: Request, call_next):
 async def root():
     return {
         "service": "Kanban API",
-        "version": "1.0.0",
+        "version": "0.1.0",
         "endpoints": {
             "projects": "/api/projects",
             "cards": "/api/cards",

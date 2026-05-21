@@ -1,5 +1,5 @@
 [Unit]
-Description=MyBot Relay Server
+Description=acpKanban Relay Server
 Documentation=https://github.com/your-org/acpkanban
 After=network.target
 
