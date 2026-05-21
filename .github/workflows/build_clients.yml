@@ -115,24 +115,26 @@ jobs:
           security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | xargs)
 
+          # Diagnostic: List certificates
+          echo "Installed Identities:"
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           
           security cms -D -i $PP_PATH > $RUNNER_TEMP/pp.xml
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" $RUNNER_TEMP/pp.xml)
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
-          # Detect Export Method and Identity
-          if grep -q "<key>ProvisionedDevices</key>" $RUNNER_TEMP/pp.xml; then
-            if grep -q "<key>ProvisionsAllDevices</key>" $RUNNER_TEMP/pp.xml; then
-              EXPORT_METHOD="enterprise"
-              IDENTITY="iPhone Distribution"
-            else
-              EXPORT_METHOD="ad-hoc"
-              IDENTITY="iPhone Distribution"
-            fi
-          elif grep -q "<key>get-task-allow</key>[[:space:]]*<true/>" $RUNNER_TEMP/pp.xml; then
+          # Detect Export Method and Identity (Prioritize Development check)
+          if grep -q "<key>get-task-allow</key>[[:space:]]*<true/>" $RUNNER_TEMP/pp.xml; then
             EXPORT_METHOD="development"
             IDENTITY="iPhone Developer"
+          elif grep -q "<key>ProvisionsAllDevices</key>" $RUNNER_TEMP/pp.xml; then
+            EXPORT_METHOD="enterprise"
+            IDENTITY="iPhone Distribution"
+          elif grep -q "<key>ProvisionedDevices</key>" $RUNNER_TEMP/pp.xml; then
+            EXPORT_METHOD="ad-hoc"
+            IDENTITY="iPhone Distribution"
           else
             EXPORT_METHOD="app-store"
             IDENTITY="iPhone Distribution"
