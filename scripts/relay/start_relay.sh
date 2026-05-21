@@ -1,5 +1,5 @@
 #!/bin/bash
-# MyBot Relay - 手动启动脚本（无 systemd 时的 fallback）
+# acpKanban Relay - 手动启动脚本（无 systemd 时的 fallback）
 # 用法: ./start_relay.sh
 
 cd "$(dirname "$0")" || exit 1
@@ -21,7 +21,7 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # 启动 relay（nohup 后台运行）
-echo "[*] Starting MyBot Relay Server..."
+echo "[*] Starting acpKanban Relay Server..."
 nohup ./.venv/bin/python3 -m src.transport.relay_server >> "$LOG_FILE" 2>&1 &
 RELAY_PID=$!
 echo "$RELAY_PID" > "$PID_FILE"

@@ -304,7 +304,7 @@ class ACPClient {
         },
         'clientInfo': {
           'name': 'KanbanMobile',
-          'title': 'Agent Kanban',
+          'title': 'acpKanban',
           'version': '2.0.0',
         },
       };

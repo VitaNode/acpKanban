@@ -92,7 +92,7 @@ class ConnectionConfig {
       preferredMode: ConnectionMode.local,
       localIp: 'localhost',
       localPort: 8766,
-      relayHost: 'mybot.local',
+      relayHost: 'acpkanban.local',
       relayPort: 8766,
       useMdns: true,
       userId: userId,

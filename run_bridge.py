@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MyBot Bridge - 入口脚本
+acpKanban Bridge - 入口脚本
 
 用法:
     python3 run_bridge.py [参数]

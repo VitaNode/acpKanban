@@ -1,15 +1,15 @@
 #!/bin/bash
-# MyBot Relay - 远程安装脚本（在目标服务器上执行）
+# acpKanban Relay - 远程安装脚本（在目标服务器上执行）
 # 前置条件: 所有文件已放置在 $INSTALL_DIR 目录下
 # 此脚本由 install_relay.sh 通过 SSH 调用
 
 set -e
 
-INSTALL_DIR="/opt/mybot-relay"
+INSTALL_DIR="/opt/acpkanban-relay"
 VENV_DIR="$INSTALL_DIR/.venv"
 
 echo "========================================"
-echo "   MyBot Relay - Remote Installer      "
+echo "   acpKanban Relay - Remote Installer      "
 echo "========================================"
 
 # --- 1. 检查 Python ---
@@ -55,31 +55,31 @@ USE_SYSTEMD="${1:-}"
 if [ "$USE_SYSTEMD" = "yes" ]; then
     echo "[*] Installing systemd service..."
 
-    cp "$SRC_DIR/mybot-relay.service" /etc/systemd/system/mybot-relay.service
-    chmod 644 /etc/systemd/system/mybot-relay.service
+    cp "$SRC_DIR/acpkanban-relay.service" /etc/systemd/system/acpkanban-relay.service
+    chmod 644 /etc/systemd/system/acpkanban-relay.service
 
     # 创建专用用户（安全考量）
-    if ! id -u mybot-relay &>/dev/null; then
-        useradd --system --no-create-home --shell /usr/sbin/nologin mybot-relay
+    if ! id -u acpkanban-relay &>/dev/null; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin acpkanban-relay
     fi
-    chown -R mybot-relay:nogroup "$INSTALL_DIR"
+    chown -R acpkanban-relay:nogroup "$INSTALL_DIR"
     chmod 750 "$INSTALL_DIR"
 
     # 修改 service 文件中的 User
-    sed -i 's/User=nobody/User=mybot-relay/' /etc/systemd/system/mybot-relay.service
-    sed -i 's/Group=nogroup/Group=nogroup/' /etc/systemd/system/mybot-relay.service
+    sed -i 's/User=nobody/User=acpkanban-relay/' /etc/systemd/system/acpkanban-relay.service
+    sed -i 's/Group=nogroup/Group=nogroup/' /etc/systemd/system/acpkanban-relay.service
 
     systemctl daemon-reload
-    systemctl enable mybot-relay
-    systemctl restart mybot-relay
+    systemctl enable acpkanban-relay
+    systemctl restart acpkanban-relay
 
     sleep 2
-    if systemctl is-active --quiet mybot-relay; then
+    if systemctl is-active --quiet acpkanban-relay; then
         echo "[✓] Systemd service started successfully"
-        systemctl status mybot-relay --no-pager -l | head -10
+        systemctl status acpkanban-relay --no-pager -l | head -10
     else
-        echo "[✗] Service failed to start. Check: journalctl -u mybot-relay -n 30"
-        journalctl -u mybot-relay -n 20 --no-pager
+        echo "[✗] Service failed to start. Check: journalctl -u acpkanban-relay -n 30"
+        journalctl -u acpkanban-relay -n 20 --no-pager
         exit 1
     fi
 

@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
     await task_manager.shutdown()
 
 app = FastAPI(
-    title="Agent Kanban API",
+    title="acpKanban API",
     description="Backend for Agent-integrated Kanban system",
     version="1.0.0",
     lifespan=lifespan,
@@ -189,3 +189,4 @@ async def health_check():
         health["status"] = "degraded"
     
     return health
+health

@@ -10,7 +10,7 @@ class UICopy {
   static const String loading = 'Loading...';
 
   // Board / Navigation
-  static const String appTitle = 'AI Kanban';
+  static const String appTitle = 'acpKanban';
   static const String board = 'Board';
   static const String roadmap = 'Roadmap';
   static const String timeline = 'Timeline';

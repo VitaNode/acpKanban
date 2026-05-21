@@ -50,7 +50,7 @@ class E2EEManager {
     final hkdf = Hkdf(hmac: Hmac(Sha256()), outputLength: 32);
     final derivedKey = await hkdf.deriveKey(
       secretKey: sharedSecret,
-      info: utf8.encode('mybot-e2ee-x25519-context'),
+      info: utf8.encode('acpkanban-e2ee-x25519-context'),
     );
 
     final keyBytes = await derivedKey.extractBytes();

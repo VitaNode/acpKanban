@@ -228,7 +228,7 @@ class UnifiedBridge:
                 algorithm=hashes.SHA256(),
                 length=32,
                 salt=None,
-                info=b'mybot-e2ee-x25519-context',
+                info=b'acpkanban-e2ee-x25519-context',
             )
             key = hkdf.derive(shared_secret)
             
@@ -250,7 +250,7 @@ class UnifiedBridge:
                     algorithm=hashes.SHA256(),
                     length=32,
                     salt=None,
-                    info=b'mybot-e2ee-x25519-context',
+                    info=b'acpkanban-e2ee-x25519-context',
                 )
                 key = hkdf.derive(shared_secret)
                 

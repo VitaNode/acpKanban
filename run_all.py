@@ -45,7 +45,7 @@ def run_relay():
 if __name__ == "__main__":
     # 1. 打印凭据
     print("="*50)
-    print("      MYBOT ALL-IN-ONE SERVICE IS STARTING")
+    print("      ACPKANBAN ALL-IN-ONE SERVICE IS STARTING")
     print("="*50)
     print(f"  USER_ID:     {config.user_id}")
     print(f"  RELAY_TOKEN: {config.relay_token}")

@@ -28,14 +28,14 @@ class LocalDiscovery:
         logger.info(f"Starting mDNS broadcast for {self.user_id} on {ip}:{self.port}")
         
         # Service type: _acp._tcp.local.
-        # Instance name: MyBot_user_id
-        self.service_info = ServiceInfo(
+        # Instance name: acpKanban_user_id
+        service_info = ServiceInfo(
             "_acp._tcp.local.",
-            f"MyBot_{self.user_id}._acp._tcp.local.",
+            f"acpKanban_{self.user_id}._acp._tcp.local.",
             addresses=[socket.inet_aton(ip)],
             port=self.port,
-            properties={"user_id": self.user_id, "version": "1.0.0"},
-            server=f"mybot-{self.user_id}.local.",
+            properties={"user_id": self.user_id},
+            server=f"acpkanban-{self.user_id}.local.",
         )
         self.zeroconf.register_service(self.service_info)
 

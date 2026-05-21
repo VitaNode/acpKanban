@@ -132,7 +132,7 @@ class MessageDispatcher:
             },
             "agentInfo": {
                 "name": "Kanban-Bridge",
-                "title": "Agent Kanban Bridge",
+                "title": "acpKanban Bridge",
                 "version": "1.0.0"
             }
         }

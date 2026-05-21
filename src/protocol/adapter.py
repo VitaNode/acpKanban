@@ -112,7 +112,7 @@ class ACPProtocolAdapter:
             "capabilities": params.get("capabilities", {}),
             "clientInfo": {
                 "name": "Kanban-Bridge",
-                "title": "Agent Kanban Bridge",
+                "title": "acpKanban Bridge",
                 "version": "1.0.0"
             }
         }

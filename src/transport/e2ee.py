@@ -18,7 +18,7 @@ def _derive_key(raw_secret: bytes) -> bytes:
         algorithm=hashes.SHA256(),
         length=32,
         salt=None,
-        info=b"mybot-e2ee-x25519-context",
+        info=b"acpkanban-e2ee-x25519-context",
     ).derive(raw_secret)
 
 def encrypt_message(plaintext: str, secret: bytes) -> str:

@@ -1,15 +1,15 @@
 [Unit]
 Description=MyBot Relay Server
-Documentation=https://github.com/your-org/mybot
+Documentation=https://github.com/your-org/acpkanban
 After=network.target
 
 [Service]
 Type=simple
 User=nobody
 Group=nogroup
-WorkingDirectory=/opt/mybot-relay
-EnvironmentFile=/opt/mybot-relay/.env
-ExecStart=/opt/mybot-relay/.venv/bin/python3 relay_server.py
+WorkingDirectory=/opt/acpkanban-relay
+EnvironmentFile=/opt/acpkanban-relay/.env
+ExecStart=/opt/acpkanban-relay/.venv/bin/python3 relay_server.py
 Restart=always
 RestartSec=5
 StandardOutput=journal

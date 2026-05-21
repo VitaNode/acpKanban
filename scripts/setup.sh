@@ -4,7 +4,7 @@
 # Targets: macOS (Darwin) and Linux
 # Usage:   bash scripts/setup.sh
 #
-# This script must run from the project root (mybot/).
+# This script must run from the project root (acpkanban/).
 # It will create .venv, install deps, and generate start.sh / start_dev.sh.
 
 set -e
@@ -202,4 +202,6 @@ echo -e "  2. Enter the credentials above into the Mobile App's settings."
 echo -e "  3. Use your Mac's LAN IP as the server address."
 echo -e ""
 echo -e "  ${YELLOW}Tip:${NC} For cloud relay deployment, use: ${BLUE}./scripts/install_relay.sh${NC}"
+echo -e ""
+NC}"
 echo -e ""

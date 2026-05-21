@@ -1,5 +1,5 @@
 """
-MyBot - AI Agent Kanban Bridge
+acpKanban - AI Agent Kanban Bridge
 
 分层架构:
   - transport:    WebSocket, E2EE, mDNS, Relay

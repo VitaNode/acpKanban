@@ -17,9 +17,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>kanban_app</string>
+	<string>acp_kanban</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>We need access to your local network to find and connect to the Agent Kanban Mac Bridge.</string>
+	<string>We need access to your local network to find and connect to the acpKanban Mac Bridge.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_acp._tcp.local</string>

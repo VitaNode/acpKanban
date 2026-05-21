@@ -1,6 +1,6 @@
 {
-    "name": "kanban_app",
-    "short_name": "kanban_app",
+    "name": "acp_kanban",
+    "short_name": "acp_kanban",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
