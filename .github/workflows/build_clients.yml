@@ -119,6 +119,10 @@ jobs:
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" $RUNNER_TEMP/pp.xml)
           echo "UUID=$UUID" >> $GITHUB_ENV
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+
+          # Inject UUID into the project file
+          sed -i '' "s/PROVISIONING_PROFILE_SPECIFIER = \"\"/PROVISIONING_PROFILE_SPECIFIER = $UUID/g" flutter_prototype/ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' "s/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/DEVELOPMENT_TEAM = 76CXQ49Q8Z; PROVISIONING_PROFILE = $UUID; PROVISIONING_PROFILE_SPECIFIER = $UUID;/g" flutter_prototype/ios/Runner.xcodeproj/project.pbxproj
       - name: Build IPA
         run: |
           cd flutter_prototype
@@ -141,18 +145,6 @@ jobs:
           </dict>
           </plist>
           EOF
-          flutter build ipa --release \
-            --export-options-plist=ExportOptions.plist \
-            --build-number 1 \
-            --no-codesign
-          
-          # Manually archive and export if flutter build ipa fails to respect manual signing
-          # But for now, let's try with --no-codesign first (Wait, build ipa --no-codesign might not generate ipa)
-          # Actually, the standard way for manual signing in CI is:
-          # flutter build ios --release --no-codesign
-          # xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -sdk iphoneos -configuration Release archive ...
-          
-          # Let's try one more time with the fixed project settings and build ipa
           flutter build ipa --release \
             --export-options-plist=ExportOptions.plist \
             --build-number 1
