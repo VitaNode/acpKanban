@@ -146,7 +146,13 @@ jobs:
 
           # Inject UUID and force Manual signing in pbxproj
           PBXPROJ="flutter_prototype/ios/Runner.xcodeproj/project.pbxproj"
-          sed -i '' "s/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/DEVELOPMENT_TEAM = 76CXQ49Q8Z; PROVISIONING_PROFILE_SPECIFIER = \"$UUID\"; CODE_SIGN_IDENTITY = \"$IDENTITY\";/g" "$PBXPROJ"
+          sed -i '' "s/PROVISIONING_PROFILE_SPECIFIER = \".*\";/PROVISIONING_PROFILE_SPECIFIER = \"$UUID\";/g" "$PBXPROJ"
+          sed -i '' "s/\"PROVISIONING_PROFILE_SPECIFIER\[sdk=iphoneos\*\]\" = .*/\"PROVISIONING_PROFILE_SPECIFIER\[sdk=iphoneos\*\]\" = \"$UUID\";/g" "$PBXPROJ"
+          sed -i '' "s/CODE_SIGN_IDENTITY = \".*\";/CODE_SIGN_IDENTITY = \"$IDENTITY\";/g" "$PBXPROJ"
+          sed -i '' "s/\"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\" = .*/\"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\" = \"$IDENTITY\";/g" "$PBXPROJ"
+          sed -i '' "s/DEVELOPMENT_TEAM = \".*\";/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/g" "$PBXPROJ"
+          sed -i '' "s/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/g" "$PBXPROJ"
+          sed -i '' "s/\"DEVELOPMENT_TEAM\[sdk=iphoneos\*\]\" = .*/\"DEVELOPMENT_TEAM\[sdk=iphoneos\*\]\" = 76CXQ49Q8Z;/g" "$PBXPROJ"
           
           # Create ExportOptions.plist
           cat <<EOF > flutter_prototype/ExportOptions.plist
