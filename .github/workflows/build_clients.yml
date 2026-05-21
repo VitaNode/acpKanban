@@ -131,6 +131,8 @@ jobs:
             <string>app-store</string>
             <key>teamID</key>
             <string>76CXQ49Q8Z</string>
+            <key>signingStyle</key>
+            <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
               <key>com.qnghm.kanbanAI202603</key>
@@ -139,6 +141,18 @@ jobs:
           </dict>
           </plist>
           EOF
+          flutter build ipa --release \
+            --export-options-plist=ExportOptions.plist \
+            --build-number 1 \
+            --no-codesign
+          
+          # Manually archive and export if flutter build ipa fails to respect manual signing
+          # But for now, let's try with --no-codesign first (Wait, build ipa --no-codesign might not generate ipa)
+          # Actually, the standard way for manual signing in CI is:
+          # flutter build ios --release --no-codesign
+          # xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -sdk iphoneos -configuration Release archive ...
+          
+          # Let's try one more time with the fixed project settings and build ipa
           flutter build ipa --release \
             --export-options-plist=ExportOptions.plist \
             --build-number 1
