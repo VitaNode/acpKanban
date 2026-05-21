@@ -1,0 +1,103 @@
+name: Build Clients
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Install dependencies
+        run: cd flutter_prototype && flutter pub get
+      - name: Build APK
+        run: cd flutter_prototype && flutter build apk --release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: acpKanban-android
+          path: flutter_prototype/build/app/outputs/flutter-apk/app-release.apk
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Install dependencies
+        run: cd flutter_prototype && flutter pub get
+      - name: Build macOS
+        run: cd flutter_prototype && flutter build macos --release
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          mkdir -p build-dmg
+          cp -R flutter_prototype/build/macos/Build/Products/Release/acp_kanban.app build-dmg/
+          create-dmg \
+            --volname "acpKanban" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "acp_kanban.app" 175 120 \
+            --hide-extension "acp_kanban.app" \
+            --app-drop-link 425 120 \
+            "acpKanban-macOS.dmg" \
+            "build-dmg/"
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: acpKanban-macos
+          path: acpKanban-macOS.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+      - name: Install dependencies
+        run: cd flutter_prototype && flutter pub get
+      - name: Build Windows
+        run: |
+          cd flutter_prototype
+          flutter build windows --release
+      - name: Package Windows
+        run: |
+          Compress-Archive -Path flutter_prototype/build/windows/runner/Release/* -DestinationPath acpKanban-Windows.zip
+      - name: Upload Windows Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: acpKanban-windows
+          path: acpKanban-Windows.zip
+
+  release:
+    needs: [build-android, build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/acpKanban-android/app-release.apk
+            artifacts/acpKanban-macos/acpKanban-macOS.dmg
+            artifacts/acpKanban-windows/acpKanban-Windows.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
