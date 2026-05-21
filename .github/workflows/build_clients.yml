@@ -74,7 +74,7 @@ jobs:
           flutter build windows --release
       - name: Package Windows
         run: |
-          Compress-Archive -Path flutter_prototype/build/windows/runner/Release/* -DestinationPath acpKanban-Windows.zip
+          Compress-Archive -Path flutter_prototype/build/windows/x64/runner/Release/* -DestinationPath acpKanban-Windows.zip
       - name: Upload Windows Zip
         uses: actions/upload-artifact@v4
         with:
