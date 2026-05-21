@@ -94,7 +94,7 @@ jobs:
           cache: true
       - name: Install dependencies
         run: cd flutter_prototype && flutter pub get
-      - name: Install Apple Certificate
+      - name: Build and Sign IPA
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -116,20 +116,19 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | xargs)
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-
-          # More robust UUID extraction using PlistBuddy
+          
           security cms -D -i $PP_PATH > $RUNNER_TEMP/pp.xml
           UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" $RUNNER_TEMP/pp.xml)
-          echo "UUID=$UUID" >> $GITHUB_ENV
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
-          # Inject UUID into the project file
-          sed -i '' "s/PROVISIONING_PROFILE_SPECIFIER = \"\"/PROVISIONING_PROFILE_SPECIFIER = $UUID/g" flutter_prototype/ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' "s/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/DEVELOPMENT_TEAM = 76CXQ49Q8Z; PROVISIONING_PROFILE = $UUID; PROVISIONING_PROFILE_SPECIFIER = $UUID;/g" flutter_prototype/ios/Runner.xcodeproj/project.pbxproj
-      - name: Build IPA
-        run: |
-          cd flutter_prototype
-          cat <<EOF > ExportOptions.plist
+          echo "Using Provisioning Profile UUID: $UUID"
+
+          # Inject UUID and force Manual signing in pbxproj
+          PBXPROJ="flutter_prototype/ios/Runner.xcodeproj/project.pbxproj"
+          sed -i '' "s/DEVELOPMENT_TEAM = 76CXQ49Q8Z;/DEVELOPMENT_TEAM = 76CXQ49Q8Z; PROVISIONING_PROFILE_SPECIFIER = \"$UUID\";/g" "$PBXPROJ"
+          
+          # Create ExportOptions.plist
+          cat <<EOF > flutter_prototype/ExportOptions.plist
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -143,14 +142,19 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>com.qnghm.kanbanAI202603</key>
-              <string>${{ env.UUID }}</string>
+              <string>$UUID</string>
             </dict>
           </dict>
           </plist>
           EOF
+
+          cd flutter_prototype
           flutter build ipa --release \
             --export-options-plist=ExportOptions.plist \
             --build-number 1
+          
+          echo "Listing output directory:"
+          ls -R build/ios/ipa
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
