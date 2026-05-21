@@ -142,6 +142,7 @@ jobs:
           
           echo "Detected Export Method: $EXPORT_METHOD"
           echo "Detected Identity: $IDENTITY"
+          echo "EXPORT_METHOD=$EXPORT_METHOD" >> $GITHUB_ENV
 
           # Inject UUID and force Manual signing in pbxproj
           PBXPROJ="flutter_prototype/ios/Runner.xcodeproj/project.pbxproj"
@@ -180,6 +181,54 @@ jobs:
         with:
           name: acpKanban-ios
           path: flutter_prototype/build/ios/ipa/*.ipa
+      - name: Upload to App Store Connect
+        if: success()
+        env:
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          if [ "$EXPORT_METHOD" != "app-store" ]; then
+            echo "========================================================================"
+            echo "WARNING: Skipping App Store Connect upload because EXPORT_METHOD is '$EXPORT_METHOD'."
+            echo "App Store Connect only accepts 'app-store' signed builds."
+            echo "Please use an App Store Distribution Provisioning Profile and Certificate to upload."
+            echo "========================================================================"
+            exit 0
+          fi
+
+          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ] || [ -z "$APP_STORE_CONNECT_KEY_ID" ] || [ -z "$APP_STORE_CONNECT_ISSUER_ID" ]; then
+            echo "Error: App Store Connect secrets (APP_STORE_CONNECT_PRIVATE_KEY, APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID) are not configured."
+            exit 1
+          fi
+
+          # 1. Create directory and write private key
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+          
+          # 2. Find the generated IPA dynamically
+          IPA_PATH=$(find flutter_prototype/build/ios/ipa -name "*.ipa" | head -n 1)
+          if [ -z "$IPA_PATH" ]; then
+            echo "Error: IPA file not found!"
+            exit 1
+          fi
+          echo "Found IPA at: $IPA_PATH"
+
+          # 3. Validate App
+          echo "Validating IPA with App Store Connect..."
+          xcrun altool --validate-app \
+            -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+            
+          # 4. Upload App
+          echo "Uploading IPA to App Store Connect..."
+          xcrun altool --upload-app \
+            -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
 
   release:
     needs: [build-android, build-macos, build-windows, build-ios]
