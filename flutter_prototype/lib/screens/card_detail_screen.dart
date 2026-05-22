@@ -1096,41 +1096,45 @@ class _CardDetailViewState extends State<CardDetailView> {
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final widget = InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-          border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
-        ),
-        child: Row(
-          mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 14, color: colorScheme.primary),
-              const SizedBox(width: 8),
-            ],
-            Flexible(
-              child: Text(
-                label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11,
-                  color: colorScheme.onSurface
-                      .withOpacity(AppConstants.highEmphasis),
+    
+    final widget = Material(
+      type: MaterialType.transparency,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+            border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
+          ),
+          child: Row(
+            mainAxisSize: isFullWidth ? MainAxisSize.max : MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: colorScheme.primary),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                    color: colorScheme.onSurface
+                        .withOpacity(AppConstants.highEmphasis),
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            const SizedBox(width: 4),
-            Icon(Icons.keyboard_arrow_down_rounded,
-                size: 14,
-                color: colorScheme.onSurface
-                    .withOpacity(AppConstants.mediumEmphasis)),
-          ],
+              const SizedBox(width: 4),
+              Icon(Icons.keyboard_arrow_down_rounded,
+                  size: 14,
+                  color: colorScheme.onSurface
+                      .withOpacity(AppConstants.mediumEmphasis)),
+            ],
+          ),
         ),
       ),
     );
@@ -1144,6 +1148,11 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   void _showConfigOptionPicker(ConfigOption option) {
+    if (option.options.isEmpty) {
+      AppFeedback.showInfo(context, '暂无可选项');
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
