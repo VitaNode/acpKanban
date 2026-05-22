@@ -817,11 +817,11 @@ class _CardDetailViewState extends State<CardDetailView> {
 
     final content = TextSelectionTheme(
       data: selectionTheme,
-      child: SelectionArea(
-        child: Column(
-          children: [
-            _buildViewHeader(theme, colorScheme),
-            Expanded(
+      child: Column(
+        children: [
+          _buildViewHeader(theme, colorScheme),
+          Expanded(
+            child: SelectionArea(
               child: Stack(
                 children: [
                   ListView(
@@ -829,50 +829,50 @@ class _CardDetailViewState extends State<CardDetailView> {
                     padding: const EdgeInsets.symmetric(
                         vertical: AppConstants.space16),
                     children: [
-                    _buildHeader(),
-                    if (_currentPlan != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: AppConstants.space16),
-                        child: PlanPanel(plan: _currentPlan!),
-                      ),
-                    _buildSummarySection(),
-                    _buildMetadataRow(),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: AppConstants.space16,
-                          vertical: AppConstants.space8),
-                      child: Divider(),
-                    ),
-                    if (_messages.isEmpty)
-                      Center(
-                        child: Padding(
+                      _buildHeader(),
+                      if (_currentPlan != null)
+                        Padding(
                           padding: const EdgeInsets.symmetric(
-                              vertical: AppConstants.space32),
-                          child: Text(UICopy.startConversation,
-                              style: theme.textTheme.bodySmall),
+                              horizontal: AppConstants.space16),
+                          child: PlanPanel(plan: _currentPlan!),
                         ),
-                      )
-                    else
-                      ..._buildMessageList(),
-                    if (_isAgentProcessing) _buildProcessingIndicator(),
-                    const SizedBox(height: AppConstants.space24),
-                  ],
-                ),
-                if (_unreadCount > 0)
-                  Positioned(
-                    bottom: AppConstants.space16,
-                    right: AppConstants.space16,
-                    child: _buildJumpToBottomButton(colorScheme),
+                      _buildSummarySection(),
+                      _buildMetadataRow(),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: AppConstants.space16,
+                            vertical: AppConstants.space8),
+                        child: Divider(),
+                      ),
+                      if (_messages.isEmpty)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: AppConstants.space32),
+                            child: Text(UICopy.startConversation,
+                                style: theme.textTheme.bodySmall),
+                          ),
+                        )
+                      else
+                        ..._buildMessageList(),
+                      if (_isAgentProcessing) _buildProcessingIndicator(),
+                      const SizedBox(height: AppConstants.space24),
+                    ],
                   ),
-              ],
+                  if (_unreadCount > 0)
+                    Positioned(
+                      bottom: AppConstants.space16,
+                      right: AppConstants.space16,
+                      child: _buildJumpToBottomButton(colorScheme),
+                    ),
+                ],
+              ),
             ),
           ),
           _buildInputArea(),
         ],
       ),
-    ),
-  );
+    );
 
     if (_isMobilePlatform) {
       return Stack(
@@ -1132,7 +1132,10 @@ class _CardDetailViewState extends State<CardDetailView> {
       ),
     );
 
-    return isFullWidth ? SizedBox(width: double.infinity, child: widget) : widget;
+    final disabledSelectionWidget = SelectionContainer.disabled(child: widget);
+    return isFullWidth
+        ? SizedBox(width: double.infinity, child: disabledSelectionWidget)
+        : disabledSelectionWidget;
   }
 
   void _showConfigOptionPicker(ConfigOption option) {
