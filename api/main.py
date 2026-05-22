@@ -181,7 +181,8 @@ async def health_check():
 
     bridge = run_bridge.bridge_instance
     if bridge:
-        health["subsystems"]["bridge"] = "connected" if bridge.relay_ws else "idle"
+        # Check if we have active local clients or if relay is active
+        health["subsystems"]["bridge"] = "active" if bridge.relay_url else "idle"
         if bridge.relay_url:
             health["subsystems"]["relay"] = bridge.relay_url
 

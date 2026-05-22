@@ -154,7 +154,10 @@ class AGUIMapper:
                     {
                         "id": o.get("id"),
                         "name": o.get("name"),
-                        "value": o.get("currentValue")
+                        "category": o.get("category", "general"),
+                        "type": o.get("type", "select"),
+                        "currentValue": o.get("currentValue"),
+                        "options": o.get("options", [])
                     } for o in update.get("availableOptions", [])
                 ]
             })

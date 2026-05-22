@@ -1,5 +1,6 @@
 import json
 import traceback
+import logging
 from functools import wraps
 from typing import Optional
 from fastapi import HTTPException, Request

@@ -133,7 +133,7 @@ async def session_websocket(websocket: WebSocket, card_id: str):
                                     else:
                                         return # Ignore unknown formats
 
-                                    if method == "session/request_permission" or method.startswith("fs/") or method.startswith("terminal/"):
+                                    if method and (method == "session/request_permission" or method.startswith("fs/") or method.startswith("terminal/")):
                                         # AG-UI Enhancement: Skip redundant transient ui_request if in ag_ui mode.
                                         # The Dispatcher's wrapped_request already handles the ag_ui_event and persistence.
                                         card_ui_format = bridge_instance.dispatcher._card_ui_formats.get(card_id, "acp")

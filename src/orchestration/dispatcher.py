@@ -743,7 +743,7 @@ class MessageDispatcher:
                     # Use driver to translate UI result back to agent format
                     return engine.driver.translate_ui_result(inner_method, ui_result, inner_params)
 
-                if inner_method.startswith("fs/") or inner_method.startswith("terminal/"):
+                if inner_method and (inner_method.startswith("fs/") or inner_method.startswith("terminal/")):
                     inner_params["_request_id"] = inner_params.get("id")
                     result = await on_output_with_helpers({"jsonrpc": "2.0", "method": inner_method, "params": inner_params}, is_request=True)
                     return result

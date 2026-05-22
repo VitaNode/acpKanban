@@ -258,7 +258,7 @@ class ACPProtocolAdapter:
                 raw_prompt=params.get("prompt")
             )
             
-        elif method.startswith("fs/") or method.startswith("terminal/"):
+        elif method and (method.startswith("fs/") or method.startswith("terminal/")):
             if self.on_request:
                 result = await self.on_request(method, params)
                 if result is not None:

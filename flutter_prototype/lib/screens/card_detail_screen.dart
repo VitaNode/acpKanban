@@ -1069,6 +1069,7 @@ class _CardDetailViewState extends State<CardDetailView> {
               label: modeOption.currentValue,
               icon: Icons.security_rounded,
               onTap: () => _showConfigOptionPicker(modeOption),
+              disableSelectionWrapper: false,
             ),
           if (modeOption != null && modelOption != null)
             const SizedBox(width: 8),
@@ -1078,6 +1079,7 @@ class _CardDetailViewState extends State<CardDetailView> {
                 label: modelOption.currentValue,
                 icon: Icons.smart_toy_rounded,
                 onTap: () => _showConfigOptionPicker(modelOption),
+                disableSelectionWrapper: false,
               ),
             ),
         ],
@@ -1090,6 +1092,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     IconData? icon,
     VoidCallback? onTap,
     bool isFullWidth = false,
+    bool disableSelectionWrapper = true,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -1132,10 +1135,12 @@ class _CardDetailViewState extends State<CardDetailView> {
       ),
     );
 
-    final disabledSelectionWidget = SelectionContainer.disabled(child: widget);
+    final finalWidget =
+        disableSelectionWrapper ? SelectionContainer.disabled(child: widget) : widget;
+
     return isFullWidth
-        ? SizedBox(width: double.infinity, child: disabledSelectionWidget)
-        : disabledSelectionWidget;
+        ? SizedBox(width: double.infinity, child: finalWidget)
+        : finalWidget;
   }
 
   void _showConfigOptionPicker(ConfigOption option) {
