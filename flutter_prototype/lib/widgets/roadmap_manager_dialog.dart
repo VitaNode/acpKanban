@@ -24,6 +24,7 @@ class RoadmapManagerDialog extends StatefulWidget {
 class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
   List<ProjectMilestone> _milestones = [];
   ProjectMilestone? _selectedMilestone;
+  ProjectFeature? _selectedFeature;
   bool _isLoading = true;
 
   @override
@@ -59,6 +60,7 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
         _milestones = milestones;
         _selectedMilestone =
             foundMilestone ?? (milestones.isNotEmpty ? milestones.first : null);
+        _selectedFeature = foundFeature;
         _isLoading = false;
       });
     } catch (e) {
@@ -349,7 +351,13 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
                 selected: isSelected,
                 selectedTileColor:
                     colorScheme.primaryContainer.withOpacity(0.3),
-                onTap: () => setState(() => _selectedMilestone = m),
+                onTap: () => setState(() {
+                  _selectedMilestone = m;
+                  if (_selectedFeature != null &&
+                      !m.features.any((f) => f.id == _selectedFeature!.id)) {
+                    _selectedFeature = null;
+                  }
+                }),
                 trailing: PopupMenuButton<String>(
                   icon: Icon(
                     Icons.more_vert,
@@ -433,13 +441,24 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
                   itemCount: _selectedMilestone!.features.length,
                   itemBuilder: (context, index) {
                     final f = _selectedMilestone!.features[index];
+                    final isSelected = _selectedFeature?.id == f.id;
                     return ListTile(
-                      leading: const Icon(Icons.extension_outlined, size: 16),
+                      leading: Icon(
+                        Icons.extension_outlined,
+                        size: 16,
+                        color: isSelected ? colorScheme.primary : null,
+                      ),
                       title: Text(
                         f.title,
-                        style: const TextStyle(fontSize: 13),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.bold : null,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
+                      selected: isSelected,
+                      selectedTileColor:
+                          colorScheme.primaryContainer.withOpacity(0.3),
                       subtitle: Text(
                           'Progress: ${f.progress.toStringAsFixed(1)}%',
                           style: const TextStyle(fontSize: 11)),
@@ -478,6 +497,7 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
                         ],
                       ),
                       onTap: () {
+                        setState(() => _selectedFeature = f);
                         if (widget.onFeatureSelected != null) {
                           widget.onFeatureSelected!(_selectedMilestone!, f);
                         }
