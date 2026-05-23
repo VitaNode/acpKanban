@@ -217,4 +217,10 @@ class UICopy {
   static const String statusError = 'ERR';
   static const String statusInitializing = 'INIT...';
   static const String statusOffline = 'OFFLINE';
+
+  // Connection Recovery
+  static const String connectionRecovering = 'Recovering connection...';
+  static const String connectionRecovered = 'Connection restored.';
+  static const String connectionRecoveryFailedOpenSettings =
+      'Unable to restore connection. Opening Connection Settings.';
 }

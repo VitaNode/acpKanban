@@ -72,7 +72,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   final _acpClient = ACPClient();
   final _projectService = ProjectService();
   List<KanbanCard> _cards = [];
@@ -98,11 +98,36 @@ class _MainScreenState extends State<MainScreen> {
   KanbanCard? _selectedCard;
   double _detailTransitionDx = 0;
 
+  bool _isRecoveringConnection = false;
+  DateTime? _lastResumeRecoveryAt;
+  int _resumeRecoverFailCount = 0;
+  Timer? _resumeDebounceTimer;
+
+  static const _resumeRecoverThrottle = Duration(seconds: 3);
+  static const _maxResumeRecoverAttempts = 3;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initApp();
     _setupRefreshService();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _resumeDebounceTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    _resumeDebounceTimer?.cancel();
+    _resumeDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      await _recoverConnectionOnResume();
+    });
   }
 
   void _setupRefreshService() {
@@ -205,6 +230,95 @@ class _MainScreenState extends State<MainScreen> {
         });
       }
     }
+  }
+
+  Future<void> _recoverConnectionOnResume() async {
+    if (!mounted) return;
+    if (_isRecoveringConnection) return;
+
+    final now = DateTime.now();
+    if (_lastResumeRecoveryAt != null &&
+        now.difference(_lastResumeRecoveryAt!) < _resumeRecoverThrottle) {
+      return;
+    }
+    _lastResumeRecoveryAt = now;
+    _isRecoveringConnection = true;
+
+    try {
+      final configManager = await ConnectionConfigManager.getInstance();
+      final savedConfig = await configManager.loadConfig();
+      final uid = savedConfig.userId;
+
+      final hasCreds = uid != null &&
+          uid.isNotEmpty &&
+          (savedConfig.relayToken?.isNotEmpty ?? false);
+      if (!hasCreds) {
+        _navigateToConnectionSettings(reason: 'missing_credentials');
+        return;
+      }
+
+      final healthy = await _isAcpConnectionHealthy();
+      if (healthy) {
+        _resumeRecoverFailCount = 0;
+        return;
+      }
+
+      await _reconnectFromSavedConfig(savedConfig, uid);
+
+      _resumeRecoverFailCount = 0;
+      _refreshFunnelState();
+
+      await _loadProjects();
+      if (_currentProject != null) {
+        await _loadProjectData(_currentProject!.id);
+      }
+
+      if (mounted) {
+        AppFeedback.showSuccess(context, UICopy.connectionRecovered);
+      }
+    } catch (e) {
+      _resumeRecoverFailCount += 1;
+      if (_resumeRecoverFailCount >= _maxResumeRecoverAttempts) {
+        _navigateToConnectionSettings(reason: 'resume_recover_failed');
+        if (mounted) {
+          AppFeedback.showError(
+              context, UICopy.connectionRecoveryFailedOpenSettings);
+        }
+      }
+    } finally {
+      _isRecoveringConnection = false;
+    }
+  }
+
+  Future<bool> _isAcpConnectionHealthy() async {
+    if (_acpClient.activeMode == ConnectionPath.none) return false;
+    try {
+      await _projectService.getProviders();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _reconnectFromSavedConfig(
+      ConnectionConfig cfg, String userId) async {
+    _acpClient.disconnect();
+    final acpConfig = ACPConfig.fromConnectionConfig(cfg, userId);
+    await _acpClient.smartConnect(acpConfig);
+    await _acpClient.initialize(acpConfig.systemConfig);
+
+    if (_acpClient.activeUrl != null) {
+      _projectService.updateBaseUrl(_acpClient.activeUrl!,
+          apiToken: cfg.apiToken);
+    }
+  }
+
+  void _navigateToConnectionSettings({required String reason}) {
+    if (!mounted) return;
+    setState(() {
+      _currentView = 'connection';
+      _selectedCard = null;
+    });
   }
 
   void _openCardById(String cardId) {
