@@ -22,8 +22,8 @@ def test_roadmap_delete_behavior():
         # 2. Verify default milestone/feature titles are English
         print("[*] Fetching milestones...")
         progress_resp = requests.get(
-            f"{BASE_URL}/kanban/progress",
-            params={"project_id": created_project_id, "depth": 2}
+            f"{BASE_URL}/projects/{created_project_id}/progress",
+            params={"depth": 2}
         )
         assert progress_resp.status_code == 200, f"Failed to get progress: {progress_resp.text}"
         milestones = progress_resp.json()
@@ -65,8 +65,7 @@ def test_roadmap_delete_behavior():
         # 4. Delete the feature and verify card feature_id is NULL
         print("[*] Deleting feature...")
         del_feature_resp = requests.delete(
-            f"{BASE_URL}/kanban/feature",
-            json={"feature_id": created_feature_id}
+            f"{BASE_URL}/features/{created_feature_id}",
         )
         assert del_feature_resp.status_code == 200, \
             f"Failed to delete feature: {del_feature_resp.text}"
@@ -85,10 +84,12 @@ def test_roadmap_delete_behavior():
         # 5. Create another card, then delete the milestone
         # First create a new feature under the same milestone
         print("[*] Creating a new feature for milestone delete test...")
-        create_feature_resp = requests.post(f"{BASE_URL}/kanban/feature", json={
-            "milestone_id": created_milestone_id,
-            "title": "Test Feature for Milestone Delete",
-        })
+        create_feature_resp = requests.post(
+            f"{BASE_URL}/milestones/{created_milestone_id}/features",
+            json={
+                "title": "Test Feature for Milestone Delete",
+            },
+        )
         assert create_feature_resp.status_code == 201, \
             f"Failed to create feature: {create_feature_resp.text}"
         new_feature_id = create_feature_resp.json()["id"]
@@ -110,8 +111,7 @@ def test_roadmap_delete_behavior():
         # Delete the milestone
         print("[*] Deleting milestone...")
         del_milestone_resp = requests.delete(
-            f"{BASE_URL}/kanban/milestone",
-            json={"milestone_id": created_milestone_id}
+            f"{BASE_URL}/milestones/{created_milestone_id}",
         )
         assert del_milestone_resp.status_code == 200, \
             f"Failed to delete milestone: {del_milestone_resp.text}"
