@@ -105,6 +105,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   static const _resumeRecoverThrottle = Duration(seconds: 3);
   static const _maxResumeRecoverAttempts = 3;
+  static const _resumeRecoveryTimeout = Duration(seconds: 30);
 
   @override
   void initState() {
@@ -126,7 +127,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed) return;
     _resumeDebounceTimer?.cancel();
     _resumeDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
-      await _recoverConnectionOnResume();
+      try {
+        await _recoverConnectionOnResume().timeout(_resumeRecoveryTimeout);
+      } catch (e) {
+        if (e is TimeoutException) {
+          _resumeRecoverFailCount += 1;
+          AppLogger.warning('[Lifecycle] Recovery timeout');
+        }
+      }
     });
   }
 
@@ -236,6 +244,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     if (_isRecoveringConnection) return;
 
+    if (_currentView == 'connection') {
+      AppLogger.info(
+          '[Lifecycle] Skipping recovery - user is in connection settings');
+      return;
+    }
+
     final now = DateTime.now();
     if (_lastResumeRecoveryAt != null &&
         now.difference(_lastResumeRecoveryAt!) < _resumeRecoverThrottle) {
@@ -243,6 +257,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
     _lastResumeRecoveryAt = now;
     _isRecoveringConnection = true;
+
+    AppLogger.info('[Lifecycle] Starting connection recovery on resume');
 
     try {
       final configManager = await ConnectionConfigManager.getInstance();
@@ -258,6 +274,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
 
       final healthy = await _isAcpConnectionHealthy();
+      AppLogger.info('[Lifecycle] Health check result: $healthy');
       if (healthy) {
         _resumeRecoverFailCount = 0;
         return;
@@ -266,11 +283,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       await _reconnectFromSavedConfig(savedConfig, uid);
 
       _resumeRecoverFailCount = 0;
+      AppLogger.info('[Lifecycle] Reconnection successful, fail count reset');
       _refreshFunnelState();
 
       await _loadProjects();
       if (_currentProject != null) {
         await _loadProjectData(_currentProject!.id);
+        await _updateAgentStatuses();
       }
 
       if (mounted) {
@@ -278,6 +297,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       _resumeRecoverFailCount += 1;
+      AppLogger.error(
+          '[Lifecycle] Recovery failed, attempt $_resumeRecoverFailCount/$_maxResumeRecoverAttempts');
       if (_resumeRecoverFailCount >= _maxResumeRecoverAttempts) {
         _navigateToConnectionSettings(reason: 'resume_recover_failed');
         if (mounted) {
@@ -314,10 +335,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _navigateToConnectionSettings({required String reason}) {
+    AppLogger.warning(
+        '[Lifecycle] Navigating to Connection Settings: $reason');
     if (!mounted) return;
     setState(() {
       _currentView = 'connection';
       _selectedCard = null;
+      _detailTransitionDx = 0;
     });
   }
 
