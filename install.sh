@@ -19,7 +19,7 @@ REPO_URL="https://github.com/VitaNode/acpKanban.git"
 INSTALL_DIR="acpKanban"
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}     acpKanban Installer v0.1.0        ${NC}"
+echo -e "${BLUE}     acpKanban Installer v0.2.0        ${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # 1. Check Git
@@ -31,7 +31,7 @@ fi
 # 2. Clone Repository
 if [ -d "$INSTALL_DIR" ]; then
     info "Directory '$INSTALL_DIR' already exists."
-    read -rp "Pull latest changes and re-install? [y/N]: " REINSTALL_CHOICE
+    read -rp "Pull latest changes and re-install? [y/N]: " REINSTALL_CHOICE </dev/tty
     if [[ ! "$REINSTALL_CHOICE" =~ ^[Yy] ]]; then
         info "Aborting installation."
         exit 0

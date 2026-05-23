@@ -21,7 +21,7 @@ warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
 err()   { echo -e "${RED}[✗]${NC} $1"; }
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   acpKanban Setup v1.1     ${NC}"
+echo -e "${BLUE}   acpKanban Setup v1.2     ${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # ──────────────────────────────────────────────
@@ -38,12 +38,23 @@ case "$OS" in
             echo "  Then re-run this script."
             exit 1
         fi
+        if ! command -v python3 &>/dev/null; then
+            warn "Python 3 not found. Install via:"
+            echo "  brew install python"
+            echo "  Or download from https://www.python.org/downloads/"
+            exit 1
+        fi
         ;;
     Linux)
         if command -v apt-get &>/dev/null; then
             if ! dpkg -l python3-venv &>/dev/null 2>&1; then
                 info "Installing python3-venv (required for virtual environment)..."
-                sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv
+                if sudo -n true 2>/dev/null; then
+                    sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv
+                else
+                    warn "sudo requires a terminal. Install python3-venv manually:"
+                    warn "  sudo apt-get install python3-venv"
+                fi
             fi
         fi
         ;;
@@ -108,7 +119,7 @@ OVERWRITE_START="yes"
 if [ -f "start.sh" ]; then
     echo ""
     warn "start.sh already exists."
-    read -rp "Overwrite? [y/N]: " OVERWRITE_CHOICE
+    read -rp "Overwrite? [y/N]: " OVERWRITE_CHOICE </dev/tty
     if [[ ! "$OVERWRITE_CHOICE" =~ ^[Yy] ]]; then
         OVERWRITE_START="no"
         info "Keeping existing start.sh"
@@ -202,6 +213,4 @@ echo -e "  2. Enter the credentials above into the Mobile App's settings."
 echo -e "  3. Use your Mac's LAN IP as the server address."
 echo -e ""
 echo -e "  ${YELLOW}Tip:${NC} For cloud relay deployment, use: ${BLUE}./scripts/install_relay.sh${NC}"
-echo -e ""
-NC}"
 echo -e ""
