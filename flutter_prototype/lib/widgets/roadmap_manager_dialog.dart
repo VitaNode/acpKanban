@@ -67,64 +67,173 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
     }
   }
 
-  Future<void> _addMilestone() async {
-    final titleController = TextEditingController();
-    final result = await showDialog<String>(
+  Future<String?> _showInputDialog({
+    required String title,
+    required String label,
+    String? initialValue,
+    String confirmLabel = 'Confirm',
+  }) async {
+    final controller = TextEditingController(text: initialValue ?? '');
+    final focusNode = FocusNode();
+    String? errorText;
+
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(title),
+              content: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: label,
+                  errorText: errorText,
+                ),
+                onChanged: (_) {
+                  if (errorText != null) {
+                    setDialogState(() => errorText = null);
+                  }
+                },
+                onSubmitted: (value) {
+                  if (value.trim().isEmpty) {
+                    setDialogState(() => errorText = 'Title cannot be empty');
+                  } else {
+                    Navigator.pop(ctx, value.trim());
+                  }
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final text = controller.text.trim();
+                    if (text.isEmpty) {
+                      setDialogState(() => errorText = 'Title cannot be empty');
+                    } else {
+                      Navigator.pop(ctx, text);
+                    }
+                  },
+                  child: Text(confirmLabel),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<bool> _showDeleteConfirmation({
+    required String type,
+    required String name,
+  }) async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('New Milestone'),
-        content: TextField(
-          controller: titleController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Milestone Title'),
+        title: Text('Delete $type'),
+        content: Text(
+          'Are you sure you want to delete "$name"?\n\n'
+          'Cards linked to this $type will be unlinked (feature set to empty), '
+          'but will NOT be deleted.',
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, titleController.text),
-            child: const Text('Create'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
+    return result ?? false;
+  }
 
-    if (result != null && result.isNotEmpty) {
+  Future<void> _addMilestone() async {
+    final result = await _showInputDialog(
+      title: 'New Milestone',
+      label: 'Milestone Title',
+      confirmLabel: 'Create',
+    );
+    if (result != null) {
       await ACPClient().createMilestone(widget.projectId, result);
       _loadData();
     }
   }
 
+  Future<void> _editMilestone(ProjectMilestone milestone) async {
+    final result = await _showInputDialog(
+      title: 'Edit Milestone',
+      label: 'Milestone Title',
+      initialValue: milestone.title,
+      confirmLabel: 'Save',
+    );
+    if (result != null && result != milestone.title) {
+      await ACPClient().updateMilestone(milestone.id, title: result);
+      _loadData();
+    }
+  }
+
+  Future<void> _deleteMilestone(ProjectMilestone milestone) async {
+    final confirmed = await _showDeleteConfirmation(
+      type: 'milestone',
+      name: milestone.title,
+    );
+    if (!confirmed) return;
+    await ACPClient().deleteMilestone(milestone.id);
+    setState(() {
+      _selectedMilestone =
+          _selectedMilestone?.id == milestone.id ? null : _selectedMilestone;
+    });
+    _loadData();
+  }
+
   Future<void> _addFeature() async {
     if (_selectedMilestone == null) return;
 
-    final titleController = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('New Feature for ${_selectedMilestone!.title}'),
-        content: TextField(
-          controller: titleController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Feature Title'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, titleController.text),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+    final result = await _showInputDialog(
+      title: 'New Feature for ${_selectedMilestone!.title}',
+      label: 'Feature Title',
+      confirmLabel: 'Create',
     );
-
-    if (result != null && result.isNotEmpty) {
+    if (result != null) {
       await ACPClient().createFeature(_selectedMilestone!.id, result);
       _loadData();
     }
+  }
+
+  Future<void> _editFeature(ProjectFeature feature) async {
+    final result = await _showInputDialog(
+      title: 'Edit Feature',
+      label: 'Feature Title',
+      initialValue: feature.title,
+      confirmLabel: 'Save',
+    );
+    if (result != null && result != feature.title) {
+      await ACPClient().updateFeature(feature.id, title: result);
+      _loadData();
+    }
+  }
+
+  Future<void> _deleteFeature(ProjectFeature feature) async {
+    final confirmed = await _showDeleteConfirmation(
+      type: 'feature',
+      name: feature.title,
+    );
+    if (!confirmed) return;
+    await ACPClient().deleteFeature(feature.id);
+    _loadData();
   }
 
   @override
@@ -176,13 +285,11 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // L1: Milestones
         Expanded(
           flex: 2,
           child: _buildMilestonesColumn(theme, colorScheme),
         ),
         const VerticalDivider(),
-        // L2: Features
         Expanded(
           flex: 3,
           child: _buildFeaturesColumn(theme, colorScheme),
@@ -195,13 +302,11 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // L1: Milestones (Fixed height or flex)
         SizedBox(
           height: 200,
           child: _buildMilestonesColumn(theme, colorScheme),
         ),
         const Divider(),
-        // L2: Features
         Expanded(
           child: _buildFeaturesColumn(theme, colorScheme),
         ),
@@ -245,9 +350,44 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
                 selectedTileColor:
                     colorScheme.primaryContainer.withOpacity(0.3),
                 onTap: () => setState(() => _selectedMilestone = m),
-                trailing: isSelected
-                    ? const Icon(Icons.chevron_right, size: 16)
-                    : null,
+                trailing: PopupMenuButton<String>(
+                  icon: Icon(
+                    Icons.more_vert,
+                    size: 16,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : colorScheme.onSurface.withOpacity(0.5),
+                  ),
+                  onSelected: (action) {
+                    switch (action) {
+                      case 'edit':
+                        _editMilestone(m);
+                      case 'delete':
+                        _deleteMilestone(m);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: ListTile(
+                        leading: Icon(Icons.edit_outlined, size: 18),
+                        title: Text('Edit'),
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: ListTile(
+                        leading:
+                            Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                        title: Text('Delete', style: TextStyle(color: Colors.red)),
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ),
                 dense: true,
                 visualDensity: VisualDensity.compact,
               );
@@ -303,12 +443,39 @@ class _RoadmapManagerDialogState extends State<RoadmapManagerDialog> {
                       subtitle: Text(
                           'Progress: ${f.progress.toStringAsFixed(1)}%',
                           style: const TextStyle(fontSize: 11)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        onPressed: () async {
-                          await ACPClient().deleteFeature(f.id);
-                          _loadData();
+                      trailing: PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert, size: 16,
+                            color: colorScheme.onSurface.withOpacity(0.5)),
+                        onSelected: (action) {
+                          switch (action) {
+                            case 'edit':
+                              _editFeature(f);
+                            case 'delete':
+                              _deleteFeature(f);
+                          }
                         },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: ListTile(
+                              leading: Icon(Icons.edit_outlined, size: 18),
+                              title: Text('Edit'),
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: ListTile(
+                              leading: Icon(Icons.delete_outline, size: 18,
+                                  color: Colors.red),
+                              title: Text('Delete',
+                                  style: TextStyle(color: Colors.red)),
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
                       ),
                       onTap: () {
                         if (widget.onFeatureSelected != null) {

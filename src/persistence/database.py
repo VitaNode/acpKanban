@@ -16,8 +16,12 @@ from src.logger import setup_logger
 logger = setup_logger("KanbanDB")
 
 # Constants for default categories
-UNCATEGORIZED_MILESTONE_TITLE = "未分类任务"
-DEFAULT_FEATURE_TITLE = "默认功能"
+UNCATEGORIZED_MILESTONE_TITLE = "Uncategorized"
+DEFAULT_FEATURE_TITLE = "General"
+
+# Legacy Chinese default titles for migration
+_LEGACY_MILESTONE_TITLE = "未分类任务"
+_LEGACY_FEATURE_TITLE = "默认功能"
 
 def safe_divide(numerator: Union[int, float], denominator: Union[int, float]) -> float:
     """Safely divide two numbers, returning 0.0 if denominator is zero."""
@@ -233,16 +237,16 @@ class MilestoneRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                # Soft delete milestone
-                conn.execute("UPDATE milestones SET deleted_at = ? WHERE id = ?", (now, m_id))
-                # Soft delete related features
-                conn.execute("UPDATE features SET deleted_at = ? WHERE milestone_id = ?", (now, m_id))
-                # Soft delete related cards
+                # Unlink cards from features under this milestone (set feature_id to NULL)
                 conn.execute("""
-                    UPDATE cards SET deleted_at = ? WHERE feature_id IN (
+                    UPDATE cards SET feature_id = NULL WHERE feature_id IN (
                         SELECT id FROM features WHERE milestone_id = ?
                     )
-                """, (now, m_id))
+                """, (m_id,))
+                # Soft delete related features
+                conn.execute("UPDATE features SET deleted_at = ? WHERE milestone_id = ?", (now, m_id))
+                # Soft delete milestone
+                conn.execute("UPDATE milestones SET deleted_at = ? WHERE id = ?", (now, m_id))
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
@@ -283,8 +287,9 @@ class FeatureRepository(BaseRepository):
         with self.db.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                # Unlink cards from this feature (set feature_id to NULL)
+                conn.execute("UPDATE cards SET feature_id = NULL WHERE feature_id = ?", (f_id,))
                 conn.execute("UPDATE features SET deleted_at = ? WHERE id = ?", (now, f_id))
-                conn.execute("UPDATE cards SET deleted_at = ? WHERE feature_id = ?", (now, f_id))
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
@@ -1116,6 +1121,10 @@ class KanbanDB:
                     cursor.execute("INSERT INTO milestones (id, project_id, title, status, created_at) VALUES (?, ?, ?, ?, ?)", (m_id, pid, UNCATEGORIZED_MILESTONE_TITLE, 'active', now))
                     cursor.execute("INSERT INTO features (id, milestone_id, title, status, created_at) VALUES (?, ?, ?, ?, ?)", (f_id, m_id, DEFAULT_FEATURE_TITLE, 'active', now))
                     cursor.execute("UPDATE cards SET feature_id = ? WHERE feature_id IS NULL AND column_id IN (SELECT id FROM columns WHERE project_id = ?)", (f_id, pid))
+
+            # Migrate legacy Chinese default titles to English
+            cursor.execute("UPDATE milestones SET title = ? WHERE title = ?", (UNCATEGORIZED_MILESTONE_TITLE, _LEGACY_MILESTONE_TITLE))
+            cursor.execute("UPDATE features SET title = ? WHERE title = ?", (DEFAULT_FEATURE_TITLE, _LEGACY_FEATURE_TITLE))
 
     # --- API Bridge Methods ---
     def get_projects(self): return self.projects.get_all()
