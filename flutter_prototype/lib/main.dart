@@ -1046,7 +1046,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ),
         StatusSummaryWidget(statuses: _agentStatuses),
         Expanded(
-          child: _currentView == 'board'
+          child: _currentView == 'board' || _currentProject == null
               ? _buildBoardView()
               : ProjectRoadmapView(
                   projectId: _currentProject!.id,
