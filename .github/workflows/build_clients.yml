@@ -175,10 +175,14 @@ jobs:
           </plist>
           EOF
 
+          # Derive version from git tag (e.g., v1.0.1 -> 1.0.1)
+          BUILD_NAME="${GITHUB_REF_NAME#v}"
+          BUILD_NUMBER="$BUILD_NAME"
           cd flutter_prototype
           flutter build ipa --release \
             --export-options-plist=ExportOptions.plist \
-            --build-number 1
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER"
           
           echo "Listing output directory:"
           ls -R build/ios/ipa
