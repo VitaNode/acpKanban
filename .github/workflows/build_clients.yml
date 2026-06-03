@@ -9,11 +9,14 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -23,7 +26,7 @@ jobs:
       - name: Build APK
         run: cd flutter_prototype && flutter build apk --release
       - name: Upload APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: acpKanban-android
           path: flutter_prototype/build/app/outputs/flutter-apk/app-release.apk
@@ -31,7 +34,7 @@ jobs:
   build-macos:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -56,7 +59,7 @@ jobs:
             "acpKanban-macOS.dmg" \
             "build-dmg/"
       - name: Upload DMG
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: acpKanban-macos
           path: acpKanban-macOS.dmg
@@ -64,11 +67,13 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
+          cache: false
+      - name: Clean Flutter pub cache
+        run: flutter pub cache repair
       - name: Install dependencies
         run: cd flutter_prototype && flutter pub get
       - name: Build Windows
@@ -79,7 +84,7 @@ jobs:
         run: |
           Compress-Archive -Path flutter_prototype/build/windows/x64/runner/Release/* -DestinationPath acpKanban-Windows.zip
       - name: Upload Windows Zip
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: acpKanban-windows
           path: acpKanban-Windows.zip
@@ -87,7 +92,7 @@ jobs:
   build-ios:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -187,7 +192,7 @@ jobs:
           echo "Listing output directory:"
           ls -R build/ios/ipa
       - name: Upload IPA
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: acpKanban-ios
           path: flutter_prototype/build/ios/ipa/*.ipa
@@ -246,13 +251,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: List artifacts
         run: ls -R artifacts
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/acpKanban-android/app-release.apk
