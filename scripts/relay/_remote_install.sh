@@ -60,14 +60,12 @@ if [ "$USE_SYSTEMD" = "yes" ]; then
 
     # 创建专用用户（安全考量）
     if ! id -u acpkanban-relay &>/dev/null; then
-        useradd --system --no-create-home --shell /usr/sbin/nologin acpkanban-relay
+        useradd --system --no-create-home --user-group --shell /usr/sbin/nologin acpkanban-relay
     fi
-    chown -R acpkanban-relay:nogroup "$INSTALL_DIR"
+    local RELAY_GROUP
+    RELAY_GROUP=$(id -gn acpkanban-relay 2>/dev/null || echo "nogroup")
+    chown -R "acpkanban-relay:$RELAY_GROUP" "$INSTALL_DIR"
     chmod 750 "$INSTALL_DIR"
-
-    # 修改 service 文件中的 User
-    sed -i 's/User=nobody/User=acpkanban-relay/' /etc/systemd/system/acpkanban-relay.service
-    sed -i 's/Group=nogroup/Group=nogroup/' /etc/systemd/system/acpkanban-relay.service
 
     systemctl daemon-reload
     systemctl enable acpkanban-relay

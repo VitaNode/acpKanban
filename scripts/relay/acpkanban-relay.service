@@ -5,8 +5,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=nobody
-Group=nogroup
+User=acpkanban-relay
+Group=acpkanban-relay
 WorkingDirectory=/opt/acpkanban-relay
 EnvironmentFile=/opt/acpkanban-relay/.env
 ExecStart=/opt/acpkanban-relay/.venv/bin/python3 relay_server.py

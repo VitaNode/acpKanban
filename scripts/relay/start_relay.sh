@@ -22,7 +22,7 @@ fi
 
 # 启动 relay（nohup 后台运行）
 echo "[*] Starting acpKanban Relay Server..."
-nohup ./.venv/bin/python3 -m src.transport.relay_server >> "$LOG_FILE" 2>&1 &
+nohup ./.venv/bin/python3 relay_server.py >> "$LOG_FILE" 2>&1 &
 RELAY_PID=$!
 echo "$RELAY_PID" > "$PID_FILE"
 
