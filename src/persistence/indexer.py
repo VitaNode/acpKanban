@@ -43,7 +43,13 @@ class TreeSitterParser:
         if not self.parser: return []
         
         try:
-            tree = self.parser.parse(bytes(code, "utf8"))
+            try:
+                tree = self.parser.parse(bytes(code, "utf8"))
+            except TypeError as te:
+                if "bytes" in str(te).lower() or "str" in str(te).lower():
+                    tree = self.parser.parse(code)
+                else:
+                    raise te
             symbols = []
             code_lines = code.splitlines()
             self._walk_node(tree.root_node, symbols, code_lines)
