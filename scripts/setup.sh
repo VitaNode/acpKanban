@@ -81,7 +81,14 @@ if ! check_python_version "$PYTHON_CMD"; then
     if [ "$OS" = "Darwin" ] && command -v brew &>/dev/null; then
         info "Attempting to install Python 3.12 via Homebrew..."
         brew install python@3.12
-        PYTHON_CMD="$(brew --prefix python@3.12)/bin/python3"
+        BREW_PREFIX="$(brew --prefix python@3.12)"
+        if [ -x "${BREW_PREFIX}/bin/python3.12" ]; then
+            PYTHON_CMD="${BREW_PREFIX}/bin/python3.12"
+        elif [ -x "${BREW_PREFIX}/libexec/bin/python3" ]; then
+            PYTHON_CMD="${BREW_PREFIX}/libexec/bin/python3"
+        else
+            PYTHON_CMD="python3.12"   # fallback: 依赖 PATH
+        fi
     fi
 
     if ! check_python_version "$PYTHON_CMD"; then
