@@ -511,6 +511,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             if (_currentProject != null) await _switchProject(_currentProject!);
           }
         }
+        _refreshFunnelState();
       }
     } catch (e) {
       AppLogger.error('Load projects error', e);
@@ -535,6 +536,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           _cards = allCards..sort((a, b) => a.position.compareTo(b.position));
         });
         await _loadTimeline(projectId);
+        _refreshFunnelState();
       }
     } catch (e) {
       AppLogger.error('Load project data error', e);

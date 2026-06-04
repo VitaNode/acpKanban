@@ -182,13 +182,14 @@ class CodeIndexer:
         if not parser: return
 
         try:
-            # Use thread for IO
-            def read_and_parse():
+            # Use thread for IO only
+            def read_file():
                 with open(abs_path, "r", encoding="utf-8") as f:
-                    code = f.read()
-                return parser.parse(code, rel_path), len(code)
+                    return f.read()
             
-            symbols, f_size = await asyncio.to_thread(read_and_parse)
+            code = await asyncio.to_thread(read_file)
+            symbols = parser.parse(code, rel_path)
+            f_size = len(code)
             
             # Use provided hash or compute if missing
             actual_hash = f_hash or compute_file_hash(abs_path)
