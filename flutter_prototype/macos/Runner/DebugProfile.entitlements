@@ -14,5 +14,7 @@
 	<true/>	
 	<key>com.apple.security.network.multicast</key>
 	<true/>
+	<key>com.apple.security.get-task-allow</key>
+	<true/>
 </dict>
 </plist>

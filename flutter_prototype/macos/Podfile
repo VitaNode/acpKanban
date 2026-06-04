@@ -40,7 +40,7 @@ post_install do |installer|
     flutter_additional_macos_build_settings(target)
     if target.name == 'audioplayers_darwin'
       target.build_configurations.each do |config|
-        config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+        config.build_settings['OTHER_SWIFT_FLAGS'] = '$(inherited) -suppress-warnings'
       end
     end
   end
