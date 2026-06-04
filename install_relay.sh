@@ -83,7 +83,7 @@ gather_config() {
 
     # Relay Port
     while true; do
-        read -rp "Relay Port [8766]: " PORT_INPUT
+        read -rp "Relay Port [8766]: " PORT_INPUT </dev/tty
         RELAY_PORT="${PORT_INPUT:-8766}"
         if [[ "$RELAY_PORT" =~ ^[0-9]+$ ]] && [ "$RELAY_PORT" -ge 1 ] && [ "$RELAY_PORT" -le 65535 ]; then
             break
@@ -95,7 +95,7 @@ gather_config() {
     if [ -z "$RELAY_TOKEN" ]; then
         echo ""
         info "Enter the relay token (leave empty to fill in manually after install)"
-        read -rp "Relay Token: " RELAY_TOKEN
+        read -rp "Relay Token: " RELAY_TOKEN </dev/tty
     fi
 
     # Service mode
@@ -103,7 +103,7 @@ gather_config() {
     echo "How should the relay run?"
     echo "  1) systemd service (recommended) - auto-restart, persistent"
     echo "  2) nohup background - simple, manual management"
-    read -rp "Choose [1/2]: " MODE_CHOICE
+    read -rp "Choose [1/2]: " MODE_CHOICE </dev/tty
     if [ "$MODE_CHOICE" = "2" ]; then
         SERVICE_MODE="nohup"
     else
@@ -114,7 +114,7 @@ gather_config() {
     if [ "$SERVICE_MODE" = "systemd" ]; then
         echo ""
         echo "Enable auto-start on boot?"
-        read -rp "Enable auto-start? [Y/n]: " AUTO_CHOICE
+        read -rp "Enable auto-start? [Y/n]: " AUTO_CHOICE </dev/tty
         if [[ "$AUTO_CHOICE" =~ ^[Nn] ]]; then
             ENABLE_AUTO_START="no"
         else
@@ -140,7 +140,7 @@ gather_config() {
         echo "  Auto-start:  $ENABLE_AUTO_START"
     fi
     echo ""
-    read -rp "Proceed with installation? [Y/n]: " CONFIRM
+    read -rp "Proceed with installation? [Y/n]: " CONFIRM </dev/tty
     if [[ "$CONFIRM" =~ ^[Nn] ]]; then
         err "Installation cancelled."
         exit 0
@@ -327,7 +327,7 @@ UNIT
 
     if [ -n "$RELAY_TOKEN" ]; then
         echo ""
-        read -rp "Start the relay now? [Y/n]: " START_NOW
+        read -rp "Start the relay now? [Y/n]: " START_NOW </dev/tty
         if [[ ! "$START_NOW" =~ ^[Nn] ]]; then
             systemctl start acpkanban-relay
             sleep 2
