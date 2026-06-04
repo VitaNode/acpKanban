@@ -246,7 +246,7 @@ acpkanban/
 
 **macOS / Linux：**
 ```bash
-curl -fsSL https://github.com/VitaNode/acpKanban/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/VitaNode/acpKanban/main/install.sh | bash
 ```
 
 **Windows：**
