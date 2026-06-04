@@ -38,12 +38,7 @@ case "$OS" in
             echo "  Then re-run this script."
             exit 1
         fi
-        if ! command -v python3 &>/dev/null; then
-            warn "Python 3 not found. Install via:"
-            echo "  brew install python"
-            echo "  Or download from https://www.python.org/downloads/"
-            exit 1
-        fi
+        # python3 检查延迟到第 2 步，由 uv 兜底
         ;;
     Linux)
         if command -v apt-get &>/dev/null; then
@@ -64,45 +59,34 @@ case "$OS" in
 esac
 
 # ──────────────────────────────────────────────
-#  2. Python Check (3.10+)
+#  2. Python Check (3.10+) & uv bootstrap
 # ──────────────────────────────────────────────
 PYTHON_CMD="python3"
+USE_UV=false
 
 check_python_version() {
     command -v "$1" &>/dev/null || return 1
     local minor
     minor=$("$1" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null)
-    [ "$minor" -ge 10 ] 2>/dev/null
+    [ "${minor:-0}" -ge 10 ]
 }
 
 if ! check_python_version "$PYTHON_CMD"; then
     warn "Python 3.10+ required, found: $(python3 --version 2>/dev/null || echo 'none')"
+    info "Will use 'uv' to manage Python locally ..."
 
-    if [ "$OS" = "Darwin" ] && command -v brew &>/dev/null; then
-        info "Attempting to install Python 3.12 via Homebrew..."
-        brew install python@3.12
-        BREW_PREFIX="$(brew --prefix python@3.12)"
-        if [ -x "${BREW_PREFIX}/bin/python3.12" ]; then
-            PYTHON_CMD="${BREW_PREFIX}/bin/python3.12"
-        elif [ -x "${BREW_PREFIX}/libexec/bin/python3" ]; then
-            PYTHON_CMD="${BREW_PREFIX}/libexec/bin/python3"
-        else
-            PYTHON_CMD="python3.12"   # fallback: 依赖 PATH
-        fi
+    if ! command -v uv &>/dev/null; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
     fi
 
-    if ! check_python_version "$PYTHON_CMD"; then
-        err "Could not find or install Python 3.10+."
-        echo ""
-        echo "  Please install manually:"
-        echo "    brew install python@3.12"
-        echo "    Or: https://www.python.org/downloads/"
-        echo ""
-        echo "  Then re-run: bash scripts/setup.sh"
+    if ! command -v uv &>/dev/null; then
+        err "Failed to install 'uv'. Please install Python 3.10+ manually."
         exit 1
     fi
 
-    ok "Using $(${PYTHON_CMD} --version)"
+    USE_UV=true
+    ok "uv is available: $(uv --version)"
 fi
 
 # ──────────────────────────────────────────────
@@ -110,7 +94,11 @@ fi
 # ──────────────────────────────────────────────
 if [ ! -d ".venv" ]; then
     info "Creating virtual environment..."
-    $PYTHON_CMD -m venv .venv
+    if [ "$USE_UV" = true ]; then
+        uv venv --python 3.12 .venv
+    else
+        $PYTHON_CMD -m venv .venv
+    fi
 else
     info "Virtual environment already exists."
 fi
