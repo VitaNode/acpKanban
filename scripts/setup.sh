@@ -95,7 +95,7 @@ fi
 if [ ! -d ".venv" ]; then
     info "Creating virtual environment..."
     if [ "$USE_UV" = true ]; then
-        uv venv --python 3.12 .venv
+        uv venv --python 3.12 --seed .venv
     else
         $PYTHON_CMD -m venv .venv
     fi
