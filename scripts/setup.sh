@@ -66,25 +66,44 @@ esac
 # ──────────────────────────────────────────────
 #  2. Python Check (3.10+)
 # ──────────────────────────────────────────────
-if ! command -v python3 &> /dev/null; then
-    err "Python 3 is not installed. Please install Python 3.10+ first."
-    exit 1
-fi
+PYTHON_CMD="python3"
 
-PYTHON_VERSION=$(python3 --version)
-PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo "0")
-if [ "$PYTHON_MINOR" -lt 10 ]; then
-    err "Python 3.10+ required, found ${PYTHON_VERSION}"
-    exit 1
+check_python_version() {
+    command -v "$1" &>/dev/null || return 1
+    local minor
+    minor=$("$1" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null)
+    [ "$minor" -ge 10 ] 2>/dev/null
+}
+
+if ! check_python_version "$PYTHON_CMD"; then
+    warn "Python 3.10+ required, found: $(python3 --version 2>/dev/null || echo 'none')"
+
+    if [ "$OS" = "Darwin" ] && command -v brew &>/dev/null; then
+        info "Attempting to install Python 3.12 via Homebrew..."
+        brew install python@3.12
+        PYTHON_CMD="$(brew --prefix python@3.12)/bin/python3"
+    fi
+
+    if ! check_python_version "$PYTHON_CMD"; then
+        err "Could not find or install Python 3.10+."
+        echo ""
+        echo "  Please install manually:"
+        echo "    brew install python@3.12"
+        echo "    Or: https://www.python.org/downloads/"
+        echo ""
+        echo "  Then re-run: bash scripts/setup.sh"
+        exit 1
+    fi
+
+    ok "Using $(${PYTHON_CMD} --version)"
 fi
-info "Using ${PYTHON_VERSION}"
 
 # ──────────────────────────────────────────────
 #  3. Virtual Environment
 # ──────────────────────────────────────────────
 if [ ! -d ".venv" ]; then
     info "Creating virtual environment..."
-    python3 -m venv .venv
+    $PYTHON_CMD -m venv .venv
 else
     info "Virtual environment already exists."
 fi
