@@ -1,9 +1,9 @@
 #!/bin/bash
 # acpKanban Relay - 服务器本地一键安装脚本
 # 使用方式:
-#   curl -fsSL https://raw.githubusercontent.com/VitaNode/acpKanban/main/install_relay.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/VitaNode/acpKanban/main/install_relay.sh | bash -s -- --token mytoken
-#   bash install_relay.sh --token mytoken
+#   curl -fsSL https://raw.githubusercontent.com/VitaNode/acpKanban/main/install_relay.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/VitaNode/acpKanban/main/install_relay.sh | sudo bash -s -- --token mytoken
+#   sudo bash install_relay.sh --token mytoken
 #
 # 适用场景: 仅支持 Web 终端（如服务器管理后台），无法 SSH 直连的环境
 # 功能:
@@ -47,19 +47,18 @@ trap cleanup EXIT
 pkg_install() {
     local pkg_apt="$1" pkg_yum="$2" pkg_apk="$3" pkg_zypper="$4" pkg_pacman="$5"
     if command -v apt-get &>/dev/null; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkg_apt
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkg_apt || return 1
     elif command -v yum &>/dev/null; then
-        yum install -y -q $pkg_yum
+        yum install -y -q $pkg_yum || return 1
     elif command -v apk &>/dev/null; then
-        apk add --no-cache $pkg_apk
+        apk add --no-cache $pkg_apk || return 1
     elif command -v zypper &>/dev/null; then
-        zypper install -y $pkg_zypper
+        zypper install -y $pkg_zypper || return 1
     elif command -v pacman &>/dev/null; then
-        pacman -S --noconfirm $pkg_pacman
+        pacman -S --noconfirm $pkg_pacman || return 1
     else
         return 1
     fi
-    return 0
 }
 
 pkg_update() {
@@ -159,7 +158,7 @@ check_prereqs() {
             exit 1
         fi
     fi
-    ok "$(python3 --version)"
+    ok "$(python3 --version 2>/dev/null || echo 'Python 3 installed')"
 
     if ! command -v git &>/dev/null; then
         info "Installing git..."
@@ -168,7 +167,7 @@ check_prereqs() {
             exit 1
         fi
     fi
-    ok "Git: $(git --version)"
+    ok "Git: $(git --version 2>/dev/null || echo 'installed')"
 }
 
 # ──────────────────────────────────────────────
@@ -375,6 +374,16 @@ main() {
     echo -e "${BLUE}║  acpKanban Relay - Local Installer     ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
     echo ""
+
+    if [ "$(id -u)" -ne 0 ]; then
+        err "This script must be run as root (or with sudo)."
+        echo ""
+        echo "  Please re-run:"
+        echo "    sudo bash install_relay.sh"
+        echo "    (or pipe via curl: curl -fsSL ... | sudo bash)"
+        echo ""
+        exit 1
+    fi
 
     parse_args "$@"
     gather_config
