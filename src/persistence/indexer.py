@@ -52,16 +52,54 @@ class TreeSitterParser:
                     raise te
             symbols = []
             code_lines = code.splitlines()
+            code_bytes = bytes(code, "utf8")
             root = tree.root_node() if callable(tree.root_node) else tree.root_node
-            self._walk_node(root, symbols, code_lines)
+            self._walk_node(root, symbols, code_lines, code_bytes)
             return symbols
         except Exception as e:
             logger.error(f"Tree-sitter parse error in {file_path}: {e}")
             return []
 
-    def _walk_node(self, node: tree_sitter.Node, symbols: List[Dict], lines: List[str]):
+    def _walk_node(self, node: tree_sitter.Node, symbols: List[Dict], lines: List[str], code_bytes: bytes):
         """Recursively walk the tree to find symbol-like nodes."""
-        node_type = node.type
+        def get_type(n):
+            if hasattr(n, 'type'): return n.type
+            if hasattr(n, 'kind'): return n.kind() if callable(n.kind) else n.kind
+            return ""
+        
+        def get_children(n):
+            if hasattr(n, 'children'): return n.children
+            if hasattr(n, 'child_count'):
+                count = n.child_count() if callable(n.child_count) else n.child_count
+                return [n.child(i) for i in range(count)]
+            return []
+            
+        def get_child_by_field_name(n, name):
+            if hasattr(n, 'child_by_field_name'):
+                res = n.child_by_field_name(name)
+                return res() if callable(res) else res
+            return None
+            
+        def get_point(n, attr, pos_attr):
+            if hasattr(n, attr):
+                pt = getattr(n, attr)
+                return pt() if callable(pt) else pt
+            if hasattr(n, pos_attr):
+                pt = getattr(n, pos_attr)
+                return pt() if callable(pt) else pt
+            return (0, 0)
+            
+        def get_text(n):
+            if hasattr(n, 'text'):
+                txt = n.text() if callable(n.text) else n.text
+                return txt.decode("utf8") if isinstance(txt, bytes) else str(txt)
+            if hasattr(n, 'start_byte') and hasattr(n, 'end_byte'):
+                sb = n.start_byte() if callable(n.start_byte) else n.start_byte
+                eb = n.end_byte() if callable(n.end_byte) else n.end_byte
+                return code_bytes[sb:eb].decode("utf8", errors="replace")
+            return ""
+
+        node_type = get_type(node)
         sym_type = ""
         
         if node_type in self.rules.get("class", set()):
@@ -70,33 +108,37 @@ class TreeSitterParser:
             sym_type = "function"
 
         if sym_type:
-            # Robust name extraction
             name = "unknown"
-            name_node = node.child_by_field_name("name")
+            name_node = get_child_by_field_name(node, "name")
             if not name_node:
-                for child in node.children:
-                    if "identifier" in child.type:
+                for child in get_children(node):
+                    if "identifier" in get_type(child):
                         name_node = child
                         break
             
             if name_node:
                 try:
-                    name = name_node.text.decode("utf8")
+                    name = get_text(name_node)
                 except Exception: pass
 
             if len(name) > 1:
+                start_pt = get_point(node, "start_point", "start_position")
+                end_pt = get_point(node, "end_point", "end_position")
+                start_row = start_pt[0] if hasattr(start_pt, '__getitem__') else getattr(start_pt, 'row', 0)
+                end_row = end_pt[0] if hasattr(end_pt, '__getitem__') else getattr(end_pt, 'row', 0)
+                
                 symbols.append({
                     "symbol_name": name,
                     "symbol_type": sym_type,
-                    "signature": lines[node.start_point[0]].strip() if node.start_point[0] < len(lines) else "",
-                    "start_line": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
+                    "signature": lines[start_row].strip() if start_row < len(lines) else "",
+                    "start_line": start_row + 1,
+                    "end_line": end_row + 1,
                     "documentation": "",
-                    "code_content": node.text.decode("utf8") if hasattr(node, 'text') else ""
+                    "code_content": get_text(node)
                 })
 
-        for child in node.children:
-            self._walk_node(child, symbols, lines)
+        for child in get_children(node):
+            self._walk_node(child, symbols, lines, code_bytes)
 
 class CodeIndexer:
     """Unified Indexer using Tree-sitter Walking and Incremental Logic."""
