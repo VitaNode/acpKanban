@@ -158,8 +158,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _funnelState = AppFunnelState.connectedNoProjects;
       } else if (_columns.isEmpty) {
         _funnelState = AppFunnelState.projectSelectedNoColumns;
-      } else if (_cards.isEmpty) {
-        _funnelState = AppFunnelState.columnsNoCards;
       } else {
         _funnelState = AppFunnelState.ready;
       }
