@@ -107,8 +107,12 @@ fi
 #  4. Install Dependencies
 # ──────────────────────────────────────────────
 info "Installing dependencies (this may take a while)..."
-./.venv/bin/pip install --quiet --upgrade pip
-./.venv/bin/pip install --quiet -r requirements.txt
+if [ "$USE_UV" = true ]; then
+    uv pip install --quiet -r requirements.txt
+else
+    ./.venv/bin/pip install --quiet --upgrade pip
+    ./.venv/bin/pip install --quiet -r requirements.txt
+fi
 
 # 验证 tree-sitter / sqlite-vec 原生编译是否成功
 ./.venv/bin/python3 -c "import tree_sitter; print('tree_sitter: ok')" 2>/dev/null || \
