@@ -272,6 +272,19 @@ async def create_project(request: ProjectCreateRequest, background_tasks: Backgr
         if request.workspace_path:
             await index_task_manager.start_task(project_id, request.workspace_path)
 
+        # Notify all connected clients about the new project
+        bus.publish(f"project:{project_id}", {
+            "type": "project_created",
+            "project_id": project_id,
+            "data": {
+                "id": project["id"],
+                "name": project["name"],
+                "workspace_path": project.get("workspace_path"),
+                "card_count": 0,
+                "index_status": project.get("index_status", "idle"),
+            }
+        })
+
         return ProjectResponse(
             id=project["id"],
             name=project["name"],

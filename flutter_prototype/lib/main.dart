@@ -716,6 +716,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _currentProject = project;
       });
       await _switchProject(project);
+      // Refresh project list from server after creation to ensure UI
+      // consistency, covering cases where switchToProject fails silently
+      // (e.g., proxy/connection issues on new setups)
+      if (mounted) {
+        final projects = await _projectService.getProjects();
+        if (mounted) {
+          setState(() {
+            _projects = projects;
+          });
+        }
+      }
     }
   }
 
