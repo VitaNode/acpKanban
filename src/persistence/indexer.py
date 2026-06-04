@@ -52,7 +52,8 @@ class TreeSitterParser:
                     raise te
             symbols = []
             code_lines = code.splitlines()
-            self._walk_node(tree.root_node, symbols, code_lines)
+            root = tree.root_node() if callable(tree.root_node) else tree.root_node
+            self._walk_node(root, symbols, code_lines)
             return symbols
         except Exception as e:
             logger.error(f"Tree-sitter parse error in {file_path}: {e}")

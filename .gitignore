@@ -1,11 +1,13 @@
 .env
 .venv/
+venv/
 __pycache__/
 *.pyc
 .DS_Store
-*.log
 .ruff_cache/
 .ignore
+
+*.log
 
 *.db
 *.db-shm
@@ -15,6 +17,7 @@ __pycache__/
 .qwen/
 .antigravitycli/
 .vscode/
+
 docs/
 conductor/
 config.json
