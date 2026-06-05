@@ -8,7 +8,7 @@ Future<WebSocketChannel?> connectWebSocket(String url, String? token) async {
     final headers =
         token != null ? {'Authorization': 'Bearer $token'} : <String, String>{};
     final channel = IOWebSocketChannel.connect(uri, headers: headers);
-    await channel.ready.timeout(const Duration(seconds: 3));
+    await channel.ready.timeout(const Duration(seconds: 10));
     return channel;
   } catch (e) {
     print('[SmartConnect] Connection failed: $e');

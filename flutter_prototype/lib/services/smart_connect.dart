@@ -91,11 +91,15 @@ class SmartConnect {
           print('[SmartConnect] Attempting Local (mDNS): $localUrl');
           final channel = await _tryConnect(localUrl, token);
           if (channel != null) {
+            print('[SmartConnect] Local (mDNS) connection established: $localUrl');
             return SmartConnectResult(channel, ConnectionPath.local, localUrl);
           }
+          print('[SmartConnect] Local (mDNS) connection failed (returned null): $localUrl');
+        } else {
+          print('[SmartConnect] No local Mac discovered via mDNS');
         }
       } catch (e) {
-        print('[SmartConnect] mDNS scan failed: $e');
+        print('[SmartConnect] mDNS scan or connection failed: $e');
       }
     }
 
@@ -104,8 +108,10 @@ class SmartConnect {
       print('[SmartConnect] Attempting Local (manual): $localUrl');
       final channel = await _tryConnect(localUrl, token);
       if (channel != null) {
+        print('[SmartConnect] Local (manual) connection established: $localUrl');
         return SmartConnectResult(channel, ConnectionPath.local, localUrl);
       }
+      print('[SmartConnect] Local (manual) connection failed: $localUrl');
     }
 
     throw Exception('Local connection failed. Check if Mac Bridge is running.');
@@ -117,9 +123,15 @@ class SmartConnect {
     String? token,
   ) async {
     print('[SmartConnect] Attempting $path: $url');
-    final channel = await _tryConnect(url, token);
-    if (channel != null) {
-      return SmartConnectResult(channel, path, url);
+    try {
+      final channel = await _tryConnect(url, token);
+      if (channel != null) {
+        print('[SmartConnect] $path connection established: $url');
+        return SmartConnectResult(channel, path, url);
+      }
+      print('[SmartConnect] $path connection failed (returned null): $url');
+    } catch (e) {
+      print('[SmartConnect] $path connection error: $e');
     }
     throw Exception('$path connection failed. Check network and settings.');
   }

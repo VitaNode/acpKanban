@@ -126,13 +126,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
     _resumeDebounceTimer?.cancel();
-    _resumeDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
+    // Increase debounce to 800ms to allow mobile network to stabilize after resume
+    _resumeDebounceTimer = Timer(const Duration(milliseconds: 800), () async {
       try {
+        AppLogger.info('[Lifecycle] App resumed, triggering recovery');
         await _recoverConnectionOnResume().timeout(_resumeRecoveryTimeout);
       } catch (e) {
         if (e is TimeoutException) {
           _resumeRecoverFailCount += 1;
-          AppLogger.warning('[Lifecycle] Recovery timeout');
+          AppLogger.warning('[Lifecycle] Recovery timeout after $_resumeRecoveryTimeout');
+        } else {
+          AppLogger.error('[Lifecycle] Recovery error: $e');
         }
       }
     });
