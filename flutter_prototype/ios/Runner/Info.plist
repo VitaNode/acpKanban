@@ -9,7 +9,7 @@
 	<key>MinimumOSVersion</key>
 	<string>13.0</string>	
 	<key>CFBundleDisplayName</key>
-	<string>Kanban App</string>
+	<string>acpKanban</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
