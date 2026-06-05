@@ -58,6 +58,13 @@ class RelayServer:
         expected = f"Bearer {self.token}"
         if self.token and auth_header != expected and query_token != self.token:
             logger.warning(f"Handshake Auth failed for path: {path} from {remote_addr}")
+            
+            # websockets 14.0+ (asyncio) expects a Response object, not a tuple
+            if hasattr(websocket, "respond"):
+                from http import HTTPStatus
+                return websocket.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
+            
+            # Legacy fallback for older websockets versions
             return (401, [("Content-Type", "text/plain")], b"Unauthorized\n")
         
         return None
