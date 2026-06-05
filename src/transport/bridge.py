@@ -287,7 +287,11 @@ class UnifiedBridge:
         if self.token: headers["Authorization"] = f"Bearer {self.token}"
 
         # Build full relay URL: ws://host:port/relay/mac/user_id
+        # Intelligently handle scheme
         base_url = url.rstrip("/")
+        if not (base_url.startswith("ws://") or base_url.startswith("wss://")):
+            base_url = f"ws://{base_url}"
+            
         full_url = f"{base_url}/relay/mac/{self.user_id}"
 
         self.logger.info(f"Attempting to connect to Relay: {full_url}")

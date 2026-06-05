@@ -24,6 +24,7 @@ class SmartConnect {
   static Future<SmartConnectResult> connect({
     required ConnectionMode mode,
     String? localIp,
+    int localPort = 8766,
     bool useMdns = true,
     String? relayHost,
     int relayPort = 8766,
@@ -35,15 +36,18 @@ class SmartConnect {
     // to tunnel through the Bridge for security (since API is on 127.0.0.1).
 
     String? targetHost;
+    int targetPort;
     ConnectionPath path;
 
     switch (mode) {
       case ConnectionMode.local:
         targetHost = localIp ?? 'localhost';
+        targetPort = localPort;
         path = ConnectionPath.local;
         break;
       case ConnectionMode.relay:
         targetHost = relayHost;
+        targetPort = relayPort;
         path = ConnectionPath.relay;
         break;
       case ConnectionMode.cloud:
@@ -58,9 +62,9 @@ class SmartConnect {
       // If targetHost already has a scheme, don't add ws://
       String relayUrl;
       if (targetHost.startsWith('ws://') || targetHost.startsWith('wss://')) {
-        relayUrl = '$targetHost:$relayPort/relay/app/$userId';
+        relayUrl = '$targetHost:$targetPort/relay/app/$userId';
       } else {
-        relayUrl = 'ws://$targetHost:$relayPort/relay/app/$userId';
+        relayUrl = 'ws://$targetHost:$targetPort/relay/app/$userId';
       }
 
       print('[SmartConnect] Attempting Bridge Tunnel ($mode): $relayUrl');
@@ -70,7 +74,10 @@ class SmartConnect {
     // Fallback/Legacy logic if userId is missing
     if (mode == ConnectionMode.local) {
       return _connectLocal(
-          localIp: localIp, useMdns: useMdns, token: relayToken);
+          localIp: localIp,
+          localPort: localPort,
+          useMdns: useMdns,
+          token: relayToken);
     }
 
     throw Exception('Connection failed. Missing userId or target host.');
@@ -78,6 +85,7 @@ class SmartConnect {
 
   static Future<SmartConnectResult> _connectLocal({
     String? localIp,
+    int localPort = 8766,
     bool useMdns = true,
     String? token,
   }) async {
@@ -94,7 +102,7 @@ class SmartConnect {
         );
 
         if (discoveredIp != null) {
-          final localUrl = "ws://$discoveredIp:8766";
+          final localUrl = "ws://$discoveredIp:$localPort";
           print('[SmartConnect] Attempting Local (mDNS): $localUrl');
           final channel = await _tryConnect(localUrl, token);
           if (channel != null) {
@@ -111,7 +119,7 @@ class SmartConnect {
     }
 
     if (localIp != null) {
-      final localUrl = "ws://$localIp:8766";
+      final localUrl = "ws://$localIp:$localPort";
       print('[SmartConnect] Attempting Local (manual): $localUrl');
       final channel = await _tryConnect(localUrl, token);
       if (channel != null) {
