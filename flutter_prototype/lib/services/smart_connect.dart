@@ -55,7 +55,14 @@ class SmartConnect {
 
     if (userId != null && targetHost != null) {
       // Use Relay/Bridge Tunnel protocol
-      final relayUrl = 'ws://$targetHost:$relayPort/relay/app/$userId';
+      // If targetHost already has a scheme, don't add ws://
+      String relayUrl;
+      if (targetHost.startsWith('ws://') || targetHost.startsWith('wss://')) {
+        relayUrl = '$targetHost:$relayPort/relay/app/$userId';
+      } else {
+        relayUrl = 'ws://$targetHost:$relayPort/relay/app/$userId';
+      }
+
       print('[SmartConnect] Attempting Bridge Tunnel ($mode): $relayUrl');
       return _connectStrict(relayUrl, path, relayToken);
     }

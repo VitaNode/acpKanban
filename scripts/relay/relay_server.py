@@ -53,7 +53,7 @@ class RelayServer:
             logger.warning("RELAY_TOKEN not set! Relay will be unauthorized.")
 
     async def process_request(self, websocket, request):
-        """Intercept unauthorized requests during handshake."""
+        """Intercept unauthorized requests during handshake and handle plain HTTP."""
         path = request.path
         headers = request.headers
         
@@ -62,6 +62,14 @@ class RelayServer:
         raw_addr = getattr(websocket, "remote_address", "unknown")
         remote_ip = raw_addr[0] if isinstance(raw_addr, tuple) else raw_addr
         remote_addr = headers.get("X-Forwarded-For", remote_ip)
+
+        # 0. Handle plain HTTP requests (e.g., health checks, browser probes)
+        if "Upgrade" not in headers or headers.get("Upgrade", "").lower() != "websocket":
+            logger.info(f"Plain HTTP request: {path} from {remote_addr}")
+            if hasattr(websocket, "respond"):
+                from http import HTTPStatus
+                return websocket.respond(HTTPStatus.OK, "acpKanban Relay Server Online\n")
+            return (200, [("Content-Type", "text/plain")], b"acpKanban Relay Server Online\n")
         
         # 1. Try Authorization Header
         auth_header = headers.get("Authorization")
