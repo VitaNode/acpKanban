@@ -53,9 +53,19 @@ class UnifiedBridge:
         """Starts both local and relay servers."""
         self.logger.info(f"Bridge starting for user {self.user_id}...")
 
-        # 1. Start Relay Connection (if URL provided)
+        # 1. Start Relay Connections (Support multiple relays for 'Dual-Standby')
+        # We can connect to both a local relay and a remote relay
+        relays_to_connect = []
         if self.relay_url:
-            asyncio.create_task(self._run_relay_loop())
+            relays_to_connect.append(self.relay_url)
+        
+        # Check if there's an additional relay URL in env (e.g. cloud relay vs local relay)
+        extra_relay = os.getenv("EXTRA_RELAY_URL")
+        if extra_relay and extra_relay != self.relay_url:
+            relays_to_connect.append(extra_relay)
+
+        for url in relays_to_connect:
+            asyncio.create_task(self._run_relay_loop(url))
 
         # 2. Start Local WebSocket Server (port 8766) for direct tool access
         from src.config.manager import config
@@ -272,13 +282,15 @@ class UnifiedBridge:
         future = websocket.send(json.dumps(data))
         asyncio.ensure_future(future)
 
-    async def _run_relay_loop(self):
+    async def _run_relay_loop(self, url):
         headers = {"X-User-ID": self.user_id}
         if self.token: headers["Authorization"] = f"Bearer {self.token}"
 
         # Build full relay URL: ws://host:port/relay/mac/user_id
-        base_url = self.relay_url.rstrip("/")
+        base_url = url.rstrip("/")
         full_url = f"{base_url}/relay/mac/{self.user_id}"
+
+        self.logger.info(f"Attempting to connect to Relay: {full_url}")
 
         @with_retry(retries=999999, delay=5.0, backoff=1.2, exceptions=(Exception,))
         async def _connect_and_run():
@@ -287,19 +299,24 @@ class UnifiedBridge:
             # Fallback for older versions
             try:
                 async with websockets.connect(full_url, **connect_kwargs) as ws:
-                    await self._handle_relay_connection(ws)
+                    await self._handle_relay_connection(ws, url)
             except TypeError:
                 # Old version fallback
                 connect_kwargs = {"extra_headers": headers}
                 async with websockets.connect(full_url, **connect_kwargs) as ws:
-                    await self._handle_relay_connection(ws)
+                    await self._handle_relay_connection(ws, url)
 
         await _connect_and_run()
 
-    async def _handle_relay_connection(self, ws):
+    async def _handle_relay_connection(self, ws, base_url):
         """Handle an established relay connection."""
-        self.logger.info("Connected to Relay Server")
+        self.logger.info(f"Connected to Relay Server: {base_url}")
         
+        # Store E2EE secret per connection if needed
+        # For simplicity, if they share the same userId/token, they might share the secret,
+        # but it's safer to track them. Currently UnifiedBridge uses _relay_e2ee_secret.
+        # We'll stick to one for now as E2EE is usually per-user.
+
         async def relay_send(msg_dict):
             # If we have an established secret, wrap in E2EE envelope
             secret = getattr(self, "_relay_e2ee_secret", None)
@@ -320,13 +337,16 @@ class UnifiedBridge:
             else:
                 await ws.send(json.dumps(msg_dict))
 
-        async for message in ws:
-            try:
-                data = json.loads(message)
-                # handle_rpc will now handle decryption and dispatching
-                await self.handle_rpc(data, relay_send)
-            except Exception as e:
-                self.logger.error(f"Error handling relay message: {e}")
+        try:
+            async for message in ws:
+                try:
+                    data = json.loads(message)
+                    # handle_rpc will now handle decryption and dispatching
+                    await self.handle_rpc(data, relay_send)
+                except Exception as e:
+                    self.logger.error(f"Error handling relay message from {base_url}: {e}")
+        except websockets.exceptions.ConnectionClosed:
+            self.logger.warning(f"Relay connection closed: {base_url}")
 
     async def on_ui_response(self, request_id: str, result: Any) -> bool:
         """Phase 3.2: Standardized UI Response Resolver."""

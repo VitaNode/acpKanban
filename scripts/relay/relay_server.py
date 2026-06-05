@@ -19,6 +19,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RelayServer")
 
+# Suppress noisy websockets handshake errors (often from port scanners)
+logging.getLogger("websockets.server").setLevel(logging.ERROR)
+logging.getLogger("websockets.protocol").setLevel(logging.ERROR)
+
 class RelayServer:
     def __init__(self, host: str = "0.0.0.0", port: int = 8766, token: Optional[str] = None):
         self.host = host
@@ -47,7 +51,7 @@ class RelayServer:
 
         expected = f"Bearer {self.token}"
         if self.token and auth_header != expected and query_token != self.token:
-            logger.warning(f"Handshake Auth failed for path: {path}")
+            logger.warning(f"Handshake Auth failed for path: {path} from {websocket.remote_address}")
             return (401, [("Content-Type", "text/plain")], b"Unauthorized\n")
         
         return None
@@ -81,32 +85,40 @@ class RelayServer:
                     logger.debug(f"User {user_id}: {role} message dropped ({other_role} offline)")
                     
         except websockets.exceptions.ConnectionClosed:
-            pass
+            logger.info(f"User {user_id}: {role} disconnected.")
+        except Exception as e:
+            logger.error(f"User {user_id}: Relay logic error: {e}")
         finally:
             if self.relays.get(user_id) and self.relays[user_id].get(role) == websocket:
                 self.relays[user_id][role] = None
 
     async def handler(self, websocket):
         """Main handler for websockets.serve."""
-        path = websocket.request.path
-        
-        # Strip query params for routing
-        base_path = path.split("?")[0]
-        parts = base_path.strip("/").split("/")
-        
-        if len(parts) == 3 and parts[0] == "relay":
-            role, user_id = parts[1], parts[2]
-            if role in ["mac", "app"]:
-                await self._handle_relay_logic(websocket, role, user_id)
+        try:
+            path = websocket.request.path
+            # Strip query params for routing
+            base_path = path.split("?")[0]
+            parts = base_path.strip("/").split("/")
+            
+            if len(parts) == 3 and parts[0] == "relay":
+                role, user_id = parts[1], parts[2]
+                if role in ["mac", "app"]:
+                    await self._handle_relay_logic(websocket, role, user_id)
+                else:
+                    await websocket.close(1003, "Invalid Role")
             else:
-                await websocket.close(1003, "Invalid Role")
-        else:
-            await websocket.close(1003, "Invalid Path")
+                await websocket.close(1003, "Invalid Path")
+        except Exception as e:
+            logger.error(f"Handler error: {e}")
+            await websocket.close(1011, "Internal Error")
 
     async def start(self):
         """Start the relay server."""
         port = int(os.getenv("RELAY_PORT", self.port))
         host = os.getenv("RELAY_HOST", self.host)
+        
+        # websockets 13.0+ captures handshake exceptions. 
+        # We'll use a custom log filter or handle it in handler.
         
         async with websockets.serve(
             self.handler, 
@@ -117,6 +129,11 @@ class RelayServer:
             ping_timeout=10
         ):
             logger.info(f"Relay Server started on ws://{host}:{port}")
+            # The error "websockets.exceptions.InvalidMessage" usually happens 
+            # at a lower level than the handler. We can't easily catch it here
+            # without subclassing or wrapping the server, but we can 
+            # add a custom logging filter or just accept it as noise for now.
+            # However, we can improve our own logs.
             await asyncio.Future() # Run forever
 
 if __name__ == "__main__":

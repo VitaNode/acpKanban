@@ -18,10 +18,17 @@ def run_api():
     import uvicorn
     from api.main import app
     
-    # 设置环境变量，让 API 内部的 Bridge 连到本地 Relay
+    # 场景 1: 本地监听。API 内部的 Bridge 会连接到本地启动的 Relay
     os.environ["RELAY_URL"] = "ws://127.0.0.1:8766"
+    
+    # 场景 2: 云端待命。如果 config 里配置了云端 Relay，我们让 Bridge 也去连它
+    if config.relay_url and "127.0.0.1" not in config.relay_url and "localhost" not in config.relay_url:
+        logger.info(f"[*] Dual-Standby enabled: Bridge will also connect to remote relay {config.relay_url}")
+        os.environ["EXTRA_RELAY_URL"] = config.relay_url
+    
     os.environ["RELAY_TOKEN"] = config.relay_token
     os.environ["USER_ID"] = config.user_id
+    os.environ["START_INTEGRATED_BRIDGE"] = "true"
     
     logger.info(f"[*] Starting API Server on {config.api_bind_host}:8000...")
     # 注意：API 内部 Bridge 启动时如果发现 8766 被占用会报错，
