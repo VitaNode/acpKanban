@@ -30,19 +30,38 @@ async def test_e2ee_relay():
     shared_secret = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
     e2ee = E2EEManager(session_key_hex=shared_secret)
 
-    async with websockets.connect(uri_mac, extra_headers=headers) as ws_mac, \
-               websockets.connect(uri_app, extra_headers=headers) as ws_app:
-        
-        # App sends E2EE message
-        raw_msg = {"jsonrpc": "2.0", "method": "secure_cmd", "id": "S1"}
-        envelope = e2ee.wrap_json_rpc(raw_msg)
-        await ws_app.send(envelope)
-        
-        # Mac receives envelope and unwraps
-        recv_env = await asyncio.wait_for(ws_mac.recv(), timeout=2.0)
-        unwrapped = e2ee.unwrap_json_rpc(recv_env)
-        print(f"[*] MAC received and unwrapped: {unwrapped}")
-        assert unwrapped["method"] == "secure_cmd"
+    # Use additional_headers for newer websockets versions
+    connect_kwargs = {"additional_headers": headers}
+    
+    try:
+        async with websockets.connect(uri_mac, **connect_kwargs) as ws_mac, \
+                   websockets.connect(uri_app, **connect_kwargs) as ws_app:
+            
+            # App sends E2EE message
+            raw_msg = {"jsonrpc": "2.0", "method": "secure_cmd", "id": "S1"}
+            envelope = e2ee.wrap_json_rpc(raw_msg)
+            await ws_app.send(envelope)
+            
+            # Mac receives envelope and unwraps
+            recv_env = await asyncio.wait_for(ws_mac.recv(), timeout=2.0)
+            unwrapped = e2ee.unwrap_json_rpc(recv_env)
+            print(f"[*] MAC received and unwrapped: {unwrapped}")
+            assert unwrapped["method"] == "secure_cmd"
+    except TypeError:
+        # Fallback for older versions
+        async with websockets.connect(uri_mac, extra_headers=headers) as ws_mac, \
+                   websockets.connect(uri_app, extra_headers=headers) as ws_app:
+            
+            # App sends E2EE message
+            raw_msg = {"jsonrpc": "2.0", "method": "secure_cmd", "id": "S1"}
+            envelope = e2ee.wrap_json_rpc(raw_msg)
+            await ws_app.send(envelope)
+            
+            # Mac receives envelope and unwraps
+            recv_env = await asyncio.wait_for(ws_mac.recv(), timeout=2.0)
+            unwrapped = e2ee.unwrap_json_rpc(recv_env)
+            print(f"[*] MAC received and unwrapped: {unwrapped}")
+            assert unwrapped["method"] == "secure_cmd"
 
     print("[+] E2EE Relay Test Passed!")
 
