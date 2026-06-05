@@ -40,7 +40,10 @@ class RelayServer:
         headers = request.headers
         
         # Get real client IP if behind proxy
-        remote_addr = headers.get("X-Forwarded-For", websocket.remote_address)
+        # In process_request, request.headers is already available
+        raw_addr = getattr(websocket, "remote_address", "unknown")
+        remote_ip = raw_addr[0] if isinstance(raw_addr, tuple) else raw_addr
+        remote_addr = headers.get("X-Forwarded-For", remote_ip)
         
         # 1. Try Authorization Header
         auth_header = headers.get("Authorization")
@@ -67,8 +70,19 @@ class RelayServer:
         if user_id not in self.relays:
             self.relays[user_id] = {"mac": None, "app": None}
         
-        # Get real client IP if behind proxy
-        remote_addr = websocket.request_headers.get("X-Forwarded-For", websocket.remote_address)
+        # Get real client IP (Compatible with websockets <13.0 and >=13.0)
+        headers = getattr(websocket, "request_headers", None)
+        if headers is None and hasattr(websocket, "request"):
+            headers = getattr(websocket.request, "headers", None)
+        
+        # remote_address can be (ip, port) tuple or string
+        raw_addr = getattr(websocket, "remote_address", "unknown")
+        remote_ip = raw_addr[0] if isinstance(raw_addr, tuple) else raw_addr
+        
+        if headers and "X-Forwarded-For" in headers:
+            remote_addr = headers["X-Forwarded-For"]
+        else:
+            remote_addr = remote_ip
         
         old_ws = self.relays[user_id].get(role)
         if self.is_alive(old_ws):
