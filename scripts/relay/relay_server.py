@@ -19,8 +19,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RelayServer")
 
-# Suppress noisy websockets handshake errors (often from port scanners)
-logging.getLogger("websockets.server").setLevel(logging.ERROR)
+class HandshakeNoiseFilter(logging.Filter):
+    """Filter out noisy tracebacks from websockets handshake failures (probes/scanners)."""
+    def filter(self, record):
+        if record.levelno <= logging.ERROR and record.name == "websockets.server":
+            msg = record.getMessage()
+            # Suppress HEAD request errors (common from curl -I or health checks)
+            if "unsupported HTTP method" in msg and "HEAD" in msg:
+                return False
+            # Suppress abrupt closures before handshake completes
+            if "opening handshake failed" in msg and "ConnectionClosedError" in msg:
+                return False
+            # Suppress generic invalid message errors from scanners
+            if "did not receive a valid HTTP request" in msg:
+                return False
+        return True
+
+# Apply noise filter
+ws_logger = logging.getLogger("websockets.server")
+ws_logger.addFilter(HandshakeNoiseFilter())
+# Also set these to ERROR to avoid redundant non-stacktrace warnings
 logging.getLogger("websockets.protocol").setLevel(logging.ERROR)
 
 class RelayServer:
