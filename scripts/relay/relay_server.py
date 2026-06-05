@@ -39,6 +39,9 @@ class RelayServer:
         path = request.path
         headers = request.headers
         
+        # Get real client IP if behind proxy
+        remote_addr = headers.get("X-Forwarded-For", websocket.remote_address)
+        
         # 1. Try Authorization Header
         auth_header = headers.get("Authorization")
         
@@ -51,7 +54,7 @@ class RelayServer:
 
         expected = f"Bearer {self.token}"
         if self.token and auth_header != expected and query_token != self.token:
-            logger.warning(f"Handshake Auth failed for path: {path} from {websocket.remote_address}")
+            logger.warning(f"Handshake Auth failed for path: {path} from {remote_addr}")
             return (401, [("Content-Type", "text/plain")], b"Unauthorized\n")
         
         return None
@@ -64,12 +67,15 @@ class RelayServer:
         if user_id not in self.relays:
             self.relays[user_id] = {"mac": None, "app": None}
         
+        # Get real client IP if behind proxy
+        remote_addr = websocket.request_headers.get("X-Forwarded-For", websocket.remote_address)
+        
         old_ws = self.relays[user_id].get(role)
         if self.is_alive(old_ws):
             await old_ws.close(1001, "Replaced")
 
         self.relays[user_id][role] = websocket
-        logger.info(f"User {user_id}: {role} connected.")
+        logger.info(f"User {user_id}: {role} connected from {remote_addr}.")
 
         try:
             async for message in websocket:
@@ -85,7 +91,7 @@ class RelayServer:
                     logger.debug(f"User {user_id}: {role} message dropped ({other_role} offline)")
                     
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"User {user_id}: {role} disconnected.")
+            logger.info(f"User {user_id}: {role} disconnected ({remote_addr}).")
         except Exception as e:
             logger.error(f"User {user_id}: Relay logic error: {e}")
         finally:
