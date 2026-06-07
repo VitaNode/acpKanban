@@ -300,11 +300,9 @@ class _CardDetailViewState extends State<CardDetailView> {
     });
 
     _errorSub = _wsService.errors.listen((err) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          AppFeedback.showError(context, err);
-        }
-      });
+      if (mounted) {
+        AppFeedback.showError(context, err);
+      }
     });
 
     _initializingSub = _wsService.isInitializing.listen((loading) {
@@ -1535,6 +1533,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   List<Widget> _buildMessageList() {
     return _messages
         .map((m) => MessageBubble(
+              key: ValueKey(m.id),
               message: m,
               providerName: _providerDisplayName,
               providerId: _card.acpProviderId,
