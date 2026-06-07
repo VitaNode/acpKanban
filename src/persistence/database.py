@@ -905,18 +905,24 @@ class SessionRepository(BaseRepository):
                     VALUES (?, 'assistant', ?, ?, ?, ?)
                 """, (card_id, content or "", json.dumps(meta), now, 1 if is_complete else 0))
 
-    def get_history(self, card_id: str, limit: int = 50, after_seq: int = None) -> List[Dict]:
+    def get_history(self, card_id: str, limit: int = 200, after_seq: int = None, before_seq: int = None) -> List[Dict]:
         with self.db.get_connection() as conn:
-            query = "SELECT * FROM card_sessions WHERE card_id = ?"
-            params = [card_id]
             if after_seq is not None:
-                query += " AND seq_id > ?"
-                params.append(after_seq)
-            
-            # Stability Fix: Always order by seq_id then id to guarantee logic sequence
-            query += " ORDER BY seq_id ASC, id ASC"
+                query = """SELECT * FROM card_sessions
+                           WHERE card_id = ? AND seq_id > ?
+                           ORDER BY seq_id ASC, id ASC
+                           LIMIT ?"""
+                params = [card_id, after_seq, limit]
+            else:
+                query = """SELECT * FROM (
+                               SELECT * FROM card_sessions
+                               WHERE card_id = ? AND (? IS NULL OR seq_id < ?)
+                               ORDER BY seq_id DESC, id DESC
+                               LIMIT ?
+                           ) ORDER BY seq_id ASC, id ASC"""
+                params = [card_id, before_seq, before_seq, limit]
             cursor = conn.execute(query, params)
-            return [dict(row) for row in cursor.fetchall()][-limit:]
+            return [dict(row) for row in cursor.fetchall()]
 
 class CodeSymbolRepository(BaseRepository):
     def upsert(self, project_id: str, file_path: str, symbol_name: str, symbol_type: str, signature: str, start_line: int, end_line: int, documentation: str, code_content: str, embedding: str = None):
@@ -1163,7 +1169,7 @@ class KanbanDB:
     def get_project_progress(self, project_id, depth=3): return self.cards.get_progress_stats(project_id, depth)
 
     def get_summary(self, card_id): return self.summaries.get(card_id)
-    def get_session_history(self, card_id, limit=50, after_seq=None): return self.sessions.get_history(card_id, limit, after_seq)
+    def get_session_history(self, card_id, limit=200, after_seq=None, before_seq=None): return self.sessions.get_history(card_id, limit, after_seq, before_seq)
     def add_session_message(self, card_id, role, content, metadata=None, is_milestone=False): return self.sessions.add_message(card_id, role, content, metadata, is_milestone)
     def append_message(self, card_id, role, content_chunk, is_complete=False, seq_id=None): return self.sessions.append_message(card_id, role, content_chunk, is_complete, seq_id)
     def update_message_with_metadata(self, card_id, metadata_key, metadata_val, content=None, is_complete=True): return self.sessions.update_message_with_metadata(card_id, metadata_key, metadata_val, content, is_complete)
