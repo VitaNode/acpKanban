@@ -84,6 +84,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   bool _isSavingCard = false;
   bool _isAgentProcessing = false;
   bool _isEditingTitle = false;
+  bool _loadingMoreInProgress = false;
   OverlayEntry? _commandOverlay;
   final Set<String> _respondedRequestIds = {};
 
@@ -95,6 +96,7 @@ class _CardDetailViewState extends State<CardDetailView> {
   StreamSubscription? _requestSub;
   StreamSubscription? _errorSub;
   StreamSubscription? _initializingSub;
+  StreamSubscription? _loadingMoreSub;
   Timer? _debounceTimer;
 
   Timer? _renderThrottleTimer;
@@ -144,6 +146,12 @@ class _CardDetailViewState extends State<CardDetailView> {
           _unreadCount = 0;
         }
       });
+    }
+
+    if (pos.pixels < 200 &&
+        !_loadingMoreInProgress &&
+        _messages.isNotEmpty) {
+      _wsService.loadMoreHistory();
     }
   }
 
@@ -309,6 +317,11 @@ class _CardDetailViewState extends State<CardDetailView> {
       if (mounted) setState(() {});
     });
 
+    _loadingMoreSub = _wsService.isLoadingMore.listen((loading) {
+      if (!mounted) return;
+      setState(() => _loadingMoreInProgress = loading);
+    });
+
     _wsService.contextData.listen((context) {
       if (mounted) {
         setState(() {
@@ -351,9 +364,15 @@ class _CardDetailViewState extends State<CardDetailView> {
       }
     }
 
+    final bool messagesPreprended = _messages.isNotEmpty &&
+        pending.isNotEmpty &&
+        _messages.length < pending.length &&
+        _messages.first.id != pending.first.id;
+
     setState(() {
       if (!_userIsAtBottom &&
           !isInitialLoad &&
+          !messagesPreprended &&
           pending.length > _messages.length) {
         _unreadCount += (pending.length - _messages.length);
       }
@@ -789,6 +808,7 @@ class _CardDetailViewState extends State<CardDetailView> {
     _requestSub?.cancel();
     _errorSub?.cancel();
     _initializingSub?.cancel();
+    _loadingMoreSub?.cancel();
     _debounceTimer?.cancel();
     _renderThrottleTimer?.cancel();
     _titleController.dispose();
@@ -1531,17 +1551,44 @@ class _CardDetailViewState extends State<CardDetailView> {
   }
 
   List<Widget> _buildMessageList() {
-    return _messages
-        .map((m) => MessageBubble(
-              key: ValueKey(m.id),
-              message: m,
-              providerName: _providerDisplayName,
-              providerId: _card.acpProviderId,
-              respondedRequestIds: _respondedRequestIds,
-              onOptionSelected: (requestId, optionId) =>
-                  _handleInteractiveResponse(requestId, optionId),
-            ))
-        .toList();
+    final widgets = <Widget>[];
+    if (_loadingMoreInProgress) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Theme.of(context).colorScheme.primary),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Loading earlier messages...',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    widgets.addAll(_messages.map((m) => MessageBubble(
+          key: ValueKey(m.id),
+          message: m,
+          providerName: _providerDisplayName,
+          providerId: _card.acpProviderId,
+          respondedRequestIds: _respondedRequestIds,
+          onOptionSelected: (requestId, optionId) =>
+              _handleInteractiveResponse(requestId, optionId),
+        )));
+    return widgets;
   }
 
   Widget _buildJumpToBottomButton(ColorScheme colorScheme) {

@@ -56,6 +56,12 @@ class SessionWebSocketService {
   final Map<int, AgUiEvent> _eventBuffer = {};
   int _lastContiguousSeqId = 0;
 
+  // Pagination / load more support
+  int _oldestSeqId = 0;
+  bool _isLoadingMore = false;
+  bool _hasMoreHistory = true;
+  final _loadingMoreController = StreamController<bool>.broadcast();
+
   Stream<List<CardMessage>> get messages => _messageController.stream;
   Stream<String> get status => _statusController.stream;
   Stream<AgentPlan?> get plan => _planController.stream;
@@ -67,6 +73,7 @@ class SessionWebSocketService {
   Stream<String> get errors => _errorController.stream;
   Stream<bool> get isInitializing => _initializingController.stream;
   Stream<String> get contextData => _contextController.stream;
+  Stream<bool> get isLoadingMore => _loadingMoreController.stream;
   bool get isConnected => _isConnected;
   String? get uiFormat => _uiFormat;
 
@@ -94,6 +101,9 @@ class SessionWebSocketService {
     _currentMessages = [];
     _eventBuffer.clear();
     _lastContiguousSeqId = 0;
+    _oldestSeqId = 0;
+    _hasMoreHistory = true;
+    _isLoadingMore = false;
     _hasLoadedHistory = false;
     _messageController.add([]);
     _planController.add(null);
@@ -216,6 +226,16 @@ class SessionWebSocketService {
     await _send({
       'type': 'get_history',
       'after_seq': afterSeq,
+    });
+  }
+
+  Future<void> loadMoreHistory() async {
+    if (_isLoadingMore || !_hasMoreHistory || _oldestSeqId <= 0) return;
+    _isLoadingMore = true;
+    _loadingMoreController.add(true);
+    await _send({
+      'type': 'get_history',
+      'before_seq': _oldestSeqId,
     });
   }
 
@@ -358,6 +378,25 @@ class SessionWebSocketService {
             }
             newMessages.add(msg);
           }
+          if (_isLoadingMore) {
+            if (newMessages.isEmpty) {
+              _hasMoreHistory = false;
+            } else {
+              final existingIds = _currentMessages
+                  .map((m) => m.id)
+                  .toSet();
+              final prependList = newMessages
+                  .where((m) => !existingIds.contains(m.id))
+                  .toList();
+              _currentMessages.insertAll(0, prependList);
+              _oldestSeqId = prependList.first.seqId ?? _oldestSeqId;
+            }
+            _isLoadingMore = false;
+            _loadingMoreController.add(false);
+            _messageController.add(_mergeMessages(_currentMessages));
+            _updateCardAndConfig(m);
+            break;
+          }
           if (newMessages.isEmpty && _lastContiguousSeqId > 0) {
             _updateCardAndConfig(m);
             return;
@@ -365,6 +404,11 @@ class SessionWebSocketService {
           if (_lastContiguousSeqId == 0) {
             _currentMessages = List.from(newMessages);
             _hasLoadedHistory = true;
+            final firstWithSeq = _currentMessages.cast<CardMessage?>().firstWhere(
+                  (m) => m!.seqId != null && m.seqId! > 0,
+                  orElse: () => null,
+                );
+            _oldestSeqId = firstWithSeq?.seqId ?? 0;
           } else {
             for (var msg in newMessages) {
               final index = _currentMessages.indexWhere((existing) =>
@@ -937,6 +981,9 @@ class SessionWebSocketService {
     _currentMessages = [];
     _eventBuffer.clear();
     _lastContiguousSeqId = 0;
+    _oldestSeqId = 0;
+    _hasMoreHistory = true;
+    _isLoadingMore = false;
     _hasLoadedHistory = false;
     _messageController.add([]);
     _planController.add(null);
