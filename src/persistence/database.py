@@ -907,7 +907,7 @@ class SessionRepository(BaseRepository):
 
     def get_history(self, card_id: str, limit: int = 200, after_seq: int = None, before_seq: int = None) -> List[Dict]:
         with self.db.get_connection() as conn:
-            if after_seq is not None:
+            if after_seq is not None and after_seq > 0:
                 query = """SELECT * FROM card_sessions
                            WHERE card_id = ? AND seq_id > ?
                            ORDER BY seq_id ASC, id ASC
